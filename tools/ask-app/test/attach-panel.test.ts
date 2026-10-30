@@ -10,7 +10,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
-import { bodyDigest, parseAskFile, parsePanelArg, parseProposalArg, RECORD_FENCE_RE, writeAnswer } from "../src/lib/format.ts";
+import { authorWarnings, bodyDigest, parseAskFile, parsePanelArg, parseProposalArg, RECORD_FENCE_RE, writeAnswer } from "../src/lib/format.ts";
 import { answerAsk, attachPanel, newAsk, renameSeat, reviseAsk, withdrawAsk } from "../src/lib/store.ts";
 import { rewriteSeatRefs } from "../src/lib/rename-seat.ts";
 
@@ -184,5 +184,70 @@ describe("engine ask attach-panel (CLI)", () => {
     const r = run("attach-panel", `${SEAT}/fund`, "--fork", "FUND", "--panel", "Security picks B", "--council", URL1, "--by", RUNNER);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('--panel "Security picks B" is not `<lens> → <code> — <why>`');
+  });
+});
+
+// ── step-3 review (ASKCOUNCIL_CRITIQUE_S3.md) ─────────────
+
+describe("M2: reads stay on the question the panel read", () => {
+  const UNNAMED = "## Choose one: Fund?\n- [ ] [A] a\n- [ ] [B] b\n\n## Choose one: Other?\n- [ ] [X] x\n- [ ] [Y] y\n";
+  it("refuses an unnamed fork when the ask has more than one fork", async () => {
+    newAsk(root, { from: SEAT, to: "operator", id: "anon" }, UNNAMED);
+    await expect(attachPanel(root, { seat: SEAT, id: "anon" }, { by: RUNNER, fork: "q0", panel: [{ lens: "Sec", pick: "B", why: "w" }], council: URL1, push })).rejects.toThrow(/no ¶ASK_ name, and the ask has 2 forks/);
+  });
+  it("takes an unnamed fork when it is the only one", async () => {
+    newAsk(root, { from: SEAT, to: "operator", id: "one" }, "## Choose one: Fund?\n- [ ] [A] a\n- [ ] [B] b\n");
+    await attachPanel(root, { seat: SEAT, id: "one" }, { by: RUNNER, fork: "q0", panel: [{ lens: "Sec", pick: "B", why: "w" }], council: URL1, push });
+    expect(parseAskFile(fs.readFileSync(path.join(root, SEAT, "one.md"), "utf8")).questions[0].panel).toHaveLength(1);
+  });
+  it("records the fork's title, and a retitled fork no longer draws the reads but the file keeps them and warns", async () => {
+    await attach();
+    expect(parseAskFile(fs.readFileSync(file(), "utf8")).panelAttachments[0].title).toBe("What does a world fund its contracts out of?");
+    await reviseAsk(root, SEAT, "fund", {}, BODY.replace("What does a world fund its contracts out of?", "Which root pays?"), { by: SEAT, push });
+    const ask = parseAskFile(fs.readFileSync(file(), "utf8"));
+    expect(ask.questions[0].panel).toHaveLength(0);
+    expect(ask.panelAttachments).toHaveLength(1);
+    expect(authorWarnings(ask).some((w) => w.includes(`${RUNNER}'s attached panel`) && w.includes("is now \"Which root pays?\""))).toBe(true);
+  });
+});
+
+describe("S1: a damaged record is never rewritten", () => {
+  it("refuses to attach over a record whose JSON does not parse, and leaves it as it was", async () => {
+    await attach();
+    const broken = fs.readFileSync(file(), "utf8").replace('"fork": "FUND",', '"fork": "FUND",,');
+    fs.writeFileSync(file(), broken);
+    await expect(attach({ fork: "SECOND", panel: [{ lens: "z", pick: "X", why: "w" }], council: "http://x.example/2.html" })).rejects.toThrow(/panels record does not parse/);
+    expect(fs.readFileSync(file(), "utf8")).toBe(broken);
+  });
+  it("refuses when an entry has no fork, rather than dropping it", async () => {
+    await attach();
+    fs.writeFileSync(file(), fs.readFileSync(file(), "utf8").replace('"fork": "FUND"', '"forkk": "FUND"'));
+    await expect(attach({ fork: "SECOND", panel: [{ lens: "z", pick: "X", why: "w" }], council: "http://x.example/2.html" })).rejects.toThrow(/1 entry with no fork or by/);
+  });
+});
+
+describe("S2: the same council on the same fork is attached once", () => {
+  it("a second identical attach changes nothing and tells nobody", async () => {
+    await attach();
+    const once = fs.readFileSync(file(), "utf8");
+    const n = pushes.length;
+    const r = await attach();
+    expect(r.already).toBe(true);
+    expect(fs.readFileSync(file(), "utf8")).toBe(once);
+    expect(pushes.length).toBe(n);
+  });
+  it("another council's reads on the same fork are still added", async () => {
+    await attach();
+    await attach({ council: "http://x.example/second.html" });
+    expect(parseAskFile(fs.readFileSync(file(), "utf8")).questions[0].panel).toHaveLength(4);
+  });
+});
+
+describe("S3: a revise that removes a picked option warns", () => {
+  it("names who attached the read whose option is gone", async () => {
+    await attach();
+    await reviseAsk(root, SEAT, "fund", {}, BODY.replace("- [ ] [B] A separate root", "- [ ] [C] A shared root"), { by: SEAT, push });
+    const ws = authorWarnings(parseAskFile(fs.readFileSync(file(), "utf8")));
+    expect(ws.some((w) => w.includes(`${RUNNER}'s attached read Security → B names an option this fork no longer has`))).toBe(true);
   });
 });

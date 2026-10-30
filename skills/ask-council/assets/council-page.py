@@ -12,6 +12,7 @@ Usage:  council-page.py <report.md> <out.html>
 Then:   ~/.claude/engine/skills/prove/assets/publish-s3.sh <out.html> <slug>
 """
 import html
+import os
 import re
 import sys
 
@@ -50,7 +51,7 @@ def inline(text: str) -> str:
 
 def _marks(text: str) -> str:
     t = html.escape(text, quote=False)
-    t = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", lambda m: f'<a href="{html.escape(m.group(2))}">{m.group(1)}</a>', t)
+    t = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", lambda m: f'<a href="{m.group(2).replace(chr(34), "&quot;")}">{m.group(1)}</a>', t)
     t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
     t = re.sub(r"(?<![\w*])\*([^*\s][^*]*?)\*(?![\w*])", r"<em>\1</em>", t)
     return t
@@ -153,7 +154,7 @@ def main() -> int:
         "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         f"<title>{html.escape(title)}</title><style>{CSS}</style></head>\n"
-        f"<body><main>\n<p class=\"src\">Rendered from {html.escape(src)}</p>\n{body}\n</main></body></html>\n"
+        f"<body><main>\n<p class=\"src\">Rendered from {html.escape(os.path.basename(src))}</p>\n{body}\n</main></body></html>\n"
     )
     with open(dst, "w", encoding="utf-8") as f:
         f.write(page)

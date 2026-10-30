@@ -46,7 +46,19 @@ export type PanelRead = {
 export type PanelProposal = { lens: string; label: string; why: string; attachedBy?: string; attachedAt?: string; council?: string };
 
 /** IDE-338: one `engine ask attach-panel` call, as the ```json panels``` record keeps it. */
-export type PanelAttachment = { fork: string; panel: PanelRead[]; proposals: PanelProposal[]; council: string; by: string; at: string };
+export type PanelAttachment = {
+  fork: string;
+  /** The fork's title when the reads were attached; a fork whose title has since changed does not take them. */
+  title?: string;
+  panel: PanelRead[];
+  proposals: PanelProposal[];
+  council: string;
+  by: string;
+  at: string;
+};
+
+/** An attach-panel entry the parse did not draw on any fork, and why (only read by authorWarnings). */
+export type PanelOrphan = { entry: PanelAttachment; reason: string };
 
 export type AskQuestion = {
   title: string;
@@ -151,6 +163,8 @@ export type ParsedAsk = {
   followups: AskFollowup[];
   /** IDE-338: every attach-panel entry, in the order attached (the ```json panels``` record). */
   panelAttachments: PanelAttachment[];
+  /** Entries whose fork is gone or was retitled since they were attached; kept in the file, drawn nowhere. */
+  panelOrphans?: PanelOrphan[];
 };
 
 /** ASKFOLLOWUP: a question back about the ask, or "do this first, then revise the ask". */
@@ -737,36 +751,56 @@ export function parseAskFile(text: string): ParsedAsk {
   const { preamble, questions } = parseQuestions(stripRecords(rest));
   const followups = readFollowups(rest);
   const panelAttachments = readPanelAttachments(rest);
-  mergeAttachments(questions, panelAttachments);
-  return { header, preamble, questions, ...(answer ? { answer } : {}), ...(draft ? { draft } : {}), history, ...(historyError ? { historyError } : {}), followups, panelAttachments };
+  const panelOrphans = mergeAttachments(questions, panelAttachments);
+  return { header, preamble, questions, ...(answer ? { answer } : {}), ...(draft ? { draft } : {}), history, ...(historyError ? { historyError } : {}), followups, panelAttachments, ...(panelOrphans.length ? { panelOrphans } : {}) };
 }
 
 /** IDE-338: the attach-panel entries (the last panels fence is the record); an unreadable fence reads as none. */
 function readPanelAttachments(rest: string): PanelAttachment[] {
-  const ms = [...rest.matchAll(PANEL_FENCES)];
-  if (!ms.length) return [];
   try {
-    const list = JSON.parse(ms[ms.length - 1][1]);
-    if (!Array.isArray(list)) return [];
-    return list.filter((e) => e && typeof e.fork === "string" && typeof e.by === "string").map((e) => ({
-      fork: e.fork, by: e.by, at: String(e.at ?? ""), council: String(e.council ?? ""),
-      panel: Array.isArray(e.panel) ? e.panel : [], proposals: Array.isArray(e.proposals) ? e.proposals : [],
-    }));
+    return readPanelRecord(rest).entries;
   } catch {
     return [];
   }
 }
 
+/**
+ * The panels record, read strictly: throws when the fence's JSON does not parse or is not a list.
+ * `dropped` counts entries that lack a fork or a by, which a reader skips and a writer must not erase.
+ */
+function readPanelRecord(text: string): { entries: PanelAttachment[]; dropped: number } {
+  const ms = [...text.matchAll(PANEL_FENCES)];
+  if (!ms.length) return { entries: [], dropped: 0 };
+  const list = JSON.parse(ms[ms.length - 1][1]);
+  if (!Array.isArray(list)) throw new Error("the panels record is not a JSON list");
+  const ok = list.filter((e) => e && typeof e.fork === "string" && typeof e.by === "string");
+  const entries = ok.map((e) => ({
+    fork: e.fork, ...(typeof e.title === "string" ? { title: e.title } : {}), by: e.by, at: String(e.at ?? ""), council: String(e.council ?? ""),
+    panel: Array.isArray(e.panel) ? e.panel : [], proposals: Array.isArray(e.proposals) ? e.proposals : [],
+  }));
+  return { entries, dropped: list.length - ok.length };
+}
+
 /** Attached reads follow the asker's own Panel: lines; the asker's Council: line, if any, stays the fork's council. */
-function mergeAttachments(questions: AskQuestion[], entries: PanelAttachment[]) {
+function mergeAttachments(questions: AskQuestion[], entries: PanelAttachment[]): PanelOrphan[] {
+  const orphans: PanelOrphan[] = [];
   for (const e of entries) {
     const q = questions.find((x, i) => questionKey(x, i) === e.fork);
-    if (!q) continue;
+    if (!q) {
+      orphans.push({ entry: e, reason: `the ask has no fork ${e.fork} any more` });
+      continue;
+    }
+    // M2: a revise that moves or retitles forks must not hand a panel's reads to a question it never read.
+    if (e.title !== undefined && e.title !== q.title) {
+      orphans.push({ entry: e, reason: `fork ${e.fork} is now "${q.title}", not "${e.title}" as the panel read it` });
+      continue;
+    }
     const stamp = { attachedBy: e.by, attachedAt: e.at, council: e.council };
     for (const r of e.panel) q.panel.push({ lens: r.lens, pick: r.pick, why: r.why, ...stamp });
     for (const p of e.proposals) q.proposals.push({ lens: p.lens, label: p.label, why: p.why, ...stamp });
     if (q.council === undefined && e.council) q.council = e.council;
   }
+  return orphans;
 }
 
 /** The panels record as written, to carry across a rewrite of the body or the records (settle, revise). */
@@ -784,7 +818,15 @@ export function appendPanelEntry(text: string, entry: PanelAttachment): string {
   const ms = [...text.matchAll(PANEL_FENCES)];
   if (ms.length) {
     const m = ms[ms.length - 1];
-    const list = readPanelAttachments(m[0]);
+    // S1: rewriting from a lenient read would erase every entry it could not read, so refuse instead.
+    let rec: { entries: PanelAttachment[]; dropped: number };
+    try {
+      rec = readPanelRecord(m[0]);
+    } catch (err) {
+      throw new AskFormatError(`the ask's panels record does not parse (${(err as Error).message}); fix the \`\`\`json panels\`\`\` block by hand before attaching more`);
+    }
+    if (rec.dropped) throw new AskFormatError(`the ask's panels record has ${rec.dropped} entr${rec.dropped === 1 ? "y" : "ies"} with no fork or by; fix the \`\`\`json panels\`\`\` block by hand before attaching more`);
+    const list = rec.entries;
     const fence = `\`\`\`json panels\n${JSON.stringify([...list, entry], null, 2)}\n\`\`\``;
     const start = (m.index ?? 0) + m[0].indexOf("```json panels");
     const end = start + m[0].trimStart().replace(/\n$/, "").length;
@@ -1532,7 +1574,9 @@ export function authorWarnings(ask: ParsedAsk): string[] {
     if (choice(q) && q.options.length) {
       const known = new Set(allCodes(q.options).concat(allLabels(q.options)));
       for (const r of q.panel) {
-        if (!r.attachedBy && !known.has(r.pick)) out.push(`"${q.title}": Panel: ${r.lens} → ${r.pick} names no option, so the app marks none; the pick must be an option's bare code (${allCodes(q.options).join(", ") || "none"})`);
+        // S3: an attached read whose option a revise removed hangs with no option to mark.
+        if (r.attachedBy && !known.has(r.pick)) out.push(`"${q.title}": ${r.attachedBy}'s attached read ${r.lens} → ${r.pick} names an option this fork no longer has, so the app marks none; the read stays in the record`);
+        else if (!r.attachedBy && !known.has(r.pick)) out.push(`"${q.title}": Panel: ${r.lens} → ${r.pick} names no option, so the app marks none; the pick must be an option's bare code (${allCodes(q.options).join(", ") || "none"})`);
       }
     }
     if ((q.councilLines ?? 0) > 1) out.push(`"${q.title}": more than one Council: line; the app shows the first only`);
@@ -1540,6 +1584,9 @@ export function authorWarnings(ask: ParsedAsk): string[] {
       out.push(`"${q.title}": it names a council or panel report but carries no Panel: line, so the app shows no reads beside its options. ${PANEL_LINES_HINT}`);
     }
   });
+  for (const o of ask.panelOrphans ?? []) {
+    out.push(`${o.entry.by}'s attached panel (${o.entry.council || "no report"}) is no longer shown: ${o.reason}. Ask them to attach it again if it still applies`);
+  }
   const askText = [ask.preamble, ...ASK_TEXT_FIELDS.map((k) => ask.header[k] ?? "")];
   if (ask.questions.length && !ask.questions.some((q) => q.panel.length) && askText.some(mentionsPanelReport)) {
     out.push(`the header or the text above the first fork names a council or panel report, but no fork carries a Panel: line. ${PANEL_LINES_HINT}`);
@@ -1581,14 +1628,20 @@ export function mentionsPanelReport(text: string): boolean {
 const PANEL_WORD = String.raw`(?:council|panel)`;
 const DET = String.raw`(?:the|this|that|its|our)`;
 const PANEL_REPORT_RES: RegExp[] = [
-  // a possessive followed by what a panel produces: "the panel's strongest agreement", "the council's verdict"
-  new RegExp(String.raw`\b${DET}\s+${PANEL_WORD}(?:'s|’s)\s+(?:[\w-]+\s+)?(?:verdict|verdicts|finding|findings|agreement|corrections|consensus|read|reads|vote|votes|recommendation|report|majority|pick|picks|objections?|ruling)\b`, "i"),
+  // a possessive followed (within two words) by what a panel produces: "the panel's top style risk", "the council's must-fix", the panel's "quote"
+  new RegExp(String.raw`\b${DET}\s+${PANEL_WORD}(?:'s|’s)\s+(?:["“]|(?:[\w-]+\s+){0,2}(?:verdict|verdicts|finding|findings|agreement|corrections|consensus|read|reads|vote|votes|recommendation|report|majority|pick|picks|objections?|ruling|must-fix|must-fixes|fix|fixes|rule|rules|condition|conditions|risk|risks|change|changes|concern|concerns|caveat|caveats)\b)`, "i"),
   // "the council report", "the five-reviewer panel report" (a determiner right before, so "a council report next week" proposes)
   new RegExp(String.raw`\b${DET}\s+(?:[\w-]+\s+)?${PANEL_WORD}\s+(?:report|reports|verdict|findings|consensus|board)\b`, "i"),
-  // "the panel found", "the council ruled": a past tense right after the determiner, so "the settings panel found in" is UI
-  new RegExp(String.raw`\b${DET}\s+${PANEL_WORD}\s+(?:found|ruled|said|voted|concluded|agreed|split|ran(?!\s+out)|read(?!\s+by))\b`, "i"),
+  // a bare "panel report" / "Council verdict" that labels something: before a colon or as a link's text
+  new RegExp(String.raw`\b${PANEL_WORD}\s+(?:report|verdict|consensus|findings)\s*(?::|\]\()`, "i"),
+  // "the panel found", "the council ruled", "the panel unanimously picked": a past tense or a recommendation right after the determiner
+  new RegExp(String.raw`\b${DET}\s+${PANEL_WORD}\s+(?:\w+ly\s+)?(?:found|ruled|said|voted|concluded|agreed|split|picked|recommends|recommended|favou?red|preferred|ran(?!\s+out)|read(?!\s+by))\b`, "i"),
+  // "a council ran on this"
+  new RegExp(String.raw`\ba\s+${PANEL_WORD}\s+ran\s+on\b`, "i"),
+  // "from the panel", "updated by the panel", unless a place follows ("from the panel on the left")
+  new RegExp(String.raw`\b(?:from|by)\s+the\s+${PANEL_WORD}\b(?!\s+(?:on|in|at|to)\s+the\s+(?:left|right|top|bottom|side|sidebar|page|screen))`, "i"),
   // "unanimous on the panel", "split on the council"
-  new RegExp(String.raw`\b(?:unanimous|unanimously|split|agreed|majority|consensus)\b[^.;]{0,20}\b(?:on|of|from|in|across)\s+the\s+${PANEL_WORD}\b`, "i"),
+  new RegExp(String.raw`\b(?:unanimous|unanimously|split|agreed|majority|consensus)\b[^.;]{0,20}\b(?:on|of|in|across)\s+the\s+${PANEL_WORD}\b`, "i"),
   // a sized panel, unless the clause proposes one: "a 3-lens council would cost too much"
   new RegExp(String.raw`\b(?:\d+|one|two|three|four|five|six|seven|eight)[- ](?:lens|reviewer|expert|persona|member)s?\s+${PANEL_WORD}\b(?![^.;]*\b(?:would|could|should|will|might|propose|proposes|costs?)\b)`, "i"),
   /_COUNCIL(?:_[\w-]+)?\.md\b/,

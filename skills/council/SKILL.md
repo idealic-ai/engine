@@ -87,6 +87,11 @@ The per-expert findings go under `<trailDir>/<slug>_council/<lens>.md` (one file
 **Acknowledge:** Echo back your setup in exactly one line (append any degradation / `brief_version`-mismatch warning to it):
 `Convening council on <subject> — brief: <brief path | self-gathered>; mode: <interactive | report-only>; panel: <size>; report: <report_path>.`
 
+**C. Check the angle** (`--angle`, from the arg or the Brief; default `critique`). Before anything is gathered:
+- An angle other than `critique`, `refute` or `design-off` is refused: "`--angle <name>` is not an angle in this version; use critique, refute or design-off". `ideas` gets this refusal too: the operator left it out of the first version.
+- `refute` on a subject with no lean is refused: "refute needs a lean to attack; this subject has none". A lean is the Brief's `lean`, or each poll item's `Lean:` line; with a poll, every item needs one.
+- In `interactive` mode, offer the valid angles with one `AskUserQuestion` instead of refusing. In `report-only` mode, refuse, write no report, and return the refusal as the verdict block's error.
+
 ## 2. Compose the Panel
 
 Decide the seated experts by **generative selection from a persona palette**. Diversity of *lens* is the product — a panel of clones is just a slow single reviewer — and diversity now spans TWO axes: *domain expertise* (what you know) AND *temperament* (how you think). Nothing is always-seated: even the structural / operational / edge-case lenses are chosen for the subject, not mandated.
@@ -127,7 +132,7 @@ An expert sub-agent cannot see your memory, the Brief, or the session — its wh
 
 **The angle** (`--angle`, default `critique`). It sets what kind of answer the panel returns. Insert that angle's block from `assets/ANGLES.md`, word for word, after the persona and before the categorisation rules. Read the file rather than this summary:
 - `critique` is this skill's existing behaviour, so no `--angle` means nothing changes.
-- `refute` argues only against the subject's lean, and is refused at §1 when there is no lean.
+- `refute` argues only against the subject's lean, and is refused at §1.C when there is no lean.
 - `design-off` has each lens propose and defend a buildable design.
 - Only `critique` uses the tiers and the refutation pass in §5.A; each of the others is reconciled as its block in ANGLES.md says.
 - `design-off` may return `proposals`, options the subject does not have. They are a separate output and never an edit to the poll.

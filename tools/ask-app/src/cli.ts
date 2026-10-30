@@ -452,6 +452,10 @@ async function main() {
     const ref = splitRef(pos[0], usage);
     try {
       const r = await attachPanel(root, ref, { by: identity("attach-panel"), fork: opt.fork, panel, proposals, council: opt.council === "true" ? undefined : opt.council });
+      if (r.already) {
+        console.log(`already attached\t${ref.seat}/${ref.id}#${opt.fork}\t${r.entry.council}\tby ${r.entry.by} at ${r.entry.at}`);
+        return;
+      }
       console.log(`attached\t${ref.seat}/${ref.id}#${opt.fork}\t${panel.length} reads\t${proposals.length} proposed\t${r.entry.council}`);
       for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);
     } catch (e) {

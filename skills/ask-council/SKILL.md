@@ -84,7 +84,7 @@ For each approved council run:
 2. Run `/council doc <subject> --brief <brief> --mode report-only --size <n> --angle <angle>`.
 3. The report's **Ask Lines** section gives, per fork, the `Panel:` lines from the votes and, under design-off, the `Proposed:` lines.
 
-For an approved scrutinize run, run `/scrutinize` over the work the asks are about. A scrutinize pass is no vote, so it produces no `Panel:` reads. Its report is published as in §5 and goes to each covered asker as a link, with `engine ask` delivery or `engine broadcast` to the asker, naming the ask.
+For an approved scrutinize run, run `/scrutinize` over the work the asks are about, **critique only**: stop once its critique is written, and skip its triage and fix phases entirely. The work belongs to the lane that did it, so this pass never edits it; a fix is that lane's call. A scrutinize pass is no vote, so it produces no `Panel:` reads. Publish the critique as in §5 (`council-page.py`, then `publish-s3.sh`). It reaches the operator by one path: the plan ask's `acted` note in §6, one `<seat>/<id>: <url>` entry per covered ask. The operator, who answers those asks, reads it there.
 
 ## 5. Publish, then attach — so `Council:` is always a URL
 
@@ -108,8 +108,10 @@ engine ask attach-panel <seat>/<id> --fork <FORK> \
 `attach-panel` behaves as follows:
 - It is append-only. The question, options, answer and revision do not move, so an answer in flight is not refused.
 - It records who attached the reads and when, and it tells the asker.
-- It refuses a withdrawn or superseded ask. If the asker withdrew or replaced the ask while the panel ran, report that and drop it. An ask answered in the meantime still takes the reads, as a record beside the answer.
-- It refuses a pick that names no option. A lens that voted outside the options was proposing, so put that under `--proposed` instead.
+- It refuses a withdrawn or superseded ask. If the asker withdrew the ask while the panel ran, report that and drop it. If it was superseded, the reads do not carry over: attach them to the replacement (the refusal names it) when its fork still asks the same thing, and otherwise report it. An ask answered or declined in the meantime still takes the reads, as a record beside the answer.
+- It refuses a fork with no `¶ASK_` name on an ask with more than one fork. Report it to the asker, who names the forks with `revise`, and attach after.
+- Attaching the same report to the same fork twice changes nothing (`already attached`), so a pass that stopped partway can be re-run.
+- It refuses a pick that names no option. Under design-off, a lens whose design is not one of the options was proposing, so put that under `--proposed`. Under critique and refute, a vote outside the options is not a read: leave it out and mention it in the report line.
 
 Write no `--panel` line for a lens that did not vote on that fork. A fork the run did not cover gets nothing.
 
@@ -118,7 +120,7 @@ Write no `--panel` line for a lens that did not vote on that fork. A fork the ru
 Mark the plan ask acted, naming what ran and where the reads went:
 
 ```bash
-engine ask acted <seat>/<plan-id> "S1 CRIT ran (report <url>), reads on 3 asks; S2 skipped"
+engine ask acted <seat>/<plan-id> "S1 CRIT ran (report <url>), reads on 3 asks; S2 SCRU ran: core:ui/<id>: <url>, core:ui/<id>: <url>; S3 skipped"
 ```
 
 Then report to whoever runs the loop, in one line per set: the set, its angle, the report URL, the asks attached, and anything refused.
@@ -126,6 +128,6 @@ Then report to whoever runs the loop, in one line per set: the set, its angle, t
 ## Constraints
 
 - **`¶INV_ASKCOUNCIL_PLAN_BEFORE_SPEND`**: no panel runs before the plan ask is answered, and only the approved angle runs on each set. A set that seems urgent goes in the plan with its `neededBy`. It is never run ahead of the answer.
-- **`¶INV_ASKCOUNCIL_READS_ON_THE_ASK`**: a run is done only when its reads are attached to every fork it covered with `attach-panel`. A report that exists only as a file, or reads described in prose, does not count, because the ask page draws a panel only from those records.
+- **`¶INV_ASKCOUNCIL_READS_ON_THE_ASK`**: a council run is done only when its reads are attached to every fork it covered with `attach-panel`. A report that exists only as a file, or reads described in prose, does not count, because the ask page draws a panel only from those records. A scrutinize run has no reads, so it is exempt: it is done when its critique is published and the plan ask's `acted` note names its URL for every ask it covered.
 - **The panel never answers.** Attached reads are input for the operator. Never present them as a tally, never answer the ask from them, and never edit a fork's options. A proposed option becomes real only if its asker revises the ask to add it.
 - **One plan per pass.** A second pass while a plan is still unanswered adds nothing. It says the plan is pending and stops.

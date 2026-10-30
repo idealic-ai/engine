@@ -1620,7 +1620,7 @@ function moveStaged(stage: string, fromDir: string, toDir: string, old: string, 
 
 // ── IDE-338: attach a panel's reads to an ask ─────────────
 
-export type AttachPanelResult = { file: string; entry: PanelAttachment; pushes: { seat: string; delivery: DeliveryResult }[] };
+export type AttachPanelResult = { file: string; entry: PanelAttachment; pushes: { seat: string; delivery: DeliveryResult }[]; already?: boolean };
 
 /**
  * `engine ask attach-panel`: any panel runner appends one council's reads on one fork (and any
@@ -1654,13 +1654,20 @@ export async function attachPanel(
     const keys = ask.questions.map((q, i) => questionKey(q, i));
     const qi = keys.indexOf(o.fork);
     if (qi === -1) throw new AskFormatError(`${r} has no fork ${o.fork}; its forks are ${keys.join(", ")}`);
+    // M2: a positional key (q0, q1) moves when a revise adds or reorders forks, so it can only name the one fork.
+    if (keys.length > 1 && !ask.questions[qi].askName) {
+      throw new AskFormatError(`${r} fork ${o.fork} has no ¶ASK_ name, and the ask has ${keys.length} forks; a position can move on revise, so ask ${ask.header.from ?? "the asker"} to name the forks (\`## ¶ASK_<NAME>: …\`) first`);
+    }
+    // S2: the same council on the same fork is attached once; a re-run after a crash changes nothing.
+    const prior = ask.panelAttachments.find((e) => e.fork === o.fork && e.council === o.council);
+    if (prior) return { entry: prior, asker: "", already: true };
     const codes = allCodes(ask.questions[qi].options);
     for (const p of panel) {
       if (!codes.includes(p.pick)) throw new AskFormatError(`${p.lens}'s pick ${p.pick} names no option of ${o.fork} (it has ${codes.join(", ") || "no codes"}); an option the panel proposes goes in --proposed`);
     }
-    const entry: PanelAttachment = { fork: o.fork, panel, proposals, council: o.council!, by: o.by, at };
+    const entry: PanelAttachment = { fork: o.fork, title: ask.questions[qi].title, panel, proposals, council: o.council!, by: o.by, at };
     atomicWrite(file, appendPanelEntry(before, entry));
-    return { entry, asker: ask.header.from ?? "" };
+    return { entry, asker: ask.header.from ?? "", already: false };
   });
   const push = o.push ?? pushToSeat;
   const pushes: AttachPanelResult["pushes"] = [];
@@ -1673,5 +1680,5 @@ export async function attachPanel(
     ].join("\n");
     pushes.push({ seat: res.asker, delivery: await safePush(push, res.asker, msg, o) });
   }
-  return { file, entry: res.entry, pushes };
+  return { file, entry: res.entry, pushes, ...(res.already ? { already: true } : {}) };
 }

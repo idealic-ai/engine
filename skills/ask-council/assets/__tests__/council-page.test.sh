@@ -60,6 +60,12 @@ grep -q 'class="language-json"' "$tmp/r.html" && ok "a tagged fence keeps its la
 grep -q 'Panel: Security → B — small blast' "$tmp/r.html" && ok "the Ask Lines block survives verbatim" || no "the Ask Lines block survives verbatim"
 grep -q '<strong>sound_with_fixes</strong>' "$tmp/r.html" && grep -q '<code>FUND</code>' "$tmp/r.html" && ok "inline bold and code render" || no "inline bold and code render"
 grep -qi '<script' "$tmp/r.html" && no "the page loads no script" "a <script tag is present" || ok "the page loads no script"
+# Review N1: a link's URL is escaped once (the text around it already was), so &b=2 stays a working query.
+printf '# T\n\nSee [the board](https://x.example/b.html?a=1&b=2).\n' > "$tmp/l.md"
+python3 "$page" "$tmp/l.md" "$tmp/l.html"
+grep -q 'href="https://x.example/b.html?a=1&amp;b=2"' "$tmp/l.html" && ok "a link's query string is escaped once" || no "a link's query string is escaped once" "$(grep -o 'href="[^"]*"' "$tmp/l.html")"
+# Review N3: the published page names the report's file, never the local path it was rendered from.
+grep -q "Rendered from r.md<" "$tmp/r.html" && ! grep -q "$tmp" "$tmp/r.html" && ok "the page shows the report's basename, not its path" || no "the page shows the report's basename, not its path" "$(grep -o 'Rendered from [^<]*' "$tmp/r.html")"
 python3 "$page" "$tmp/missing.md" "$tmp/x.html" >/dev/null 2>&1; rc=$?
 [ "$rc" -ne 0 ] && ok "a missing report is refused (exit $rc)" || no "a missing report is refused" "exit 0"
 

@@ -83,6 +83,21 @@ describe("a fork that reports a panel without Panel: lines", () => {
     "A 3-lens council plus refutation read F1.",
     "Evidence: sessions/S/builds/FUND_COUNCIL_2.md",
     "The council's verdict: the section-first shape is sound.",
+    // Real asks the first tightening missed (ASKCOUNCIL_CRITIQUE_S3.md S4, live root 2026-10-30).
+    "Evidence: [panel report](http://127.0.0.1:9440/proofs/proofs/invizko/fork2-fits-321ace0a.html)",
+    "The giant hero requires one metric marked as the figure. That's the council's must-fix.",
+    "Stake: the council's rule is that BIND becomes the grade only after a corpus of 30 or more real pages.",
+    "why: Re-ask of the outline's open questions; leans updated by the panel, two new questions it surfaced.",
+    "Cost: the panel's top style risk.",
+    "## ¶ASK_Q16: Choose one: Q16. When does it get its own section? (new, from the panel)",
+    "Lean: MOVE — with the panel's condition that the rule is lifted out first.",
+    "Context: you approved draft 1 pending the council; draft 2 is that draft with the panel's fixes.",
+    "So the panel's \"guests get no state\" holds only for the kernel's answer.",
+    "Panel consensus: LAND, 4 of 5 lenses",
+    "Council verdict: keep the separate root",
+    "A council ran on this: 4 of 5 lenses pick B",
+    "the panel unanimously picked LAND",
+    "The panel recommends B over A",
   ];
   const proposed = [
     "Context: /council exists and takes a target; nothing groups asks.",
@@ -101,6 +116,9 @@ describe("a fork that reports a panel without Panel: lines", () => {
     "Should we file a council report next week?",
     "the panel reads should show beside each option",
     "Confidence: medium — the panel's view would help",
+    // Proposals the corpus holds, which the widening must still leave alone.
+    "## ¶ASK_ATTACH: Choose one: Who writes a panel's reads onto an ask the panel's runner did not file?",
+    "Cost: a new skill, and a council board per approved set",
   ];
   it.each(reported)("names a panel report: %s", (line) => expect(mentionsPanelReport(line)).toBe(true));
   it.each(proposed)("does not name one: %s", (line) => expect(mentionsPanelReport(line)).toBe(false));

@@ -1,6 +1,6 @@
 # Council angles — the prompt each angle adds to every expert
 
-An **angle** sets what kind of answer the panel produces. `/council --angle <name>` picks one. With no `--angle`, the angle is `critique`, which is what /council has always done, so a caller that passes nothing gets the old behaviour unchanged. The first version has three: critique, refute and design-off (the operator's answer on meta:engine/20261030-103346, fork ANGLES, which narrowed the earlier "all four" on meta:utils/20261029-133853 ¶ASK_ANGL). An `ideas` angle, a panel that only widens the option set, is not in this version; `--angle ideas` is refused at §1 with that reason.
+An **angle** sets what kind of answer the panel produces. `/council --angle <name>` picks one. With no `--angle`, the angle is `critique`, which is what /council has always done, so a caller that passes nothing gets the old behaviour unchanged. The first version has three: critique, refute and design-off (the operator's answer on meta:engine/20261030-103346, fork ANGLES, which narrowed the earlier "all four" on meta:utils/20261029-133853 ¶ASK_ANGL). An `ideas` angle, a panel that only widens the option set, is not in this version; `--angle ideas` is refused at SKILL.md §1.C with that reason.
 
 Every expert still gets its persona, the shared grounding and the return contract from SKILL.md §3. The angle block below goes **after the persona and before the categorisation rules**, word for word, with `<…>` filled in. Only `critique` keeps the MUST FIX / SHOULD FIX / CONSIDER tiers and the refutation pass. The other two return their own shape, given in their block, and SKILL.md §5 says how each one is reconciled.
 
@@ -20,7 +20,7 @@ Reconciled as SKILL.md §5 already describes (refute, reconcile, tiers).
 >
 > Return: `verdict: <holds | weakened | broken>`, `strongest_case: <one paragraph>`, `evidence: <file:line, a log path, a measured number — or "none beyond the subject">`, and, if a poll is attached, your vote (you may vote for the lean; your vote is about what you would choose, your case is about whether the lean survives attack).
 
-Reconciled: no tiers and no refutation pass. Every expert attacked the same lean, so the report lists each lens's verdict and strongest case side by side. Do not take a majority. A single `broken` with evidence outweighs four `holds` without any, and the report says which verdicts carried evidence. A subject with no lean cannot take this angle. Refuse it at §1 ("refute needs a lean to attack; this subject has none") rather than inventing one.
+Reconciled: no tiers and no refutation pass. Every expert attacked the same lean, so the report lists each lens's verdict and strongest case side by side. Do not take a majority. A single `broken` with evidence outweighs four `holds` without any, and the report says which verdicts carried evidence. A subject with no lean cannot take this angle. Refuse it at SKILL.md §1.C ("refute needs a lean to attack; this subject has none") rather than inventing one.
 
 ## design-off (`--angle design-off`)
 
@@ -34,4 +34,4 @@ Reconciled: the report has one section per distinct design. Designs that two len
 
 ## What a /scrutinize set is, beside these
 
-`/scrutinize` is not an angle. It is one adversarial auditor that checks claims against intent and then fixes. The batch pass (skills/ask-council) may propose a scrutinize set for a topic whose asks are about **finished work** (a landed change, a report, a PR), where the question is "is this right" rather than "which option". A scrutinize set produces no `Panel:` reads. Its result is attached to each covered ask as an Evidence-style link, through the asker. See skills/ask-council §4.
+`/scrutinize` is not an angle. It is one adversarial auditor that checks claims against intent and then fixes. The batch pass (skills/ask-council) may propose a scrutinize set for a topic whose asks are about **finished work** (a landed change, a report, a PR), where the question is "is this right" rather than "which option". The batch pass runs it critique-only, with no fix phase, and it produces no `Panel:` reads. How its result reaches the operator, and when the set counts as done, is in skills/ask-council §4 and §6.
