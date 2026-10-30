@@ -284,7 +284,7 @@ test_atom_carries_the_whole_guidance() {
     '### ¶CMD_CONTINUE_ON_STOP' \
     '## PROOF FOR §CMD_CONTINUE_ON_STOP' \
     'part-way through the sequence it named, carry on with its next step' \
-    '`🔓 Open claims`, `📚 Docs owed` or `🗳️ Boards`' \
+    '`🔓 Open claims`, `📚 Docs owed` or `🗳️ Asks`' \
     'Otherwise invoke `/next`' \
     'blocking-first' \
     'do NOT hand-roll an `AskUserQuestion`' \

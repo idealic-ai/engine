@@ -304,7 +304,7 @@ test_a_register_with_no_occurrence_is_reported_loudly_and_exits_three() {
   local txt; txt=$(cat "$out")
   assert_eq "3" "$rc" "a missing register is a finding: exit 3"
   assert_contains "Wave: NOT FOUND" "$txt" "the Wave register is named as not found"
-  assert_contains "Boards: NOT FOUND" "$txt" "so is Boards"
+  assert_contains "Asks: NOT FOUND" "$txt" "so is Asks"
   assert_contains "This is output, not an absent section" "$txt" \
     "and the page says why it prints the absence"
   assert_contains "SOLOMARK" "$txt" "the register that does exist still renders"
@@ -507,7 +507,7 @@ test_the_live_loom_log_is_read_with_every_register_found() {
   local txt; txt=$(cat "$out")
   # Floors, not exact counts: the log is still being written to, so a figure from a minute ago
   # may already be false. The claim pinned here is that each register is FOUND at all.
-  for reg in Ledger Boards "Docs owed" "Rules owed" "Open claims" Parked Wave; do
+  for reg in Ledger Asks "Docs owed" "Rules owed" "Open claims" Parked Wave; do
     assert_not_contains "$reg: NOT FOUND" "$txt" "the live log's $reg register is found"
   done
   assert_contains "=== Ledger — latest of" "$txt" "and the Ledger renders a present-state section"

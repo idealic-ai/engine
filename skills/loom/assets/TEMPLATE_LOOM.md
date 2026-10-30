@@ -22,10 +22,10 @@
 | ENG-XXXX | [title] | council'd | [PR link] | shipped |
 | A | [title] | scrutinized | — | parked (mid-flight) |
 
-### Boards
-*Sibling to the thread rows — a board spans threads, so it has no stage of its own. One per published decision board. `read back` is the log row's cell carried over unchanged (the log's `## 🗳️ Boards` block defines the admissible forms), so a board left open arrives here with the finding from the fold that left it so.*
+### Asks
+*Sibling to the thread rows — an ask can span threads, so it has no stage of its own. One per ask this loom raised. `read back` is the log row's cell carried over unchanged (the log's `## 🗳️ Asks` block defines the admissible forms), so an ask left open arrives here saying what keeps it open.*
 
-*   **[slug]** — [board URL] — **read back**: [`gate N: folded + read` | `gate N: open — no answers yet`]
+*   **[seat/id]** — to [seat] — **read back**: [`answered gate N — [choice] — [record path]` | `open — to [seat] since gate N`]
 
 ## 3. The Weave (Narrative)
 *How the threads ran together. What parallelized, what serialized and why.*

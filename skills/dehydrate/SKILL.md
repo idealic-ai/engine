@@ -93,7 +93,7 @@ Exit 3 lists each decision no register block was written after, so it **cannot**
 
 ### Bring the live registers current
 
-Append a fresh copy of each register block that has a row to change — the loom's registers are rewrite-in-place by convention, and in an append-only log the **latest copy wins**. Row what the sweep surfaced and you accept: threads, boards, docs owed, rules owed, open claims, parked items, seat handovers.
+Append a fresh copy of each register block that has a row to change — the loom's registers are rewrite-in-place by convention, and in an append-only log the **latest copy wins**. Row what the sweep surfaced and you accept: threads, asks, docs owed, rules owed, open claims, parked items, seat handovers.
 
 ⚠️ **A short Ledger-only append hides every earlier decision from `sweep-check`**, which cannot tell an update from a full rewrite. If you append a partial block, say so in the receipt so the next clean exit is not misread as rowed.
 

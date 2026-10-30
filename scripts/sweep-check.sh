@@ -20,7 +20,7 @@
 # that only mentions the word mid-heading (`💡 FOUR DECISIONS`) is not counted; the number of
 # such headings is printed so the limit is visible.
 #
-# The register blocks are `🧵 Ledger`, `🗳️ Boards`, `📚 Docs owed`, `🔓 Open claims` and
+# The register blocks are `🧵 Ledger`, `🗳️ Asks` (an older log's `🗳️ Boards` still counts), `📚 Docs owed`, `🔓 Open claims` and
 # `🅿️ Parked`. Only the heading's position is read, never the block's rows.
 #
 # Exit 0 = no decision is certainly unrowed, 3 = at least one is (a finding, not a failure),
@@ -58,7 +58,7 @@ STAMP = re.compile(r"^\[\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\]\s*")
 DECISION = re.compile(r"^(?:\[[^\]]*\]\s*)*[^A-Za-z0-9]*decision", re.IGNORECASE)
 REGISTERS = [
     ("Ledger", re.compile(r"\U0001F9F5\uFE0F?\s*Ledger")),
-    ("Boards", re.compile(r"\U0001F5F3\uFE0F?\s*Boards")),
+    ("Asks", re.compile(r"\U0001F5F3\uFE0F?\s*(?:Asks|Boards)")),
     ("Docs owed", re.compile(r"\U0001F4DA\uFE0F?\s*Docs owed")),
     ("Open claims", re.compile(r"\U0001F513\uFE0F?\s*Open claims")),
     ("Parked", re.compile(r"\U0001F17F\uFE0F?\s*Parked")),

@@ -13,7 +13,7 @@
 #
 # TWO KINDS OF BLOCK, read differently. Reading these the same way is the one error that produces a
 # confidently wrong page.
-#   REWRITTEN registers  🧵 Ledger · 🗳️ Boards · 📚 Docs owed · ⚖️ Rules owed · 🔓 Open claims ·
+#   REWRITTEN registers  🧵 Ledger · 🗳️ Asks (or an older 🗳️ Boards) · 📚 Docs owed · ⚖️ Rules owed · 🔓 Open claims ·
 #                        🅿️ Parked · 🌊 Wave. The conductor rewrites these as state advances, so
 #                        only the LATEST occurrence is current. Reading "all" of one reports a
 #                        weave's history as its present state.
@@ -98,7 +98,7 @@ BRACKETS = r"(?:\[[^\]]*\]\s*)*"
 # `Council` — none of which is a register rewrite.
 REGISTERS = [
     ("Ledger",      "\U0001F9F5", r"Ledger"),
-    ("Boards",      "\U0001F5F3", r"Boards"),
+    ("Asks",        "\U0001F5F3", r"(?:Asks|Boards)"),
     ("Docs owed",   "\U0001F4DA", r"Docs owed"),
     ("Rules owed",  "\u2696",     r"Rules owed"),
     ("Open claims", "\U0001F513", r"Open claims"),

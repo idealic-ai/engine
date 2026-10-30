@@ -31,13 +31,13 @@
 |-------|----------|---------|-------|----------|------------------------|------------|-------------|
 | [session dir] | [ENG-XXXX / SLUG] | [one line] | [triaged \| interrogated \| building \| scrutinized \| snapshotted \| pr'd \| council'd \| parked] | [clean \| [n] findings → triaged \| not scrutinized — [why] \| `UNKNOWN — cell never written`] | `[absolute path to the lane's _BUILD_LOG.md]` | [paths this thread holds, or `none`] | [the terminal stage + its proof URL \| `parked — <reason>`] |
 
-## 🗳️ Boards — published decision boards awaiting a fold
+## 🗳️ Asks — asks this loom raised, still open
 
-*Carried from the session log's `## 🗳️ Boards` block **unchanged**, including the `docId` — `/decide` §4 says the handle is unrecoverable once the publishing pass ends, so a row arriving here without it has lost that board's answers permanently and says `UNKNOWN — docId not captured at publish`. A row closes when a successor folds it and reads the state doc; it may be passed on open, and it may not be discarded.*
+*Carried from the session log's `## 🗳️ Asks` block **unchanged**. The ask file itself survives the session, so a row here is a pointer: a successor reads it with `engine ask read <seat>/<id>` once it is answered, or re-pings by hand while it is not. A row closes when a successor has read the answer and recorded it; it may be passed on open, and it may not be discarded.*
 
-| owner | board | url | docId | forks held | closes when |
-|-------|-------|-----|-------|------------|-------------|
-| [session dir] | [slug] | [board URL] | [docId \| `no shared state` \| `UNKNOWN — <why>`] | [forkIds / threadIds] | [folded + read, with what the answers changed] |
+| owner | ask | to | forks held | closes when |
+|-------|-----|----|------------|-------------|
+| [session dir] | [`<seat>/<id>`] | [holder seat, or `operator`] | [forkIds / threadIds] | [answer read, with what it changed] |
 
 ## 📚 Docs owed — claims a landed change falsified
 
@@ -49,7 +49,7 @@
 
 ## ⚖️ Rules owed — durable rules a lane learned and could not land
 
-*Carried from the session log's `## ⚖️ Rules owed` block **unchanged**, the way a board row and an open claim are. The block is **live in the log** and this is its hand-over copy. The two directions of that pairing have each failed once: an open claim was durable in this file alone, so the one moment a lane sat waiting was the one moment nothing was written down; a rule owed was durable in the log alone, so a handing-over close counted it on the receipt and had nowhere to put it. A row kind lives in both places or it is lost at one of the two moments that matter.*
+*Carried from the session log's `## ⚖️ Rules owed` block **unchanged**, the way an ask row and an open claim are. The block is **live in the log** and this is its hand-over copy. The two directions of that pairing have each failed once: an open claim was durable in this file alone, so the one moment a lane sat waiting was the one moment nothing was written down; a rule owed was durable in the log alone, so a handing-over close counted it on the receipt and had nowhere to put it. A row kind lives in both places or it is lost at one of the two moments that matter.*
 
 *The shared directive files sit outside every lane's partition, so a lane that learns a durable rule can only write it down and hand it on, and `¶INV_A_RULE_OWED_HAS_AN_OWNER` names the **conductor** as the party who acts on it. At a hand-over that owner is changing, which is the whole reason the row travels: the successor inherits the ruling, not the lane.*
 
@@ -61,9 +61,9 @@
 
 ## 🔓 Open claims — what the operator still owes an answer on
 
-*Forks put up and not yet answered, including ones decided in chat where the decision has not reached an artifact. A row closes when the answer is recorded somewhere a successor reads — a board fold, a ticket comment, or a `## 💡 Decision` entry this file points at.*
+*Forks put up and not yet answered, including ones decided in chat where the decision has not reached an artifact. A row closes when the answer is recorded somewhere a successor reads — an ask read, a ticket comment, or a `## 💡 Decision` entry this file points at.*
 
-*Carried from the session log's `## 🔓 Open claims` block **unchanged**, the way a board row is. The block is **live in the log** and this is its hand-over copy, so a conductor transcribes rather than mines — mining an unanswered fork out of a closing context is how a question the operator never saw gets dropped.*
+*Carried from the session log's `## 🔓 Open claims` block **unchanged**, the way an ask row is. The block is **live in the log** and this is its hand-over copy, so a conductor transcribes rather than mines — mining an unanswered fork out of a closing context is how a question the operator never saw gets dropped.*
 
 *`prepared context` is a POINTER to the `§FMT_DECISION_CARD` already written — `/decide` §6's record holds the options as framed and, per `¶INV_REJECTED_OPTIONS_ARE_RECORDED`, what was decided against. A successor handed a fork with no card re-derives the stakes, the options and the lean before it can ask, which is the whole cost this column removes. Where no card exists the cell is `UNKNOWN — no card prepared`, never blank, and a successor needing it stops and reports the row.*
 
@@ -71,7 +71,7 @@
 
 | owner | the fork | what it unblocks | prepared context | meanwhile | asked at | closes when |
 |-------|----------|------------------|------------------|-----------|----------|-------------|
-| [session dir] | [one line] | [threadIds / the work waiting] | [absolute path to the `_DECIDE.md` record or board row \| `UNKNOWN — no card prepared`] | [proceeding on the lean — falsifier: [x] \| working around \| parked \| idle] | [gate N, timestamp] | [the artifact that records the answer] |
+| [session dir] | [one line] | [threadIds / the work waiting] | [absolute path to the `_DECIDE.md` record or ask `<seat>/<id>` \| `UNKNOWN — no card prepared`] | [proceeding on the lean — falsifier: [x] \| working around \| parked \| idle] | [gate N, timestamp] | [the artifact that records the answer] |
 
 ## ❓ Lane asks open — questions a lane asked the conductor that have no answer yet
 
@@ -83,7 +83,7 @@
 
 ## 📨 Seat handovers — topics handed to or from another seat, still waiting on an ack
 
-*Carried from the session log's `## 📨 Seat handovers` block **unchanged**, the way a board row, an open claim and a rule owed are. The block is **live in the log** and this is its hand-over copy. A row kind lives in both places or it is lost at one of the two moments that matter — and this kind is the one most exposed at a hand-over, because **the party who owes the ack is not the party handing over**. A peer seat keeps its own context and answers in its own time, so an un-acked handover routinely outlives the session that sent it, and a successor that cannot see one re-sends a topic the peer already took or abandons one it never did.*
+*Carried from the session log's `## 📨 Seat handovers` block **unchanged**, the way an ask row, an open claim and a rule owed are. The block is **live in the log** and this is its hand-over copy. A row kind lives in both places or it is lost at one of the two moments that matter — and this kind is the one most exposed at a hand-over, because **the party who owes the ack is not the party handing over**. A peer seat keeps its own context and answers in its own time, so an un-acked handover routinely outlives the session that sent it, and a successor that cannot see one re-sends a topic the peer already took or abandons one it never did.*
 
 *⚠️ **Not the same thing as the `## 🤝 Hand-over written` receipt**, which is this conductor handing its own state to its own successor. This block is one seat handing a topic to **another seat**. The two were one word and are two registers.*
 

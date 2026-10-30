@@ -92,7 +92,7 @@ test_no_content_is_compared() {
 # only mentions a register, or a register glyph in a body line, does not.
 test_each_register_block_counts_and_mentions_do_not() {
   local log="$TMP_DIR/regs.md" out="$TMP_DIR/regs.out" rc head
-  for head in '🧵 Ledger' '🗳️ Boards' '🗳 Boards' '📚 Docs owed' '🔓 Open claims' '🅿️ Parked' '🅿 Parked'; do
+  for head in '🧵 Ledger' '🗳️ Asks' '🗳 Asks' '🗳️ Boards' '🗳 Boards' '📚 Docs owed' '🔓 Open claims' '🅿️ Parked' '🅿 Parked'; do
     write_log "$log" '## 💡 Decision — a plain decision' '' "## $head — rewritten"
     rc=$(run_check "$out" "$log")
     assert_eq "0" "$rc" "a '$head' heading written after the decision counts"
@@ -221,7 +221,7 @@ test_real_finished_log_agrees_with_an_independent_computation() {
   anchored=$(grep -c '^## 💡 Decision' "$FINISHED_LOG")
   assert_eq "$(grep -cE '^## (\[[^]]*\] )*[^A-Za-z0-9]*[Dd]ecision' "$FINISHED_LOG")" "$found" "decision count equals the differently-shaped grep"
   assert_gt "$found" "$((anchored * 5))" "and is more than 5x what the anchored pattern sees ($anchored)"
-  last=$(grep -nE '^## (\[[^]]*\] )*[^A-Za-z0-9]*(Ledger|Boards|Docs owed|Open claims|Parked)' "$FINISHED_LOG" | tail -1 | cut -d: -f1)
+  last=$(grep -nE '^## (\[[^]]*\] )*[^A-Za-z0-9]*(Ledger|Asks|Boards|Docs owed|Open claims|Parked)' "$FINISHED_LOG" | tail -1 | cut -d: -f1)
   expect=$(grep -nE '^## (\[[^]]*\] )*[^A-Za-z0-9]*[Dd]ecision' "$FINISHED_LOG" | awk -F: -v l="$last" '$1 > l' | wc -l | tr -d ' ')
   u=$(unrowed_count "$out"); f=$(grep -c '^FOLLOWED ' "$out" || true)
   assert_eq "$expect" "$u" "decisions after the last register write ($last) equal the script's UNROWED"

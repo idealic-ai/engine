@@ -55,6 +55,8 @@ Do not go silent for long stretches. The conductor polls status with a read-only
 
 **Every question you send the conductor goes in your own log as well, as `## [<threadId>] ❓ Ask <id>: <question>`, and you close it with `## [<threadId>] ✅ Answered <id>: <answer>` when the reply arrives.** A message lives only in the context it reached, so an ask sent to a conductor whose context then restarts is lost along with that context, and the lane waits on an answer nobody knows is owed. Your log survives that restart, and a successor finds every unanswered ask with `engine open-asks "<sessionDir>"`. This covers a file claim and any block report that waits on a reply, since each is a question someone owes you an answer to. The `<id>` is one short word, fresh for each question, so the answer can name which ask it closes. **A conductor answering you closes the ask itself**: it appends `## [<your threadId>] ✅ Answered <id>: …` to your log with `engine log`, or to `LOOM_LOG.md`, so an ask is closed even when the lane that asked it has ended.
 
+**To raise a question for the conductor**, send it by `SendMessage` prefixed `[<threadId>]`, logged as the `❓ Ask` heading above, with your lean, what it unblocks and what you do meanwhile; never `engine ask new` and never `AskUserQuestion`. The conductor writes the ask file when the question has to leave the loom (`/ask` § When to write an ask instead of calling AskUserQuestion).
+
 ## What you escalate (to the conductor), and what the conductor escalates (up its manager chain)
 
 Escalate to the **conductor** — do not decide these alone:

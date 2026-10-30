@@ -614,7 +614,7 @@ What to do when a background `engine ticket watch` wakes you: read the drained `
 
 **Algorithm** (on an auto-continue):
 1.  **Finish the sequence you are in.** If you invoked `/next` recently and are part-way through the sequence it named, carry on with its next step.
-2.  **In a live weave, look at the open rows.** If you are conducting a `/loom` that is in its live phase (Phase 1), the next thing is usually an open row — `🔓 Open claims`, `📚 Docs owed` or `🗳️ Boards` in the log.
+2.  **In a live weave, look at the open rows.** If you are conducting a `/loom` that is in its live phase (Phase 1), the next thing is usually an open row — `🔓 Open claims`, `📚 Docs owed` or `🗳️ Asks` in the log.
 3.  **Otherwise invoke `/next`.** It reads what state the work is actually in and runs the sequence that advances it, blocking-first.
 4.  **Put a question only the operator can answer in an ask.** If what you would wait on is an answer only the operator can give, do NOT hand-roll an `AskUserQuestion`, and do not stop with "waiting on your answers" either: nobody is at this terminal to answer. Write an ask (`skills/ask/SKILL.md`, whose § Writing one says how to write one the operator can decide from):
     1.  **Find where it goes.** Run `bash ~/.claude/engine/skills/coordinate/scripts/hop.sh target`. It prints `<seat> <pane>`, or `operator`. The ask goes to the **first word** of what it prints, never the whole line.
