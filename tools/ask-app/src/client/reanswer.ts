@@ -7,6 +7,7 @@
 import { clickPlan, composeNote, isProvisional, provisionalAnswers, requestLine, stripLoopLines, type SendKind } from "./loop.ts";
 import { askRef, isSettled, sendConfirmation, unansweredForks, type StoredAsk } from "./model.ts";
 import { loadUnsent } from "./unsent.ts";
+import { sendOutcome } from "./next.ts";
 import { draftAuthor, isOperatorAnswer, type AnswerMap, type AnswerValue, type ParsedAsk } from "../lib/format.ts";
 
 /** What sending a changed answer does, said beside the sends. */
@@ -40,6 +41,17 @@ export function overruleBody(ask: StoredAsk, kind: "send" | "decline", s: { answ
   const plain = stripLoopLines(s.note);
   const base = { seat: ask.seat, id: ask.header.id, expectedRevision: Number(ask.header.revision) };
   return kind === "decline" ? { ...base, decline: plain.trim() } : { ...base, answers: s.answers, ...(plain ? { note: plain } : {}) };
+}
+
+/**
+ * IDE-339: what /api/answer said to an overrule, read as sendOutcome reads /api/send, so an overrule
+ * takes Send's after-send path: only a 200 is sent, its delivery line names the asker. A 409 is read
+ * before this, by conflictMessage, as every send reads one.
+ */
+export function overruleOutcome(ask: StoredAsk, status: number, json: { delivery?: { status: string; reason?: string }; error?: string } | undefined): { sent: boolean; text: string } {
+  const seat = ask.header.from?.trim() || ask.seat;
+  const out = sendOutcome(status, status === 200 ? { pushes: json?.delivery ? [{ seat, delivery: json.delivery }] : [] } : json);
+  return out.sent ? { sent: true, text: ["Overruled.", out.text].filter(Boolean).join(" ") } : out;
 }
 
 /**

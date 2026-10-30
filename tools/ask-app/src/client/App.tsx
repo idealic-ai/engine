@@ -73,7 +73,7 @@ import { conflictMessage, hopWords, pathOf, supersededInfo, supersedesList, type
 import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
 import { highlight, isTypingTarget, searchTerms, sidebarView, snippet, type Hay } from "./search.ts";
-import { CHANGE_WORDING, OVERRULE_WORDING, cancelDiscards, changeAnswerStart, changeMode, draftBody, mayChangeAnswer, overruleBody, planClick, requestSend, staleChangeKeys, unsentKey, withoutGrant } from "./reanswer.ts";
+import { CHANGE_WORDING, OVERRULE_WORDING, cancelDiscards, changeAnswerStart, changeMode, draftBody, mayChangeAnswer, overruleBody, overruleOutcome, planClick, requestSend, staleChangeKeys, unsentKey, withoutGrant } from "./reanswer.ts";
 import { BroadcastFeed, BroadcastRows, ProofRows, ProofStatus, useBroadcasts, useProofs } from "./feeds.tsx";
 
 export { ticketKeys };
@@ -894,7 +894,6 @@ export function AskDetail({
   /** IDE-339: an overrule is sent at once through /api/answer (the store takes no draft over a seat's answer). */
   async function sendOverrule(kind: "send" | "decline", next = false) {
     setConfirmSend(undefined);
-    setNextNotice("");
     setBusy(true);
     setResult("");
     const keep = () => saveUnsent(keyFor(true), { revision, values, text, note });
@@ -909,15 +908,18 @@ export function AskDetail({
         }
         return setResult(c.text);
       }
-      if (r.status !== 200) return setResult(`Error: ${r.json?.error ?? r.status}`);
-      clearUnsent(keyFor(true));
-      const d = r.json?.delivery;
-      setResult(d?.status === "delivered" ? "Overruled. The asker is told, and the ruling is kept under Earlier answers." : `Overruled and saved${d?.status ? `, but ${d.status}${d.reason ? ` (${d.reason})` : ""}` : ""}. The asker's /next picks it up from the file.`);
-      onChanged();
-      if (next) {
-        const n = onSendNext?.(true);
-        if (n?.notice) setNextNotice(n.notice);
+      // Send's after-send path (ASKHL SHOULD-1/2): a failed overrule keeps its copy and stays; an
+      // accepted one hands App the line, which moves on for Send & next only while this ask is still shown.
+      const out = overruleOutcome(ask, r.status, r.json);
+      if (!out.sent) {
+        keep();
+        setResult(out.text);
+        return onChanged();
       }
+      clearUnsent(keyFor(true));
+      onChanged();
+      if (onSent) onSent(out.text, next);
+      else if (out.text) setResult(out.text);
     } finally {
       setBusy(false);
     }
@@ -1198,7 +1200,9 @@ export function AskDetail({
               <button className="btn primary" disabled={busy || nothing} onClick={askSend}>{nothing ? "Send answers" : picked ? `Send ${picked} answer${picked === 1 ? "" : "s"}` : "Send your notes"}</button>
               {onSent && <button className="btn" disabled={busy || nothing} onClick={() => clickSend("send", true)} title="Sends exactly as Send does, then opens the next ask in the list that is waiting on you">Send &amp; next</button>}
               {/* Partial on purpose: never the "N questions unanswered" confirm; while the server does not keep `provisional`, an honest confirm instead. */}
-              {/* IDE-339: an overrule cannot be drafted, so the draft sends are not offered on one. */}
+              {/* IDE-339: an overrule cannot be drafted: writeDraft takes a draft over the operator's own answer only,
+                  so Send as draft, Need something first, Save draft and Draft a decline are hidden on one;
+                  they return when the ASKFOLLOWUP round widens writeDraft to a seat's ruling. */}
               {overrule && <button className="btn" disabled={busy || !note.trim()} title="Declining needs a reason: write it in the note" onClick={() => sendOverrule("decline")}>Send a decline</button>}
               {!overrule && <button className="btn" disabled={busy || nothing} onClick={() => clickSend("draft")} title={kept ? "Sends your picks marked as not final, with a note saying so; the ask stays open for a second round" : "Today this closes the ask with your picks and a 'not final' note; the asker should come back with a second round"}>Send as draft</button>}
               {!overrule && <button className="btn" disabled={busy} aria-expanded={needOpen} aria-controls={`need-${ask.header.id}`} onClick={() => setNeedOpen(!needOpen)}>Need something first ▾</button>}

@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseAskFile } from "../src/lib/format.ts";
 import { askRow, answererText, earlierAnswers } from "../src/client/model.ts";
-import { changeAnswerStart, changeMode, draftBody, mayChangeAnswer, overruleBody, requestSend, withoutGrant } from "../src/client/reanswer.ts";
+import { changeAnswerStart, changeMode, draftBody, mayChangeAnswer, overruleBody, overruleOutcome, requestSend, withoutGrant } from "../src/client/reanswer.ts";
 import { sendProvisional } from "../src/client/loop.ts";
 
 const head = (extra = "", status = "answered", id = "a1") =>
@@ -81,6 +81,28 @@ describe("Overrule is offered on a seat-ruled ask", () => {
     expect(overruleBody(ruled, "send", { answers: { GO: ["NO"] }, note: "hold" })).toEqual({ seat: "docs:handbook", id: "a1", expectedRevision: 4, answers: { GO: ["NO"] }, note: "hold" });
     expect(overruleBody(ruled, "decline", { answers: {}, note: "not this way" })).toEqual({ seat: "docs:handbook", id: "a1", expectedRevision: 4, decline: "not this way" });
     expect(src("App.tsx")).toContain('post("/api/answer", overruleBody(ask, kind, { answers, note }), keep)');
+  });
+});
+
+describe("an overrule's sends take Send's after-send path (ASKHL fix round)", () => {
+  it("overruleOutcome reads /api/answer as sendOutcome reads /api/send: only a 200 is sent", () => {
+    expect(overruleOutcome(ruled, 200, { delivery: { status: "delivered" } })).toEqual({ sent: true, text: `Overruled. Queued at docs:handbook, not read yet. It turns "read" when the seat runs engine ask read.` });
+    expect(overruleOutcome(ruled, 200, { delivery: { status: "undelivered", reason: "no live session" } })).toEqual({ sent: true, text: "Overruled. Saved, but undelivered (no live session). The asker's /next picks it up from the file." });
+    expect(overruleOutcome(ruled, 200, {})).toEqual({ sent: true, text: "Overruled." });
+    expect(overruleOutcome(ruled, 400, { error: "a decline needs a non-empty reason" })).toEqual({ sent: false, text: "Error: a decline needs a non-empty reason" });
+    expect(overruleOutcome(ruled, 500, undefined)).toEqual({ sent: false, text: "Error: HTTP 500" });
+  });
+
+  it("a failed overrule keeps the unsent copy and never moves on; an accepted one hands App the line through onSent", () => {
+    const app = src("App.tsx");
+    const fn = app.slice(app.indexOf("async function sendOverrule"), app.indexOf("async function act("));
+    expect(fn).toMatch(/const out = overruleOutcome\(ask, r\.status, r\.json\);\s*if \(!out\.sent\) \{\s*keep\(\);\s*setResult\(out\.text\);\s*return onChanged\(\);\s*\}/);
+    expect(fn).toMatch(/clearUnsent\(keyFor\(true\)\);\s*onChanged\(\);\s*if \(onSent\) onSent\(out\.text, next\);\s*else if \(out\.text\) setResult\(out\.text\);/);
+    expect(fn).not.toContain("onSendNext");
+  });
+
+  it("the hidden draft actions say when they come back", () => {
+    expect(src("App.tsx")).toContain("they return when the ASKFOLLOWUP round widens writeDraft");
   });
 });
 
