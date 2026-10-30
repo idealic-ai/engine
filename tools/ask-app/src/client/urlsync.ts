@@ -53,3 +53,35 @@ export function createUrlSync(history: HistoryLike, timers: Timers, delay = URL_
     },
   };
 }
+
+/**
+ * The route and its URL kept together (ASKHL SHOULD-3): `navigate` changes the state at once and
+ * writes the URL through `sync`; `pop` is Back or Forward. Two rules live here so they are tested:
+ * a push first lands any pending typed query on the entry it leaves, and Back or Forward cancels a
+ * pending write, which would otherwise overwrite the restored entry with the URL from before Back.
+ */
+export function createRouteNav<R extends object>(
+  sync: ReturnType<typeof createUrlSync>,
+  initial: R,
+  opts: { serialize: (r: R) => string; isNavigation: (from: R, to: R) => boolean; onChange: (r: R) => void },
+) {
+  let cur = initial;
+  return {
+    get: () => cur,
+    navigate(patch: Partial<R>, push?: boolean, typing = false) {
+      const from = cur;
+      cur = { ...from, ...patch };
+      opts.onChange(cur);
+      const url = opts.serialize(cur);
+      if (typing) return sync.later(url);
+      const pushIt = push ?? opts.isNavigation(from, cur);
+      if (pushIt) sync.flush();
+      sync.now(url, pushIt);
+    },
+    pop(r: R) {
+      sync.cancel();
+      cur = r;
+      opts.onChange(r);
+    },
+  };
+}

@@ -190,7 +190,7 @@ describe("theme: Slate tokens in both modes", () => {
 
   it("the label is small and quiet", () => {
     const rule = styles.match(/\.code-lang \{([^}]*)\}/)?.[1] ?? "";
-    expect(rule).toContain("var(--ink-3)");
+    expect(rule).toContain("var(--hl-label)");
     expect(rule).toMatch(/font-size:\s*1[01]px/);
   });
 });

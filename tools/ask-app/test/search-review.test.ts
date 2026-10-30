@@ -12,7 +12,7 @@ import path from "node:path";
 import { parseAskFile } from "../src/lib/format.ts";
 import { askRow, sortRows, type StoredAsk } from "../src/client/model.ts";
 import { highlight, lowerWithMap, matchAsk, searchRows, shownTitleText, sidebarView, snippet } from "../src/client/search.ts";
-import { URL_DEBOUNCE_MS, createUrlSync } from "../src/client/urlsync.ts";
+import { URL_DEBOUNCE_MS, createRouteNav, createUrlSync } from "../src/client/urlsync.ts";
 
 const app = fs.readFileSync(path.join(import.meta.dirname, "../src/client/App.tsx"), "utf8");
 const NOW = Date.parse("2026-10-29T13:00:00.000Z");
@@ -77,7 +77,52 @@ describe("SHOULD-1: the URL write is debounced, outside the updater, and cannot 
     expect(direct.length).toBe(2);
     expect(app).toMatch(/createUrlSync\(\{ pushState: \(d, u, url\) => history\.pushState\(d, u, url\), replaceState: \(d, u, url\) => history\.replaceState\(d, u, url\) \}/);
     expect(app).toMatch(/navigate\(\{ q: v \|\| undefined, \.\.\.pin \}, false, true\)/);
-    expect(app).toContain("if (typing) return urlSync.later(url);");
+    expect(app).toMatch(/createRouteNav\(urlSync, route, \{ serialize: serializeRoute, isNavigation, onChange: setRoute \}\)/);
+    expect(app).toContain("const pop = () => nav.pop(parseRoute(");
+    expect(app).toMatch(/const navigate = useCallback\(\(patch: Partial<Route>, push\?: boolean, typing = false\) => nav\.navigate\(patch, push, typing\), \[nav\]\);/);
+  });
+});
+
+describe("ASKHL SHOULD-3: the route writer's two history rules", () => {
+  type R = { ask?: string; q?: string };
+  const setup = (initial: R = {}) => {
+    const calls: string[] = [];
+    const t = fakeTimers();
+    const sync = createUrlSync({ pushState: (_, __, u) => calls.push(`push ${u}`), replaceState: (_, __, u) => calls.push(`replace ${u}`) }, t.timers);
+    const seen: R[] = [];
+    const nav = createRouteNav<R>(sync, initial, {
+      serialize: (r) => `/asks${r.ask ? `/${r.ask}` : ""}${r.q ? `?q=${r.q}` : ""}`,
+      isNavigation: (a, b) => a.ask !== b.ask,
+      onChange: (r) => seen.push(r),
+    });
+    return { calls, t, nav, seen };
+  };
+
+  it("a query typed just before a pick is flushed to the entry being left, then the pick pushes", () => {
+    const { calls, t, nav } = setup();
+    nav.navigate({ q: "redis" }, false, true);
+    expect(calls).toEqual([]);
+    nav.navigate({ ask: "x" });
+    expect(calls).toEqual(["replace /asks?q=redis", "push /asks/x?q=redis"]);
+    t.fire();
+    expect(calls.length).toBe(2);
+  });
+
+  it("Back cancels a pending write, so it cannot overwrite the restored entry", () => {
+    const { calls, t, nav, seen } = setup({ ask: "x" });
+    nav.navigate({ q: "redis" }, false, true);
+    nav.pop({ ask: "older" });
+    t.fire();
+    expect(calls).toEqual([]);
+    expect(nav.get()).toEqual({ ask: "older" });
+    expect(seen.at(-1)).toEqual({ ask: "older" });
+  });
+
+  it("state changes at once while the typed URL waits", () => {
+    const { calls, nav, seen } = setup();
+    nav.navigate({ q: "r" }, false, true);
+    expect(seen.at(-1)).toEqual({ q: "r" });
+    expect(calls).toEqual([]);
   });
 });
 

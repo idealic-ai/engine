@@ -30,6 +30,7 @@
   --hl-string: #2f6b3a;
   --hl-number: #9a4a12;
   --hl-comment: #5c6878;
+  --hl-label: #5c6878;
   --hl-title: #2c5579;
   --hl-type: #805300;
   --hl-attr: #36597f;
@@ -73,6 +74,7 @@
     --hl-string: #9fd4a6;
     --hl-number: #f0b27a;
     --hl-comment: #8592a3;
+    --hl-label: #8592a3;
     --hl-title: #9cc0e4;
     --hl-type: #e0c27a;
     --hl-attr: #8fb8e0;
@@ -111,6 +113,7 @@
   --hl-string: #9fd4a6;
   --hl-number: #f0b27a;
   --hl-comment: #8592a3;
+  --hl-label: #8592a3;
   --hl-title: #9cc0e4;
   --hl-type: #e0c27a;
   --hl-attr: #8fb8e0;

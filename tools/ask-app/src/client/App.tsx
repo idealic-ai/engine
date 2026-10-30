@@ -61,8 +61,8 @@ import {
 import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type Brief, type Trust } from "./related.ts";
 import { Inline, PaneContext, Rich, TicketLink, inlineTokens } from "./rich.tsx";
 import { CodeBlock } from "./highlight.tsx";
-import { afterSendNext } from "./next.ts";
-import { createUrlSync } from "./urlsync.ts";
+import { noticeFor, postSendStep, sendOutcome, type SentNotice } from "./next.ts";
+import { createRouteNav, createUrlSync } from "./urlsync.ts";
 import { blocks, displayTitle } from "./md.ts";
 import { RELOAD_RESTARTED, RELOAD_UPDATED, authedFetch, recordBuild, refreshToken, type Authed } from "./token.ts";
 import { clearUnsent, loadUnsent, saveUnsent } from "./unsent.ts";
@@ -187,17 +187,15 @@ export function App() {
   // Back and Forward restore the screen from the URL; a legacy #seat/id link is rewritten in place.
   // SHOULD-1 (ASKSEARCH): the URL is written outside the state updater, through a writer that
   // debounces a keystroke's write and drops a write the browser throws on (WebKit's rate limit).
-  const routeNow = useRef(route);
   const urlSync = useMemo(
     () => createUrlSync({ pushState: (d, u, url) => history.pushState(d, u, url), replaceState: (d, u, url) => history.replaceState(d, u, url) }, { set: (fn, ms) => setTimeout(fn, ms), clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) }),
     [],
   );
+  // The flush-before-push and cancel-on-Back rules live in createRouteNav (tested in search-review.test.ts).
+  const nav = useMemo(() => createRouteNav(urlSync, route, { serialize: serializeRoute, isNavigation, onChange: setRoute }), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const routeNow = useMemo(() => ({ get current() { return nav.get(); } }), [nav]);
   useEffect(() => {
-    const pop = () => {
-      urlSync.cancel();
-      routeNow.current = parseRoute(location.pathname, location.search, location.hash);
-      setRoute(routeNow.current);
-    };
+    const pop = () => nav.pop(parseRoute(location.pathname, location.search, location.hash));
     addEventListener("popstate", pop);
     const canonical = serializeRoute(route);
     if (canonical !== location.pathname + location.search + location.hash) urlSync.now(canonical, false);
@@ -211,18 +209,7 @@ export function App() {
    * Move to a new state: pushed when Back should undo it (or when asked), replaced otherwise. The
    * state changes at once; with `typing` the URL write waits for a pause in the keystrokes.
    */
-  const navigate = useCallback((patch: Partial<Route>, push?: boolean, typing = false) => {
-    const cur = routeNow.current;
-    const next = { ...cur, ...patch };
-    routeNow.current = next;
-    setRoute(next);
-    const url = serializeRoute(next);
-    if (typing) return urlSync.later(url);
-    const pushIt = push ?? isNavigation(cur, next);
-    // A push first lands any pending query on the entry it leaves, so Back returns to what was typed.
-    if (pushIt) urlSync.flush();
-    urlSync.now(url, pushIt);
-  }, [urlSync]);
+  const navigate = useCallback((patch: Partial<Route>, push?: boolean, typing = false) => nav.navigate(patch, push, typing), [nav]);
   const setFilter = (f: Filter) => navigate({ filter: f });
   const setGroupBy = (g: GroupBy) => navigate({ group: g });
   // IDE-304: the search text lives in ?q=; a keystroke replaces the history entry, never pushes one.
@@ -274,6 +261,12 @@ export function App() {
   const current = named ? asks.find((a) => askRef(a) === named) : view === "asks" ? asks.find((a) => askRef(a) === inFilter[0]?.ref) : undefined;
   const currentRef = current ? askRef(current) : undefined;
   shownAsk.current = currentRef;
+  // MUST-FIX-1 (ASKHL): the post-send line lives here, keyed by the sent ref, so the card's
+  // ref+revision remount after the reload does not drop it; it goes once another ask is on screen.
+  const [sentNotice, setSentNotice] = useState<SentNotice | undefined>();
+  useEffect(() => {
+    if (sentNotice && sentNotice.ref !== currentRef) setSentNotice(undefined);
+  }, [currentRef]); // eslint-disable-line react-hooks/exhaustive-deps
   const askMissing = loaded && !!named && !current;
   const brief = current ? briefFor(current) : undefined;
   const proofHit = route.proof ? proofs.list?.proofs.find((p) => p.key === route.proof) : undefined;
@@ -471,10 +464,13 @@ export function App() {
                     focusFork={route.fork}
                     onForkHash={setForkHash}
                     onOpenAsk={pick}
-                    onSendNext={(sent) => {
-                      const r = afterSendNext(sent, inFilter, askRef(current));
-                      if (r.go) pick(r.go);
-                      return r;
+                    sentNotice={noticeFor(sentNotice, currentRef)}
+                    onSent={(text, next) => {
+                      // Read when the send resolves: the operator may have opened another ask meanwhile.
+                      const step = postSendStep({ sentRef: askRef(current), text, next, routeAsk: routeNow.current.ask, shownRef: shownAsk.current, rows: inFilter });
+                      if (step.go) return pick(step.go);
+                      if (step.notice) setSentNotice(step.notice);
+                      if (step.pin) navigate({ ask: step.pin }, false);
                     }}
                   />
                 ) : (
@@ -807,8 +803,8 @@ export function noteServerKeepsProvisional(v: boolean) {
 
 
 export function AskDetail({
-  ask, all, onChanged, brief, paneOpen, onToggleBrief, focusFork, onForkHash, provisionalKept, onOpenAsk, startChanging, onSendNext,
-}: { ask: StoredAsk; all: StoredAsk[]; onChanged: () => void; brief?: Brief; paneOpen?: boolean; onToggleBrief?: () => void; focusFork?: string; onForkHash?: (label: string) => void; provisionalKept?: boolean; onOpenAsk?: (ref: string) => void; /** Open the card already changing its answer (IDE-304). */ startChanging?: boolean; /** Send & next (IDE-304): called once a Send & next send settles; it opens the next waiting ask or says none is left. */ onSendNext?: (sent: boolean) => { go?: string; notice?: string } }) {
+  ask, all, onChanged, brief, paneOpen, onToggleBrief, focusFork, onForkHash, provisionalKept, onOpenAsk, startChanging, onSent, sentNotice,
+}: { ask: StoredAsk; all: StoredAsk[]; onChanged: () => void; brief?: Brief; paneOpen?: boolean; onToggleBrief?: () => void; focusFork?: string; onForkHash?: (label: string) => void; provisionalKept?: boolean; onOpenAsk?: (ref: string) => void; /** Open the card already changing its answer (IDE-304). */ startChanging?: boolean; /** Called once /api/send accepted this ask, with the delivery line; `next` for Send & next. App moves on or keeps the line. */ onSent?: (text: string, next: boolean) => void; /** App's post-send line for this ask (it outlives this card's remount). */ sentNotice?: string }) {
   const [replacedBy, setReplacedBy] = useState<string | undefined>();
   const superseded = supersededInfo(ask.header);
   const replaces = supersedesList(ask.header);
@@ -839,7 +835,6 @@ export function AskDetail({
   const [notice, setNotice] = useState("");
   const [moved, setMoved] = useState(start.notice);
   const [confirmSend, setConfirmSend] = useState<{ msg: string; kind: SendKind; next?: boolean } | undefined>();
-  const [nextNotice, setNextNotice] = useState("");
   useEffect(() => {
     if (editable) saveUnsent(keyFor(changing), { revision, values, text, note });
   }, [editable, changing, ref, revision, values, text, note]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -931,7 +926,6 @@ export function AskDetail({
   async function act(kind: "draft" | "draft-decline" | "discard" | "send-now", next = false) {
     if (overrule && kind === "send-now") return sendOverrule("send", next);
     setConfirmSend(undefined);
-    setNextNotice("");
     setBusy(true);
     setResult("");
     // Operator 01:29: a token refused after a server restart is refreshed and the request retried once;
@@ -960,19 +954,18 @@ export function AskDetail({
       if (kind === "send-now") {
         const s = await post("/api/send", { refs: [askRef(ask)] }, keep);
         if (gaveUp(s)) return;
-        const p = s.json.pushes?.[0];
-        const sent = s.status === 200 && !s.json.refused?.length;
-        if (s.json.refused?.length) setResult(`Refused: ${s.json.refused[0].error}`);
-        else {
-          clearUnsent(keyFor(changing));
-          if (p) setResult(p.delivery.status === "delivered" ? `Queued at ${p.seat}, not read yet. It turns "read" when the seat runs engine ask read.` : `Saved, but ${p.delivery.status} (${p.delivery.reason ?? ""}). The asker's /next picks it up from the file.`);
+        // SHOULD-1 (ASKHL): only a 200 with nothing refused is sent. Anything else shows the server's
+        // words, keeps the unsent copy, and never moves on.
+        const out = sendOutcome(s.status, s.json);
+        if (!out.sent) {
+          keep();
+          setResult(out.text);
+          return onChanged();
         }
+        clearUnsent(keyFor(changing));
         onChanged();
-        // Send & next: only a send the server accepted moves on; a refused or stale one stays with its error.
-        if (next && sent) {
-          const r = onSendNext?.(true);
-          if (r?.notice) setNextNotice(r.notice);
-        }
+        if (onSent) onSent(out.text, next);
+        else if (out.text) setResult(out.text);
         return;
       } else setResult("Draft saved in the file. Nothing has been sent: use Send batch at the top.");
       onChanged();
@@ -1203,7 +1196,7 @@ export function AskDetail({
             <textarea id={`${changing ? "change-note" : "note"}-${ask.header.id}`} rows={2} placeholder="Optional. To decline, write the reason here." value={note} onChange={(e) => setNote(e.target.value)} />
             <p className="actions">
               <button className="btn primary" disabled={busy || nothing} onClick={askSend}>{nothing ? "Send answers" : picked ? `Send ${picked} answer${picked === 1 ? "" : "s"}` : "Send your notes"}</button>
-              {onSendNext && <button className="btn" disabled={busy || nothing} onClick={() => clickSend("send", true)} title="Sends exactly as Send does, then opens the next ask in the list that is waiting on you">Send &amp; next</button>}
+              {onSent && <button className="btn" disabled={busy || nothing} onClick={() => clickSend("send", true)} title="Sends exactly as Send does, then opens the next ask in the list that is waiting on you">Send &amp; next</button>}
               {/* Partial on purpose: never the "N questions unanswered" confirm; while the server does not keep `provisional`, an honest confirm instead. */}
               {/* IDE-339: an overrule cannot be drafted, so the draft sends are not offered on one. */}
               {overrule && <button className="btn" disabled={busy || !note.trim()} title="Declining needs a reason: write it in the note" onClick={() => sendOverrule("decline")}>Send a decline</button>}
@@ -1255,7 +1248,7 @@ export function AskDetail({
           </>
         )}
         {result && <p className="result" role="status">{result}</p>}
-        {nextNotice && <p className="next-notice muted" role="status">{nextNotice}</p>}
+        {sentNotice && <p className="result sent-notice" role="status">{sentNotice}</p>}
         {replacedBy && <p className="result"><AskLink to={replacedBy} onOpen={onOpenAsk}>Open the new ask: {replacedBy}</AskLink></p>}
         <AskDetails ask={ask} />
       </section>
@@ -1712,10 +1705,6 @@ export function LensMark({ read, id }: { read: PanelRead; id: string }) {
   );
 }
 
-/**
- * An option's description (fence round). One paragraph renders exactly as before, inline; anything
- * more (paragraphs, a fenced code block kept verbatim by the parser) goes through the block renderer.
- */
 /** The answer block exactly as it was recorded, shown as highlighted JSON. */
 export function RecordedAnswer({ answer }: { answer: unknown }) {
   return <CodeBlock code={JSON.stringify(answer, null, 2) ?? ""} lang="json" />;
@@ -1726,6 +1715,10 @@ export function TurnText({ text }: { text: string }) {
   return /^\s*(?:`{3,}|~{3,})/m.test(text) ? <Rich text={text} className="rich turn-md" /> : <Inline text={text} />;
 }
 
+/**
+ * An option's description (fence round). One paragraph renders exactly as before, inline; anything
+ * more (paragraphs, a fenced code block kept verbatim by the parser) goes through the block renderer.
+ */
 export function OptionDescription({ text }: { text: string }) {
   const bs = blocks(text);
   if (bs.length <= 1 && (bs[0]?.t ?? "p") === "p") return <span className="opt-desc"><Inline text={text} /></span>;

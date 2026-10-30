@@ -137,7 +137,7 @@ pre.code code { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Fenced code (IDE-304): a quiet label over the block, token colours from the --hl-* Slate tokens. */
 .codeblock { position: relative; margin: 0 0 10px; min-width: 0; max-width: 100%; }
 .codeblock > pre.code { margin: 0; padding-top: 16px; }
-.code-lang { position: absolute; top: 4px; right: 8px; font-family: var(--mono); font-size: 10px; line-height: 1; letter-spacing: 0.04em; text-transform: lowercase; color: var(--ink-3); user-select: none; pointer-events: none; }
+.code-lang { position: absolute; top: 4px; right: 8px; font-family: var(--mono); font-size: 10px; line-height: 1; letter-spacing: 0.04em; text-transform: lowercase; color: var(--hl-label); user-select: none; pointer-events: none; }
 .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag, .hljs-section { color: var(--hl-keyword); }
 .hljs-string, .hljs-regexp, .hljs-symbol, .hljs-template-tag, .hljs-char.escape_ { color: var(--hl-string); }
 .hljs-number, .hljs-bullet, .hljs-link { color: var(--hl-number); }

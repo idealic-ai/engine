@@ -8,7 +8,7 @@
  * strings, and React renders the tree (escaping the text again). Anything else in the output, which
  * highlight.js does not produce, drops the block to plain text instead of being trusted.
  */
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import hljs from "highlight.js/lib/core";
 import bash from "highlight.js/lib/languages/bash";
 import css from "highlight.js/lib/languages/css";
@@ -45,7 +45,7 @@ const ALIASES: Record<string, keyof typeof LANGS> = {
 /** The colour tokens the highlighter reads; theme.css defines each in light and both dark blocks. */
 export const HL_TOKENS = [
   "hl-keyword", "hl-string", "hl-number", "hl-comment", "hl-title", "hl-type",
-  "hl-attr", "hl-meta", "hl-variable", "hl-addition", "hl-deletion",
+  "hl-attr", "hl-meta", "hl-variable", "hl-addition", "hl-deletion", "hl-label",
 ] as const;
 
 export function resolveLang(tag: string | undefined): keyof typeof LANGS | undefined {
@@ -103,7 +103,8 @@ function render(nodes: HlNode[]): ReactNode[] {
 
 /** A fenced block: a quiet language label, then the code, highlighted when its tag is one we know. */
 export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
-  const tree = highlightTree(code, lang);
+  // Every App render reaches here (a search keystroke re-renders the pane); the tree only changes with the code.
+  const tree = useMemo(() => highlightTree(code, lang), [code, lang]);
   const language = resolveLang(lang);
   return (
     <div className="codeblock">
