@@ -17,6 +17,7 @@ import {
   type Card,
   type ParsedAsk,
   type PanelRead,
+  type FollowupKind,
 } from "../lib/format.ts";
 import {
   acceptAll,
@@ -74,6 +75,7 @@ import { conflictStep, hopWords, pathOf, supersededInfo, supersedesList, withdra
 import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
 import { highlight, isTypingTarget, searchTerms, sidebarView, snippet, type Hay } from "./search.ts";
+import { FOLLOWUP_KIND_OPTIONS, followupBody, followupConflict, followupLine, followupOutcome, followupResultFor, followupsOf, isAddressed, mayFollowUp, rebaseAfterFollowup, rememberFollowupResult } from "./followup.ts";
 import { CHANGE_WORDING, OVERRULE_WORDING, cancelDiscards, changeAnswerStart, changeMode, draftBody, mayChangeAnswer, overruleBody, overruleOutcome, planClick, requestSend, sendRoute, staleChangeKeys, unsentKey, withoutGrant, type CardAction } from "./reanswer.ts";
 import { BroadcastFeed, BroadcastRows, ProofRows, ProofStatus, useBroadcasts, useProofs } from "./feeds.tsx";
 
@@ -812,7 +814,8 @@ export function AskDetail({
   const open = (ask.header.status ?? "open") === "open";
   // IDE-304: the operator may reopen their own recorded answer and send a new one in its place.
   const mayChange = mayChangeAnswer(ask);
-  // IDE-339: on a seat's ruling the same form is an overrule, sent straight to /api/answer.
+  // IDE-339: on a seat's ruling the same form is an overrule: Send goes straight to /api/answer, and
+  // (ASKFOLLOWUP) Save draft keeps the operator's draft over the ruling, which Send batch then overrules with.
   const overrule = changeMode(ask) === "overrule";
   const ref = askRef(ask);
   // A change in progress survives a remount: its unsent edits, or the operator's saved change draft.
@@ -829,7 +832,8 @@ export function AskDetail({
   const [values, setValues] = useState<Values>(start.values);
   const [text, setText] = useState<Record<string, string>>(start.text);
   const [note, setNote] = useState(start.note);
-  const [result, setResult] = useState("");
+  // ASKFOLLOW: a follow-up's 200 bumps the revision and so remounts this card; its result is kept for the new one.
+  const [result, setResult] = useState(() => followupResultFor(ref, revision) ?? "");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [moved, setMoved] = useState(start.notice);
@@ -839,18 +843,26 @@ export function AskDetail({
   const [needOpen, setNeedOpen] = useState(!!keptNeed);
   const [needKind, setNeedKind] = useState("proof:best");
   const [needText, setNeedText] = useState(keptNeed);
-  /** The one copy every save writes: picks, notes and the request text. */
-  const snap = () => cardUnsent(revision, { values, text, note, need: needText });
+  // ASKFOLLOW: the follow-up's text is kept with the picks too, so a remount or a reload brings it back.
+  const followable = mayFollowUp(ask);
+  const [keptFollow] = useState(() => (followable ? loadUnsent(ref)?.followup ?? "" : ""));
+  const [followOpen, setFollowOpen] = useState(!!keptFollow);
+  const [followKind, setFollowKind] = useState<FollowupKind>("question");
+  const [followFork, setFollowFork] = useState("");
+  const [followText, setFollowText] = useState(keptFollow);
+  const [attachPicks, setAttachPicks] = useState(false);
+  /** The one copy every save writes: picks, notes, the request text and the follow-up text. */
+  const snap = () => cardUnsent(revision, { values, text, note, need: needText, followup: followText });
   useEffect(() => {
     if (editable) saveUnsent(keyFor(changing), snap());
-  }, [editable, changing, ref, revision, values, text, note, needText]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [editable, changing, ref, revision, values, text, note, needText, followText]); // eslint-disable-line react-hooks/exhaustive-deps
   /**
    * S-1: a 409, as supersede.ts conflictStep words it. App adds nothing: it keeps where the step says
    * (a withdrawal under the open form's key, which WithdrawnBar reads, NIT-2), names a replacement,
    * reloads so a withdrawn card redraws with the kept copy in sight, and shows the step's text.
    */
-  const onConflict = (json: Parameters<typeof conflictStep>[0], here: string) => {
-    const s = conflictStep(json, here, unsentKey(ref, false));
+  const onConflict = (json: Parameters<typeof conflictStep>[0], here: string) => applyStep(conflictStep(json, here, unsentKey(ref, false)));
+  const applyStep = (s: ReturnType<typeof conflictStep>) => {
     if (s.keepUnder) saveUnsent(s.keepUnder, snap());
     if (s.replacedBy !== undefined) setReplacedBy(s.replacedBy);
     if (s.reload) onChanged();
@@ -906,7 +918,33 @@ export function AskDetail({
     }
   }, [focusFork, ask]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /** IDE-339: an overrule is sent at once through /api/answer (the store takes no draft over a seat's answer). */
+  /**
+   * ASKFOLLOW: Send follow-up. A 409 takes conflictStep's step (followupConflict adds a closed ask's
+   * words); a 200 re-bases the unsent copy onto the new revision, drops the sent text, keeps the result
+   * for the card that remounts at that revision, and re-reads. A failed one keeps the text and stays.
+   */
+  async function sendFollowup() {
+    setBusy(true);
+    setResult("");
+    const keep = () => saveUnsent(keyFor(false), snap());
+    try {
+      const r = await post("/api/followup", followupBody(ask, { kind: followKind, fork: followFork, text: followText, attachPicks }, answers), keep);
+      if (r.restarted) return setResult(r.restarted === "updated" ? RELOAD_UPDATED : RELOAD_RESTARTED);
+      if (r.status === 409) {
+        return applyStep(followupConflict(r.json, keyFor(false), unsentKey(ref, false)));
+      }
+      const out = followupOutcome(ask, r.status, r.json);
+      if (!out.sent) return setResult(out.text);
+      saveUnsent(keyFor(false), rebaseAfterFollowup(snap(), revision, out.revision));
+      rememberFollowupResult(ref, out.revision, out.text);
+      setResult(out.text);
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** IDE-339: an overrule's Send and decline go at once through /api/answer, which also clears a saved overrule draft. */
   async function sendOverrule(kind: "send" | "decline", next = false) {
     setConfirmSend(undefined);
     setBusy(true);
@@ -1168,6 +1206,7 @@ export function AskDetail({
 
       <section className="answerbar" id={`answerbar-${ask.header.id}`}>
         {withdrawn && <WithdrawnBar ask={ask} w={withdrawn} />}
+        <FollowupList ask={ask} />
         {(isSettled(ask) || provisional) && !changing && (
           <>
             {ruledBelow(ask) ? (
@@ -1210,7 +1249,7 @@ export function AskDetail({
             <p className="muted sends">
               {nothing
                 ? "Nothing picked yet. Suggestions are not sent."
-                : `Sending settles this ask: the asker gets ${picked} of ${visible.length} fork${visible.length === 1 ? "" : "s"} answered${Object.keys(answers).length > picked ? " and your notes" : ""}${unanswered.length ? `, and ${unanswered.join(", ")} reach${unanswered.length === 1 ? "es" : ""} the asker unanswered. The ask closes; nothing here is left open` : ""}.${overrule ? "" : " Save draft keeps it in the file and sends nothing."}`}
+                : `Sending settles this ask: the asker gets ${picked} of ${visible.length} fork${visible.length === 1 ? "" : "s"} answered${Object.keys(answers).length > picked ? " and your notes" : ""}${unanswered.length ? `, and ${unanswered.join(", ")} reach${unanswered.length === 1 ? "es" : ""} the asker unanswered. The ask closes; nothing here is left open` : ""}.${overrule ? " Save draft keeps it in the file and sends nothing; sending that draft overrules." : " Save draft keeps it in the file and sends nothing."}`}
             </p>
             <label className="field-label" htmlFor={`${changing ? "change-note" : "note"}-${ask.header.id}`}>Note to the asker</label>
             <textarea id={`${changing ? "change-note" : "note"}-${ask.header.id}`} rows={2} placeholder="Optional. To decline, write the reason here." value={note} onChange={(e) => setNote(e.target.value)} />
@@ -1218,16 +1257,17 @@ export function AskDetail({
               <button className="btn primary" disabled={busy || nothing} onClick={askSend}>{nothing ? "Send answers" : picked ? `Send ${picked} answer${picked === 1 ? "" : "s"}` : "Send your notes"}</button>
               {onSent && <button className="btn" disabled={busy || nothing} onClick={() => clickSend("send", true)} title="Sends exactly as Send does, then opens the next ask in the list that is waiting on you">Send &amp; next</button>}
               {/* Partial on purpose: never the "N questions unanswered" confirm; while the server does not keep `provisional`, an honest confirm instead. */}
-              {/* IDE-339: an overrule cannot be drafted: writeDraft takes a draft over the operator's own answer only,
-                  so Send as draft, Need something first, Save draft and Draft a decline are hidden on one;
-                  they return when the ASKFOLLOWUP round widens writeDraft to a seat's ruling. */}
+              {/* IDE-339: Send as draft and Need something first are provisional rounds, and Draft a decline is
+                  sent at once as "Send a decline", so all three stay off an overrule. ASKFOLLOWUP widened
+                  writeDraft to the operator over a seat's ruling, so Save draft is offered on one. */}
               {!overrule && <button className="btn" disabled={busy || nothing} onClick={() => clickSend("draft")} title={kept ? "Sends your picks marked as not final, with a note saying so; the ask stays open for a second round" : "Today this closes the ask with your picks and a 'not final' note; the asker should come back with a second round"}>Send as draft</button>}
               {!overrule && <button className="btn" disabled={busy} aria-expanded={needOpen} aria-controls={`need-${ask.header.id}`} onClick={() => setNeedOpen(!needOpen)}>Need something first ▾</button>}
-              {!overrule && <button className="btn quiet" disabled={busy || nothing} onClick={() => act("draft")}>{ask.draft ? "Update draft" : "Save draft"}</button>}
+              <button className="btn quiet" disabled={busy || nothing} onClick={() => act("draft")}>{ask.draft ? "Update draft" : "Save draft"}</button>
               {/* One decline button: on an overrule sendRoute sends it at once through /api/answer; elsewhere it is drafted. */}
               <button className="btn" disabled={busy || !note.trim()} title="Declining needs a reason: write it in the note" onClick={() => act("draft-decline")}>{overrule ? "Send a decline" : "Draft a decline"}</button>
               {ask.draft && <button className="btn" disabled={busy} onClick={() => act("discard")}>Discard draft</button>}
               {changing && <button className="btn quiet" disabled={busy} onClick={cancelChange}>Cancel</button>}
+              {followable && <button className="btn" disabled={busy} aria-expanded={followOpen} aria-controls={`followup-${ask.header.id}`} onClick={() => setFollowOpen(!followOpen)} title="Ask the asker something, or ask it to do something first; the ask stays open">Send follow-up ▾</button>}
             </p>
             {confirmSend && (
               <div className="confirm-send" role="alertdialog" aria-label="Confirm sending a partial answer">
@@ -1257,6 +1297,37 @@ export function AskDetail({
                 <p className="actions">
                   <button className="btn primary" disabled={busy || !needText.trim()} onClick={() => clickSend("request")} title={kept ? "Sends the request as a provisional answer" : "Today this closes the ask with the request line in the note; the asker should come back with a second round"}>Send request</button>
                   <button className="btn quiet" onClick={() => setNeedOpen(false)}>Cancel</button>
+                </p>
+              </div>
+            )}
+            {followable && followOpen && (
+              <div className="need followup" id={`followup-${ask.header.id}`}>
+                <span className="field-label">Follow up with the asker</span>
+                <span className="followup-kinds" role="radiogroup" aria-label="Kind of follow-up">
+                  {FOLLOWUP_KIND_OPTIONS.map((o) => (
+                    <label key={o.kind} title={o.hint}>
+                      <input type="radio" name={`followup-kind-${ask.header.id}`} value={o.kind} checked={followKind === o.kind} onChange={() => setFollowKind(o.kind)} />
+                      <span>{o.label}</span>
+                    </label>
+                  ))}
+                </span>
+                <label className="field-label" htmlFor={`followup-fork-${ask.header.id}`}>Which question you mean</label>
+                <select id={`followup-fork-${ask.header.id}`} value={followFork} onChange={(e) => setFollowFork(e.target.value)}>
+                  <option value="">The whole ask</option>
+                  {ask.questions.map((q, i) => <option key={questionKey(q, i)} value={questionKey(q, i)}>{`${forkLabel(q, i)}: ${q.title}`}</option>)}
+                </select>
+                <label className="field-label" htmlFor={`followup-text-${ask.header.id}`}>In your words</label>
+                <textarea id={`followup-text-${ask.header.id}`} rows={2} placeholder={followKind === "first" ? "For example: run the dry-run migration and say what breaks" : "For example: what does NO hold the release for?"} value={followText} onChange={(e) => setFollowText(e.target.value)} />
+                <label className="followup-picks">
+                  <input type="checkbox" checked={attachPicks && !nothing} disabled={nothing} onChange={(e) => setAttachPicks(e.target.checked)} />
+                  <span>{nothing ? "No picks to attach yet" : `Attach your current picks (${picked} pick${picked === 1 ? "" : "s"}${Object.keys(answers).length > picked ? " and your fork notes" : ""}) as context`}</span>
+                </label>
+                <p className="muted need-preview">
+                  {FOLLOWUP_KIND_OPTIONS.find((o) => o.kind === followKind)?.hint} Nothing is answered: your picks stay unsent here.
+                </p>
+                <p className="actions">
+                  <button className="btn primary" disabled={busy || !followText.trim()} onClick={() => void sendFollowup()}>Send follow-up</button>
+                  <button className="btn quiet" onClick={() => setFollowOpen(false)}>Cancel</button>
                 </p>
               </div>
             )}
@@ -1340,6 +1411,26 @@ export function EarlierAnswers({ ask }: { ask: StoredAsk }) {
       </ol>
     </details>
     </>
+  );
+}
+
+/** ASKFOLLOW: the follow-ups sent on this ask, oldest first, each with its delivery and whether the asker addressed it. */
+export function FollowupList({ ask }: { ask: StoredAsk }) {
+  const list = followupsOf(ask);
+  if (!list.length) return null;
+  const open = list.filter((f) => !isAddressed(f)).length;
+  return (
+    <details className="followups" open={open > 0}>
+      <summary>Follow-ups ({list.length}){open ? ` · ${open} not addressed yet` : ""}</summary>
+      <ol>
+        {list.map((f) => (
+          <li key={f.n} className={isAddressed(f) ? "addressed" : "pending"}>
+            <p className="muted">{followupLine(ask, f)}{f.at && <> · <When at={f.at} /></>}</p>
+            <p><TurnText text={f.text} /></p>
+          </li>
+        ))}
+      </ol>
+    </details>
   );
 }
 

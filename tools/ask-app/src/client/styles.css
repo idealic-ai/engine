@@ -447,3 +447,11 @@ details.round ul { margin: 6px 0; padding-left: 1.2em; }
 .earlier-answers .ea-head { margin: 0; }
 .history-error { margin: 8px 0; font-size: 14px; color: var(--warn); overflow-wrap: anywhere; }
 .chip.grant { margin-left: 4px; }
+/* ASKFOLLOW: the follow-up form reuses .need; the kinds sit on one line, earlier follow-ups are a quiet list. */
+.followup-kinds { display: flex; flex-wrap: wrap; gap: 12px; }
+.followup-kinds label, .followup-picks { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; }
+.followups { margin: 8px 0; font-size: 14px; }
+.followups ol { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 6px; }
+.followups li { border-left: 2px solid var(--line-strong); padding-left: 10px; overflow-wrap: anywhere; }
+.followups li.pending { border-left-color: var(--warn); }
+.followups li p { margin: 0; }

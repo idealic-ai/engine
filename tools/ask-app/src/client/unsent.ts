@@ -25,6 +25,7 @@ export function loadUnsent(ref: string, s: Store | undefined = storage()): Unsen
     const u = JSON.parse(raw) as Unsent;
     if (typeof u?.revision !== "string" || typeof u.note !== "string" || !u.values || !u.text) return undefined;
     if (u.need !== undefined && typeof u.need !== "string") return undefined;
+    if (u.followup !== undefined && typeof u.followup !== "string") return undefined;
     memory.set(ref, u);
     return u;
   } catch {
@@ -34,7 +35,7 @@ export function loadUnsent(ref: string, s: Store | undefined = storage()): Unsen
 
 export function saveUnsent(ref: string, u: Unsent, s: Store | undefined = storage()) {
   memory.set(ref, u);
-  const empty = !Object.keys(u.values).length && !Object.values(u.text).some((t) => t.trim()) && !u.note.trim() && !u.need?.trim();
+  const empty = !Object.keys(u.values).length && !Object.values(u.text).some((t) => t.trim()) && !u.note.trim() && !u.need?.trim() && !u.followup?.trim();
   try {
     if (empty) s?.removeItem(KEY(ref));
     else s?.setItem(KEY(ref), JSON.stringify(u));
@@ -57,9 +58,9 @@ export function forgetMemory() {
   memory.clear();
 }
 
-/** What a card keeps: its picks, notes and request text at this revision; a blank request is left out. */
-export function cardUnsent(revision: string, s: { values: Values; text: Record<string, string>; note: string; need: string }): Unsent {
-  return { revision, values: s.values, text: s.text, note: s.note, ...(s.need.trim() ? { need: s.need } : {}) };
+/** What a card keeps: its picks, notes, request and follow-up text at this revision; a blank request or follow-up is left out. */
+export function cardUnsent(revision: string, s: { values: Values; text: Record<string, string>; note: string; need: string; followup?: string }): Unsent {
+  return { revision, values: s.values, text: s.text, note: s.note, ...(s.need.trim() ? { need: s.need } : {}), ...(s.followup?.trim() ? { followup: s.followup } : {}) };
 }
 
 /** An option's label for a stored pick (its code, or its label when it has none); the value itself if no option matches. */
@@ -75,7 +76,7 @@ function labelOf(opts: AskOption[], v: string): string | undefined {
 /**
  * The operator's unsent picks, notes and request on a withdrawn ask: one line per fork by its name,
  * each pick by its option text (NIT-4: a code alone means nothing once pasted elsewhere), then the
- * note and the request text.
+ * note, the request text and (ASKFOLLOW) the unsent follow-up text.
  */
 export function keptDraftLines(ask: Pick<ParsedAsk, "questions">, u: Unsent): string[] {
   const out: string[] = [];
@@ -89,6 +90,7 @@ export function keptDraftLines(ask: Pick<ParsedAsk, "questions">, u: Unsent): st
   });
   if (u.note.trim()) out.push(`Note: ${u.note.trim()}`);
   if (u.need?.trim()) out.push(`Request: ${u.need.trim()}`);
+  if (u.followup?.trim()) out.push(`Follow-up: ${u.followup.trim()}`);
   return out;
 }
 

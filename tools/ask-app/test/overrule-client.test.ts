@@ -73,11 +73,14 @@ describe("Overrule is offered on a seat-ruled ask", () => {
     }
   });
 
-  it("the overrule form sends through /api/answer and offers no draft sends, which the store refuses on a seat's ruling", async () => {
+  it("the overrule form sends through /api/answer and may Save draft (ASKFOLLOWUP: the store takes the operator's draft over a seat's ruling)", async () => {
     const h = await render(ruled, { startChanging: true });
     expect(h).toContain("Overrule manager:docs");
     expect(h).toMatch(/<button[^>]*>Send a decline<\/button>/);
-    for (const gone of ["Save draft", "Send as draft", "Draft a decline", "Need something first"]) expect(h).not.toContain(gone);
+    expect(h).toMatch(/<button class="btn quiet"[^>]*>Save draft<\/button>/);
+    expect(h).toContain("Save draft keeps it in the file and sends nothing; sending that draft overrules.");
+    // The provisional sends stay off an overrule: a seat's ruling is not a round to keep open.
+    for (const gone of ["Send as draft", "Draft a decline", "Need something first"]) expect(h).not.toContain(gone);
     expect(overruleBody(ruled, "send", { answers: { GO: ["NO"] }, note: "hold" })).toEqual({ seat: "docs:handbook", id: "a1", expectedRevision: 4, answers: { GO: ["NO"] }, note: "hold" });
     expect(overruleBody(ruled, "decline", { answers: {}, note: "not this way" })).toEqual({ seat: "docs:handbook", id: "a1", expectedRevision: 4, decline: "not this way" });
     expect(src("App.tsx")).toContain('post("/api/answer", overruleBody(ask, kind, { answers, note }), keep)');
@@ -101,8 +104,9 @@ describe("an overrule's sends take Send's after-send path (ASKHL fix round)", ()
     expect(fn).not.toContain("onSendNext");
   });
 
-  it("the hidden draft actions say when they come back", () => {
-    expect(src("App.tsx")).toContain("they return when the ASKFOLLOWUP round widens writeDraft");
+  it("ASKFOLLOWUP brought Save draft back; the comment says why the other three stay hidden", () => {
+    expect(src("App.tsx")).not.toContain("they return when the ASKFOLLOWUP round widens writeDraft");
+    expect(src("App.tsx")).toContain("ASKFOLLOWUP widened\n                  writeDraft to the operator over a seat's ruling, so Save draft is offered on one.");
   });
 });
 
@@ -265,9 +269,20 @@ describe("where a card's send goes (SHOULD-3)", () => {
     expect(sendRoute(true, "discard")).toEqual({ endpoint: "/api/discard", kind: "discard", next: false });
   });
 
-  it("an overrule's Save draft takes the draft path, where the store refuses it, never /api/answer as a final answer", () => {
-    // Save draft is hidden on an overrule (pinned above); if it were reached, it must not send as final.
+  it("an overrule's Save draft takes the draft path, where the store keeps it (ASKFOLLOWUP), never /api/answer as a final answer", () => {
+    // Save draft is offered on an overrule (pinned above); it saves, and sends nothing.
     expect(sendRoute(true, "draft")).toEqual({ endpoint: "/api/draft", kind: "draft", next: false });
+    expect(src("reanswer.ts")).not.toMatch(/store takes no draft over a seat's answer|where the store refuses it/);
+  });
+
+  it("an overrule card reopens on its saved draft, overrule mode, with Update draft and Discard draft", async () => {
+    const drafted = stored(head("draft: 2026-10-30T09:00:00.000Z\n") + BODY + block(MGR) + `\n\`\`\`json draft\n${JSON.stringify({ answers: { GO: ["NO"] }, answeredBy: "operator", answeredVia: "browser", basedOn: 4, savedAt: "2026-10-30T09:00:00.000Z" })}\n\`\`\`\n`);
+    expect(drafted.draft?.answers).toEqual({ GO: ["NO"] });
+    const h = await render(drafted);
+    expect(h).toContain("Overrule manager:docs");
+    expect(h).toMatch(/<button class="btn quiet"[^>]*>Update draft<\/button>/);
+    expect(h).toMatch(/<button[^>]*>Discard draft<\/button>/);
+    expect(h).toContain("against revision 4");
   });
 
   it("act()'s sends are routed by sendRoute: act hands an /api/answer route to sendOverrule with its next, and nothing else calls it", () => {

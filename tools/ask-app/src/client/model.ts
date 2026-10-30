@@ -492,7 +492,8 @@ export function sortRuled(rows: Row[]): Row[] {
  * when the revision moved, the forks may have changed, so they are cleared and the notice says so.
  */
 /** `need`: the text typed in "Need something first", kept like the notes (ASKWITHDRAWN-UI MF-1). */
-export type Unsent = { revision: string; values: Values; text: Record<string, string>; note: string; need?: string };
+/** ASKFOLLOW: `followup` is the unsent text of the card's Send follow-up. */
+export type Unsent = { revision: string; values: Values; text: Record<string, string>; note: string; need?: string; followup?: string };
 export function restoreUnsent(
   init: { values: Values; text: Record<string, string>; note: string },
   kept: Unsent | undefined,

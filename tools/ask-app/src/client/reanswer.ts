@@ -38,8 +38,9 @@ export const OVERRULE_WORDING =
   "Sending replaces this seat's ruling with your answer. The asker and the seat that ruled are told it was overruled, and the ruling is kept under Earlier answers.";
 
 /**
- * IDE-339: the /api/answer body for an overrule. The store takes no draft over a seat's answer
- * (writeDraft accepts one only over the operator's own), so an overrule is sent at once, never drafted.
+ * IDE-339: the /api/answer body for an overrule's Send and decline, which go at once. ASKFOLLOWUP
+ * widened writeDraft to the operator over a seat's ruling, so an overrule may also be saved as a draft
+ * (Save draft, through /api/draft); that draft, sent by Send batch, overrules as this body does.
  */
 export function overruleBody(ask: StoredAsk, kind: "send" | "decline", s: { answers: AnswerMap; note: string }) {
   const plain = stripLoopLines(s.note);
@@ -96,18 +97,18 @@ export const unsentKey = (ref: string, changing: boolean) => (changing ? `change
 /** A card's send verbs, for the open form, a change and an overrule alike. */
 export type CardAction = "draft" | "draft-decline" | "discard" | "send-now";
 
-/** Where a card's send goes: /api/answer at once for an overrule, else the draft path (Send then posts /api/send). */
+/** Where a card's send goes: /api/answer at once for an overrule's Send and decline, else the draft path (Send then posts /api/send). */
 export type SendRoute =
   | { endpoint: "/api/answer"; kind: "send" | "decline"; next: boolean }
   | { endpoint: "/api/draft" | "/api/discard"; kind: CardAction; next: boolean };
 
 /**
  * IDE-339 (ASKOVR SHOULD-3): the one place a card send picks its endpoint. An overrule's Send, Send &
- * next and decline go to /api/answer, because the store takes no draft over a seat's answer; every
- * other send drafts first. App's act() dispatches its sends on this. Send as draft and Send request do
- * not come here: they go sendDraft / sendRequest → provisionalSend (loop.ts), which posts /api/draft
- * itself, and neither is offered on an overrule. An overrule's Save draft is hidden too; if reached it
- * takes the draft path, where the store refuses it, rather than going out as a final answer.
+ * next and decline go to /api/answer at once (settling there also clears a saved overrule draft);
+ * every other send drafts first. App's act() dispatches its sends on this. Send as draft and Send
+ * request do not come here: they go sendDraft / sendRequest → provisionalSend (loop.ts), which posts
+ * /api/draft itself, and neither is offered on an overrule. ASKFOLLOWUP: an overrule's Save draft takes
+ * the draft path, where the store now keeps the operator's draft over the ruling; it sends nothing.
  */
 export function sendRoute(overrule: boolean, kind: CardAction, next = false): SendRoute {
   if (overrule && kind === "send-now") return { endpoint: "/api/answer", kind: "send", next };

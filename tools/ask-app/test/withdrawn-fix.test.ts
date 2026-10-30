@@ -84,10 +84,11 @@ describe("MF-1: the request text is kept with the picks", () => {
   it("App saves one snapshot everywhere, and it holds the request text", () => {
     const app = fs.readFileSync(path.join(import.meta.dirname, "../src/client/App.tsx"), "utf8");
     const calls = app.match(/saveUnsent\(/g) ?? [];
-    const viaSnap = app.match(/saveUnsent\([^()]*(?:\([^()]*\))?[^()]*, snap\(\)\)/g) ?? [];
+    // ASKFOLLOW: a copy re-based after a follow-up is still the one snapshot, moved to the new revision.
+    const viaSnap = app.match(/saveUnsent\([^()]*(?:\([^()]*\))?[^()]*, (?:snap\(\)|rebaseAfterFollowup\(snap\(\), [^()]*\))\)/g) ?? [];
     expect(calls.length).toBeGreaterThan(0);
     expect(viaSnap.length).toBe(calls.length);
-    expect(app).toMatch(/const snap = \(\) => cardUnsent\(revision, \{ values, text, note, need: needText \}\);/);
+    expect(app).toMatch(/const snap = \(\) => cardUnsent\(revision, \{ values, text, note, need: needText(?:, followup: followText)? \}\);/);
   });
 });
 
@@ -141,8 +142,11 @@ describe("App says only what the helpers say", () => {
   it("every 409 branch is one call to onConflict", () => {
     const all = app.match(/status === 409/g) ?? [];
     const one = app.match(/if \(r\.status === 409\) return onConflict\(r\.json, keyFor\((?:true|changing)\)\);/g) ?? [];
-    expect(all.length).toBe(2);
-    expect(one.length).toBe(all.length);
+    // ASKFOLLOW: the follow-up's 409 is conflictStep's too, through followupConflict and the same apply step.
+    const follow = app.match(/if \(r\.status === 409\) \{\s*return applyStep\(followupConflict\(r\.json, keyFor\(false\), unsentKey\(ref, false\)\)\);\s*\}/g) ?? [];
+    expect(all.length).toBe(3);
+    expect(one.length + follow.length).toBe(all.length);
+    expect(follow.length).toBe(1);
   });
   it("onConflict applies the step and sets only its text", () => {
     const body = /const onConflict = [^]*?\n {2}\};\n/.exec(app)?.[0] ?? "";
