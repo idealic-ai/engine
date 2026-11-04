@@ -3,15 +3,22 @@
 //
 // Decides, without touching Linear, what /snapshot §3 [6]/[7] would post:
 //   node wave-update.mjs health   < {gates, direction, blocked, mustFixOpen}
-//   node wave-update.mjs project  < {wave, project, lane, existing[], since?, health?, unattended?, selfId?, confirmed?}
+//   node wave-update.mjs project  < {wave, project, lane, existing[], since?, health?, unattended?, selfId?, confirmed?,
+//                                     projectLevel?, bodyFile?}
 //   node wave-update.mjs rollup   < {wave, initiative, manager, updates[], existing[], since?, overrides?, unattended?, confirmed?}
 //
 // Every decision — including a decline — exits 0 with {action, ...}. Malformed input exits 1.
 // `existing` / `updates` are what get_status_updates returned, mapped to {id, body, health,
 // createdAt, project?, url?}. "create" omits id, "edit" passes it, "decline" posts nothing.
+// `projectLevel: true` (a --project run) lets the lane carry no ticket: it renders as the project's
+// own section, "### Project · <name>", beside any ticket lanes. `bodyFile: <path>` (--body-file)
+// makes the approved text in that file the whole body: the renderer reads the bytes itself, so no
+// caller retypes them, appends only the wave marker, still derives the health from the lane's
+// signals, and returns the file's sha256 as approvedSha256.
 // Tests: engine/scripts/tests/test-snapshot-update-sh.sh.
 
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 
 const HEALTHS = ["onTrack", "atRisk", "offTrack"];
 const RANK = { onTrack: 0, atRisk: 1, offTrack: 2 };
@@ -20,6 +27,7 @@ const DIRECTIONS = ["aligned", "rescoped", "drifted"];
 // A local path in a body sent to Linear is unreadable to everyone else and leaks the machine layout.
 const LOCAL_PATH = /(^|[\s(`'"])(\/Users\/|\/home\/|\/private\/|\/tmp\/|~\/)/;
 const LAPSE_PREFIX = "**Override lapsed:**";
+const PROJECT_KEY = "Project"; // the section key of a --project run's own section
 const OVERRIDE_RE = /^\*\*Health set to (onTrack|atRisk|offTrack) by the (.+?) manager \(was (onTrack|atRisk|offTrack)\):\*\* /;
 
 const die = (msg) => { process.stderr.write(`wave-update: ${msg}\n`); process.exit(1); };
@@ -85,7 +93,7 @@ function parseBody(body) {
     if (ov) { overrides.push({ health: ov[1], manager: ov[2], was: ov[3], line }); cur = null; continue; }
     if (line.startsWith(LAPSE_PREFIX)) { cur = null; continue; } // regenerated on every render
     if (cur) { cur.lines.push(line); continue; }
-    if (!sawLead && /^\*\*\d+ (ticket|project)s? .*— health /.test(line)) { sawLead = true; continue; }
+    if (!sawLead && /^\*\*(\d+ (ticket|project)s? |Project update ).*— health /.test(line)) { sawLead = true; continue; }
     if (line.trim() === "") continue;
     return null;
   }
@@ -98,7 +106,15 @@ function parseBody(body) {
   return { sections: parsed, overrides };
 }
 
-function renderLane(lane, health, reason) {
+function renderLane(lane, health, reason, projectName) {
+  if (projectName !== undefined) {
+    // A --project run's own section: no ticket, so no state line.
+    const parts = [`### ${PROJECT_KEY} · ${projectName}`];
+    if (lane.tldr) parts.push(String(lane.tldr).trim());
+    if (lane.commit) parts.push(`Commit: ${lane.commit}`);
+    parts.push(`Health: ${health} — ${reason}`);
+    return parts.join("\n");
+  }
   const head = `### ${lane.ticket} · ${lane.title ?? ""}`.trimEnd();
   const move = lane.stateFrom && lane.stateTo && lane.stateFrom !== lane.stateTo
     ? `${lane.stateFrom} → ${lane.stateTo}` : `Status: ${lane.stateTo ?? lane.stateFrom ?? "unchanged"}`;
@@ -119,10 +135,11 @@ function renderProjectBody(wave, sections, overrides) {
   const ov = overrides.length ? overrides[overrides.length - 1] : null;
   const stands = !!ov && RANK[lanesWorst] <= RANK[ov.was];
   const health = stands ? ov.health : lanesWorst;
-  const n = sections.length;
+  const n = sections.filter((s) => s.key !== PROJECT_KEY).length;
+  const opening = n === 0 ? "Project update this round" : `${n} ticket${n === 1 ? "" : "s"} moved this round`;
   const lead = stands
-    ? `**${n} ticket${n === 1 ? "" : "s"} moved this round — health ${health}, set by the ${ov.manager} manager.**`
-    : `**${n} ticket${n === 1 ? "" : "s"} moved this round — health ${health}.**`;
+    ? `**${opening} — health ${health}, set by the ${ov.manager} manager.**`
+    : `**${opening} — health ${health}.**`;
   const parts = [lead, "", sections.map((s) => s.text).join("\n\n")];
   if (overrides.length) parts.push("", overrides.map((o) => o.line).join("\n"));
   if (ov && !stands) parts.push(`${LAPSE_PREFIX} a lane is now ${lanesWorst}, worse than the ${ov.was} the ${ov.manager} manager ruled on, so the project shows ${lanesWorst}.`);
@@ -151,7 +168,8 @@ function finish(input, decision) {
 function project(input) {
   const { wave, project: proj, lane } = input;
   if (!wave || !proj) die("project mode needs wave and project");
-  if (!lane || !lane.ticket) die("project mode needs lane.ticket");
+  if (!lane || (!lane.ticket && input.projectLevel !== true)) die("project mode needs lane.ticket (or projectLevel: true)");
+  const laneKey = input.projectLevel === true ? PROJECT_KEY : lane.ticket;
 
   let health, reason, healthSource;
   if (input.health !== undefined) {
@@ -164,7 +182,8 @@ function project(input) {
     if (d.health === "underivable") return out({ action: "decline", reason: `health could not be derived: ${d.reason}` });
     ({ health, reason } = d); healthSource = "derived";
   }
-  const laneText = renderLane(lane, health, reason);
+  if (input.bodyFile !== undefined) return approvedBody(input, { health, reason, healthSource });
+  const laneText = renderLane(lane, health, reason, input.projectLevel === true ? proj : undefined);
   if (LOCAL_PATH.test(laneText)) return out({ action: "decline", reason: "the lane text carries a local file path; a project update must read cold, so remove it before posting" });
 
   const { ours, foreign, otherWaves } = partition(input.existing, wave, input.since);
@@ -193,8 +212,8 @@ function project(input) {
     for (const s of p.sections) { const i = sections.findIndex((x) => x.key === s.key); if (i >= 0) sections[i] = s; else sections.push(s); }
     overrides.push(...p.overrides);
   }
-  const mine = { key: lane.ticket, text: laneText, health };
-  const idx = sections.findIndex((s) => s.key === lane.ticket);
+  const mine = { key: laneKey, text: laneText, health };
+  const idx = sections.findIndex((s) => s.key === laneKey);
   if (idx >= 0) sections[idx] = mine; else sections.push(mine);
 
   const r = renderProjectBody(wave, sections, overrides);
@@ -204,6 +223,48 @@ function project(input) {
     type: "project", project: proj, health: r.health, laneHealth: health, lanesWorst: r.lanesWorst,
     overrideStands: r.overrideStands, healthSource, reason, body: r.body,
     ...(retire.length ? { retire } : {}), ...(duplicates.length ? { duplicates } : {}),
+    ...(otherWaves.length ? { ignoredOtherWaves: otherWaves.map((u) => u.id) } : {}),
+  });
+}
+
+// --body-file: the approved text is the body as written. Only trailing whitespace at the very end
+// is dropped, and the wave marker is appended after a blank line (or kept, when the text already
+// ends with this wave's). The health is the one project() derived, or chosen under a confirm.
+function approvedBody(input, { health, reason, healthSource }) {
+  const { wave, project: proj } = input;
+  let raw;
+  try { raw = readFileSync(String(input.bodyFile)); } catch (e) { die(`body file ${JSON.stringify(input.bodyFile)} cannot be read: ${e.code ?? e.message}`); }
+  const approvedSha256 = createHash("sha256").update(raw).digest("hex");
+  let core = raw.toString("utf8").replace(/\s+$/, "");
+  const carried = waveOf(core);
+  if (carried !== null && carried !== wave) return out({ action: "decline", reason: `the approved body ends with the marker of wave ${carried}, not ${wave}; it was approved for another wave`, approvedSha256 });
+  if (carried === wave) core = core.split("\n").slice(0, -1).join("\n").replace(/\s+$/, "");
+  if (!core) return out({ action: "decline", reason: "the approved body is empty", approvedSha256 });
+  if (LOCAL_PATH.test(core)) return out({ action: "decline", reason: "the approved body carries a local file path; a project update must read cold, and an approved body is posted as written, so fix the file and re-approve it", approvedSha256 });
+  const body = `${core}\n\n${marker(wave)}`;
+
+  const { ours, foreign, otherWaves } = partition(input.existing, wave, input.since);
+  if (foreign.length && !ours.length) {
+    const why = input.since
+      ? `project ${proj} already carries an update since this wave began that has no wave marker (posted by /intake or by hand); the rule is one update per project per wave`
+      : `project ${proj} carries an update with no wave marker in the default window, and with no wave start given (--wave <id>@<ISO start>) it cannot be told apart from this wave's`;
+    return out({ action: "decline", reason: why, ids: foreign.map((u) => u.id), approvedSha256 });
+  }
+  if (ours.length > 1) return out({ action: "decline", reason: `project ${proj} carries ${ours.length} updates for wave ${wave}; an approved body will not pick one of them to replace`, ids: ours.map((u) => u.id), approvedSha256 });
+  const existing = ours[0] ?? null;
+  let replacesText = false;
+  if (existing) {
+    const theirs = String(existing.body ?? "").trimEnd().split("\n").slice(0, -1).join("\n").replace(/\s+$/, "");
+    if (theirs !== core) {
+      if (input.unattended) return out({ action: "decline", reason: `update ${existing.id} already holds this wave's text for project ${proj}; an approved body would replace it, and an unattended run does not replace text nobody confirmed it may`, ids: [existing.id], approvedSha256 });
+      replacesText = true;
+    }
+  }
+  return finish(input, {
+    action: existing ? "edit" : "create",
+    ...(existing ? { id: existing.id } : {}),
+    type: "project", project: proj, health, healthSource, reason, body, bodySource: "file", approvedSha256,
+    ...(replacesText ? { replacesText: true } : {}),
     ...(otherWaves.length ? { ignoredOtherWaves: otherWaves.map((u) => u.id) } : {}),
   });
 }

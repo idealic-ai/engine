@@ -16,7 +16,15 @@ set -uo pipefail
 
 source "$(dirname "$0")/test-helpers.sh"
 
-WU="$HOME/.claude/engine/skills/snapshot/assets/wave-update.mjs"
+# Resolved from this suite's own tree, never from $HOME: a candidate's archive run must test the
+# candidate's renderer, not the live install's (¶PTF_A_CANDIDATE_TREE_TESTED_AGAINST_THE_LIVE_ENGINE_IS_NOT_TESTED).
+# SNAPSHOT_WU / SNAPSHOT_SKILL / SNAPSHOT_TEMPLATE override the files, so a planted copy can be shown to go red.
+ENGINE_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+WU="${SNAPSHOT_WU:-$ENGINE_DIR/skills/snapshot/assets/wave-update.mjs}"
+SKILL="${SNAPSHOT_SKILL:-$ENGINE_DIR/skills/snapshot/SKILL.md}"
+TEMPLATE="${SNAPSHOT_TEMPLATE:-$ENGINE_DIR/skills/snapshot/assets/TEMPLATE_SNAPSHOT.md}"
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/snapupd.XXXXXX")"
+trap 'rm -rf "$SCRATCH"' EXIT
 
 run_wu() { node "$WU" "$1" 2>/dev/null; }
 jqr() { printf '%s' "$1" | jq -r "$2"; }
@@ -388,6 +396,175 @@ test_repair_not_declined_unattended() {
     confirmed:{action:"create",health:"atRisk"},
     existing:[{id:"b",body:$b,createdAt:"2026-10-28T10:00:02Z"},{id:"a",body:$a,createdAt:"2026-10-28T10:00:01Z"}]}' | run_wu project)
   assert_eq "decline" "$(jqr "$out" .action)" "SU-22f: with no own duplicate to retire, drift still declines"
+}
+
+# ---------------------------------------------------------------------------------------------
+# IDE-341 items 1 and 2: a manager's project update with no ticket (--project), and an approved
+# body posted as written (--body-file), both still stamped with the wave marker and a derived health.
+# ---------------------------------------------------------------------------------------------
+
+# A project-level lane: no ticket, the PART 5 signals for the project as a whole.
+PLANE='{"tldr":"Wave 3 landed the lease queue and the ask search.","gates":"green","direction":"aligned","blocked":"no","mustFixOpen":0}'
+
+# SU-23 — --project with no ticket: the renderer takes a project-level lane and creates one update.
+test_project_level_create() {
+  local out
+  out=$(jq -n --argjson lane "$PLANE" '{wave:"meta/w3",project:"Product: Orchestration",projectLevel:true,lane:$lane,existing:[]}' | run_wu project)
+  assert_eq "create" "$(jqr "$out" .action)" "SU-23: a ticketless project-level lane creates"
+  assert_eq "onTrack" "$(jqr "$out" .health)" "SU-23b: its health is derived from the project's signals"
+  assert_eq "derived" "$(jqr "$out" .healthSource)" "SU-23c: and says so"
+  assert_contains "### Project · Product: Orchestration" "$(jqr "$out" .body)" "SU-23d: the section is the project's own, keyed Project"
+  assert_contains "Wave 3 landed the lease queue" "$(jqr "$out" .body)" "SU-23e: the TL;DR is in it"
+  assert_not_contains "Status:" "$(jqr "$out" .body)" "SU-23f: no ticket state line on a project section"
+  assert_eq "— wave meta/w3" "$(jqr "$out" '.body | split("\n") | last')" "SU-23g: the wave marker is the last line"
+  assert_contains "Project update this round" "$(jqr "$out" '.body | split("\n") | first')" "SU-23h: the lead does not count a ticket that is not there"
+  # control: without projectLevel, a lane with no ticket is still malformed input (exit 1)
+  local rc
+  jq -n --argjson lane "$PLANE" '{wave:"W",project:"Engine",lane:$lane,existing:[]}' | node "$WU" project >/dev/null 2>&1; rc=$?
+  assert_eq "1" "$rc" "SU-23i: a ticketless lane without projectLevel still exits 1"
+}
+
+# SU-24 — the project section merges beside ticket lanes; a re-post edits it, never duplicates it.
+test_project_level_merges_and_reposts() {
+  local first body out again
+  first=$(printf '{"wave":"W","project":"Engine","lane":%s,"existing":[]}' "$LANE_B" | run_wu project)
+  body=$(jqr "$first" .body)
+  out=$(jq -n --arg b "$body" --argjson lane "$PLANE" '{wave:"W",project:"Engine",projectLevel:true,lane:$lane,existing:[{id:"u1",body:$b}]}' | run_wu project)
+  assert_eq "edit" "$(jqr "$out" .action)" "SU-24: the project section edits this wave's update"
+  assert_contains "### IDE-202" "$(jqr "$out" .body)" "SU-24b: the ticket lane survives"
+  assert_contains "### Project · Engine" "$(jqr "$out" .body)" "SU-24c: the project section is added"
+  assert_eq "atRisk" "$(jqr "$out" .health)" "SU-24d: project health is still the worst section"
+  assert_contains "1 ticket moved this round" "$(jqr "$out" '.body | split("\n") | first')" "SU-24e: the lead counts tickets only"
+  again=$(jq -n --arg b "$(jqr "$out" .body)" --argjson lane "$PLANE" '{wave:"W",project:"Engine",projectLevel:true,lane:$lane,existing:[{id:"u1",body:$b}]}' | run_wu project)
+  assert_eq "1" "$(jqr "$again" '[.body | split("\n")[] | select(startswith("### Project"))] | length')" "SU-24f: a re-post replaces the project section"
+  # a later ticket lane still parses the body (the project section is the renderer's own text)
+  out=$(jq -n --arg b "$(jqr "$again" .body)" --argjson lane "$LANE_GREEN" '{wave:"W",project:"Engine",lane:$lane,existing:[{id:"u1",body:$b}]}' | run_wu project)
+  assert_eq "edit" "$(jqr "$out" .action)" "SU-24g: a worker lane after the manager's section still edits"
+}
+
+# SU-25 — underivable project signals decline unattended; a chosen health posts under a confirm.
+test_project_level_underivable() {
+  local out
+  out=$(jq -n '{wave:"W",project:"Engine",projectLevel:true,unattended:true,lane:{tldr:"x",gates:"green"},existing:[]}' | run_wu project)
+  assert_eq "decline" "$(jqr "$out" .action)" "SU-25: underivable project health declines unattended"
+  out=$(jq -n '{wave:"W",project:"Engine",projectLevel:true,health:"atRisk",lane:{tldr:"x",gates:"green"},existing:[]}' | run_wu project)
+  assert_eq "create" "$(jqr "$out" .action)" "SU-25b: under a confirm a chosen health posts"
+  assert_eq "chosen" "$(jqr "$out" .healthSource)" "SU-25c: and says it was chosen"
+}
+
+# Write an approved body to the scratch dir; prints its path.
+body_file() { local f="$SCRATCH/$1"; printf '%s' "$2" >"$f"; printf '%s' "$f"; }
+APPROVED=$'**Docs had a quiet wave.**\n\n- Handbook: two pages rewritten  \n- `*literal*` stays as typed, as does a trailing double space above\n\n> Approved by manager:docs'
+sha() { shasum -a 256 "$1" | awk '{print $1}'; }
+
+# SU-26 — --body-file: the approved bytes are the body, then the marker; health is derived and stamped.
+test_body_file_create() {
+  local f out posted
+  f=$(body_file approved.md "$APPROVED"$'\n')
+  out=$(jq -n --arg f "$f" --argjson lane "$PLANE" '{wave:"docs/w2",project:"Docs",projectLevel:true,bodyFile:$f,lane:$lane,existing:[]}' | run_wu project)
+  assert_eq "create" "$(jqr "$out" .action)" "SU-26: an approved body creates"
+  posted=$(jqr "$out" .body)
+  assert_eq "$APPROVED"$'\n\n— wave docs/w2' "$posted" "SU-26b: the body is the file as written, a blank line, then the marker"
+  assert_eq "onTrack" "$(jqr "$out" .health)" "SU-26c: the health is still derived"
+  assert_eq "derived" "$(jqr "$out" .healthSource)" "SU-26d: and says so"
+  assert_eq "$(sha "$f")" "$(jqr "$out" .approvedSha256)" "SU-26e: the result names the sha256 of the file it read"
+  assert_not_contains "### " "$posted" "SU-26f: no lane section is rendered around it"
+  # a ticket lane's run carries a body file the same way
+  out=$(jq -n --arg f "$f" --argjson lane "$LANE_B" '{wave:"docs/w2",project:"Docs",bodyFile:$f,lane:$lane,existing:[]}' | run_wu project)
+  assert_eq "atRisk" "$(jqr "$out" .health)" "SU-26g: with a ticket lane, health comes from that lane's signals"
+  assert_eq "$APPROVED"$'\n\n— wave docs/w2' "$(jqr "$out" .body)" "SU-26h: and the body is still the file as written"
+}
+
+# SU-27 — the marker is never doubled, and an approved body naming another wave is refused.
+test_body_file_markers() {
+  local f out
+  f=$(body_file own.md "$APPROVED"$'\n\n— wave docs/w2\n')
+  out=$(jq -n --arg f "$f" --argjson lane "$PLANE" '{wave:"docs/w2",project:"Docs",projectLevel:true,bodyFile:$f,lane:$lane,existing:[]}' | run_wu project)
+  assert_eq "1" "$(jqr "$out" '[.body | split("\n")[] | select(startswith("— wave"))] | length')" "SU-27: a body already ending in this wave's marker is not stamped twice"
+  f=$(body_file other.md "$APPROVED"$'\n\n— wave docs/w1\n')
+  out=$(jq -n --arg f "$f" --argjson lane "$PLANE" '{wave:"docs/w2",project:"Docs",projectLevel:true,bodyFile:$f,lane:$lane,existing:[]}' | run_wu project)
+  assert_eq "decline" "$(jqr "$out" .action)" "SU-27b: a body carrying another wave's marker declines"
+  assert_contains "docs/w1" "$(jqr "$out" .reason)" "SU-27c: naming the wave it carries"
+}
+
+# SU-28 — what an approved body may not be: empty, a local path, or a missing file.
+test_body_file_refusals() {
+  local f out rc
+  f=$(body_file empty.md $'  \n\n')
+  out=$(jq -n --arg f "$f" --argjson lane "$PLANE" '{wave:"W",project:"Docs",projectLevel:true,bodyFile:$f,lane:$lane,existing:[]}' | run_wu project)
+  assert_eq "decline" "$(jqr "$out" .action)" "SU-28: an empty approved body declines"
+  f=$(body_file path.md $'See /Users/x/sessions/a_BUILD.md\n')
+  out=$(jq -n --arg f "$f" --argjson lane "$PLANE" '{wave:"W",project:"Docs",projectLevel:true,bodyFile:$f,lane:$lane,existing:[]}' | run_wu project)
+  assert_eq "decline" "$(jqr "$out" .action)" "SU-28b: an approved body with a local path declines (it must read cold)"
+  assert_contains "local file path" "$(jqr "$out" .reason)" "SU-28c: and says why"
+  jq -n --arg f "$SCRATCH/nope.md" --argjson lane "$PLANE" '{wave:"W",project:"Docs",projectLevel:true,bodyFile:$f,lane:$lane,existing:[]}' | node "$WU" project >/dev/null 2>&1; rc=$?
+  assert_eq "1" "$rc" "SU-28d: a body file that cannot be read exits 1"
+  f=$(body_file ok.md "$APPROVED")
+  out=$(jq -n --arg f "$f" '{wave:"W",project:"Docs",projectLevel:true,unattended:true,bodyFile:$f,lane:{tldr:"x"},existing:[]}' | run_wu project)
+  assert_eq "decline" "$(jqr "$out" .action)" "SU-28e: underivable health declines unattended, body file or not"
+}
+
+# SU-29 — an approved body against what the wave already holds.
+test_body_file_existing() {
+  local f lanes out
+  f=$(body_file approved2.md "$APPROVED")
+  lanes=$(printf '{"wave":"W","project":"Docs","lane":%s,"existing":[]}' "$LANE_GREEN" | run_wu project | jq -r .body)
+  # renderer-written lanes this wave: unattended refuses to replace them, attended shows the replacement
+  out=$(jq -n --arg f "$f" --arg b "$lanes" --argjson lane "$PLANE" '{wave:"W",project:"Docs",projectLevel:true,unattended:true,bodyFile:$f,lane:$lane,existing:[{id:"u1",body:$b}]}' | run_wu project)
+  assert_eq "decline" "$(jqr "$out" .action)" "SU-29: unattended, an approved body does not replace this wave's update"
+  assert_eq "u1" "$(jqr "$out" '.ids | join(",")')" "SU-29b: and names it"
+  out=$(jq -n --arg f "$f" --arg b "$lanes" --argjson lane "$PLANE" '{wave:"W",project:"Docs",projectLevel:true,bodyFile:$f,lane:$lane,existing:[{id:"u1",body:$b}]}' | run_wu project)
+  assert_eq "edit" "$(jqr "$out" .action)" "SU-29c: under a confirm it is an edit of that update"
+  assert_eq "u1" "$(jqr "$out" .id)" "SU-29d: by id"
+  assert_eq "true" "$(jqr "$out" .replacesText)" "SU-29e: and says it replaces the text there"
+  # the same approved body re-posted: an edit in place, nothing replaced, allowed unattended
+  out=$(jq -n --arg f "$f" --arg b "$APPROVED"$'\n\n— wave W' --argjson lane "$PLANE" '{wave:"W",project:"Docs",projectLevel:true,unattended:true,bodyFile:$f,lane:$lane,existing:[{id:"u2",body:$b}]}' | run_wu project)
+  assert_eq "edit" "$(jqr "$out" .action)" "SU-29f: re-posting the same approved body edits in place"
+  assert_eq "null" "$(jqr "$out" .replacesText)" "SU-29g: and replaces nothing"
+  # one update per project per wave still holds
+  out=$(jq -n --arg f "$f" --argjson lane "$PLANE" '{wave:"W",project:"Docs",since:"2026-10-28T12:00:00Z",projectLevel:true,bodyFile:$f,lane:$lane,
+    existing:[{id:"x",body:"Intake pass: 4 filed",createdAt:"2026-10-28T13:00:00Z"}]}' | run_wu project)
+  assert_eq "decline" "$(jqr "$out" .action)" "SU-29h: an unmarked update in the wave still declines"
+  out=$(jq -n --arg f "$f" --arg b "$lanes" --argjson lane "$PLANE" '{wave:"W",project:"Docs",projectLevel:true,bodyFile:$f,lane:$lane,
+    existing:[{id:"a",body:$b,createdAt:"2026-10-28T10:00:01Z"},{id:"b",body:$b,createdAt:"2026-10-28T10:00:02Z"}]}' | run_wu project)
+  assert_eq "decline" "$(jqr "$out" .action)" "SU-29i: two of this wave's updates decline rather than pick one to replace"
+}
+
+# --- TEXT CONTRACT (¶INV_A_NEGATIVE_ONLY_CHECK_SAYS_SO): the arms below read skill files. They do
+# not run a live /snapshot; that an agent obeys the prose is not checked here. Bold is stripped and
+# the match is case-insensitive, so a copy-edit of emphasis does not turn an arm red.
+norm() { printf '%s\n' "$1" | sed 's/\*\*//g; s/`//g'; }
+has_fixed() { if grep -qiF -- "$1" <<<"$(norm "$2")"; then pass "$3"; else fail "$3" "contains '$1'" "absent"; fi; }
+section() { awk -v h="$1" 'index($0, h) == 1 {on=1; print; next} on && /^#/ {exit} on {print}' "$SKILL"; }
+
+# SU-30 — the args line and the wave section name both flags and their composition.
+test_text_flags() {
+  local args wave
+  args=$(grep -m1 '^args:' "$SKILL")
+  has_fixed "[--project <name>]" "$args" "SU-30: the args line names --project <name>"
+  has_fixed "[--body-file <path>]" "$args" "SU-30b: the args line names --body-file <path>"
+  wave=$(section "## Wave-end updates")
+  has_fixed "or the project --project names" "$wave" "SU-30c: touched includes the project --project names"
+  has_fixed "--project <name>" "$wave" "SU-30d: the wave section defines --project"
+  has_fixed "--body-file <path>" "$wave" "SU-30e: the wave section defines --body-file"
+  has_fixed "requires --wave" "$(grep -F -- '--project <name>' <<<"$wave")" "SU-30f: --project requires --wave"
+  has_fixed "byte for byte" "$wave" "SU-30g: the approved body goes out byte for byte"
+  has_fixed "exactly one project update" "$wave" "SU-30h: --body-file needs exactly one project update to carry"
+  has_fixed "never the roll-up" "$wave" "SU-30i: --body-file never replaces the roll-up body"
+  has_fixed "approvedSha256" "$wave" "SU-30j: the renderer reads the file itself and names its sha"
+  has_fixed "a --project run with no -- key has no target ticket" "$(norm "$(cat "$SKILL")")" "SU-30k: a ticketless --project run has no target ticket"
+  has_fixed "neither aborts nor files" "$(norm "$(cat "$SKILL")")" "SU-30l: so --yes neither aborts on it nor auto-files"
+  has_fixed "must be the ticket's project" "$(norm "$(cat "$SKILL")")" "SU-30m: with a key, --project must match the ticket's project"
+}
+
+# SU-31 — the reviewer has a PART 5 to fill (SKILL.md has cited it since IDE-235; the template lacked it).
+test_text_part5() {
+  local p5
+  p5=$(awk '/^## PART 5/ {on=1} on && /^## / && !/^## PART 5/ {exit} on {print}' "$TEMPLATE")
+  assert_not_empty "$p5" "SU-31: the template carries a PART 5"
+  has_fixed "green|red|unrun|none" "$p5" "SU-31b: in the renderer's gate vocabulary"
+  has_fixed "aligned|rescoped|drifted" "$p5" "SU-31c: and its direction vocabulary"
+  has_fixed "project-level" "$p5" "SU-31d: with a project-level row for a --project run"
 }
 
 # SU-13 — bad input exits 1; decisions (incl. decline) exit 0.

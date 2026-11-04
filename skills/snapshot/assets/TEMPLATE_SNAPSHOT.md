@@ -120,10 +120,27 @@
 
 ---
 
+## PART 5 — Wave health signals
+*Only when the orchestrator says the run carries `--wave`; otherwise write "no wave". You report SIGNALS, never a health: `assets/wave-update.mjs health` derives it from these, and a signal you could not establish is written `unknown`, which makes the health underivable rather than guessed. Keep each TL;DR cold-readable: no session paths, no phase names, no local file paths (a path declines the update).*
+
+One block per target ticket, each signal in this exact vocabulary:
+- **Ticket:** `<PREFIX>-NNNN` · **Project:** `<project from get_issue>`
+- **gates:** `green|red|unrun|none` · **direction:** `aligned|rescoped|drifted` · **blocked:** `yes|no` · **open MUST-FIX:** `<count>`
+- **TL;DR:** <one line: what moved, for a reader of the project view>
+
+**A `--project` run fills the project-level block instead** (no ticket): the same four signals for the wave's work as a whole, judged against the project's description, and a TL;DR for the project. With `--body-file` the TL;DR is not posted (the approved body is), but the four signals still decide the health.
+- **Ticket:** — (project-level) · **Project:** `<the --project name>`
+- **gates:** `green|red|unrun|none` · **direction:** `aligned|rescoped|drifted` · **blocked:** `yes|no` · **open MUST-FIX:** `<count>`
+- **TL;DR:** <one line for the project>
+
+---
+
 ## Outcome
 *(stamped by the orchestrator after §3 — BEST-EFFORT + non-atomic: mark each action for EXACTLY what landed; never claim one that didn't. A skipped/failed commit is scrubbed from the comment; the other three still run. Hand back any un-posted artifact for manual retry.)*
 - **Commit:** <committed `<sha>` on `<branch>` (done) | skipped (user chose post-only / all files mixed→skipped) | failed (<reason>) | n/a>
 - **Comment:** <posted <url> (done) | edited then posted (done) | failed (<reason>) | skipped>
 - **Status:** <moved <from>→<to> (done) | failed (<reason>) | skipped | n/a>
 - **Description:** <replaced with full body, history preserved (done) | failed (<reason>) | skipped | no drift>
+- **Project update(s):** <per project: created / edited <url>, health <h> (derived | chosen), approved body sha256 `<approvedSha256>` when `--body-file` | declined (<reason>) | n/a>
+- **Roll-up:** <created / edited <url>, health <h> | declined (<reason>) | n/a>
 - **Debrief attachment:** <attached `<debrief filename>` (done) | skipped (not a closing snapshot) | skipped (no debrief yet) | failed (<reason>) | n/a>
