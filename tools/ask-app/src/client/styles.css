@@ -576,3 +576,24 @@ table.compare tr.same td { opacity: .6; }
 /* AUTOWAKE: the holder notice, quieter than a wake. */
 .wake-notice { font-size: 12px; color: var(--ink-3); }
 .wake-notice.warn { color: var(--warn); }
+
+/* COMMSUI: the Comms tab (comms.tsx). */
+.comms-filters { display: grid; gap: 8px; }
+.comms-seat { display: flex; gap: 6px; align-items: center; }
+.comms-seat input { flex: 1; min-width: 0; }
+.comms-tiers, .comms-kinds { display: flex; flex-wrap: wrap; gap: 4px; }
+.comm-counts { font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+.comms-filters .feed-tools { position: static; padding: 0; border: 0; }
+.comm .eyebrow .seat-pick { font: inherit; }
+.comm-subject { margin: 6px 0 0; overflow-wrap: anywhere; }
+.comm.withdrawn { opacity: 0.75; border-left: 3px solid var(--line-strong); }
+.comm.withdrawn .comm-subject s, .comm-row.withdrawn s { color: var(--ink-2); }
+.comm-withdrawn { margin: 4px 0 0; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+.comm-links { margin: 6px 0 0; font-size: 13px; display: flex; flex-wrap: wrap; gap: 12px; }
+.comm.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.chip.tier-align, .chip.tier-escalate { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+.chip.tier-wake { color: var(--danger); background: var(--danger-soft); border-color: transparent; }
+.comm-row .tier { font-size: 11px; color: var(--ink-2); }
+.comm-row .kind { font-size: 11px; color: var(--ink-3); }
+.comms-hint { margin: 0; font-size: 12px; }
+.comms-pinned { margin-top: 16px; padding-top: 8px; border-top: 1px dashed var(--line-strong); }

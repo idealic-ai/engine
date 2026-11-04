@@ -63,14 +63,14 @@ export function createUrlSync(history: HistoryLike, timers: Timers, delay = URL_
 export function createRouteNav<R extends object>(
   sync: ReturnType<typeof createUrlSync>,
   initial: R,
-  opts: { serialize: (r: R) => string; isNavigation: (from: R, to: R) => boolean; onChange: (r: R) => void },
+  opts: { serialize: (r: R) => string; isNavigation: (from: R, to: R) => boolean; onChange: (r: R) => void; normalize?: (r: R) => R },
 ) {
   let cur = initial;
   return {
     get: () => cur,
     navigate(patch: Partial<R>, push?: boolean, typing = false) {
       const from = cur;
-      cur = { ...from, ...patch };
+      cur = opts.normalize ? opts.normalize({ ...from, ...patch }) : { ...from, ...patch };
       opts.onChange(cur);
       const url = opts.serialize(cur);
       if (typing) return sync.later(url);

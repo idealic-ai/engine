@@ -77,7 +77,7 @@ import { Grip, Split, SIDE_MAX, SIDE_MIN, SIDE_SLIM, clampRatio, clampSide, side
 import { pushEsc } from "./esc.ts";
 import { applyConflict, conflictStep, hopWords, pathOf, supersededInfo, supersedesList, withdrawnInfo, withdrawnWords, type PathHop, type Withdrawn } from "./supersede.ts";
 import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
-import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
+import { isNavigation, normalizeRoute, parseRoute, serializeRoute, viewPatch, type Route } from "./route.ts";
 import { highlight, isTypingTarget, searchTerms, sidebarView, snippet, type Hay } from "./search.ts";
 import { FOLLOWUP_KIND_OPTIONS, FOLLOWUP_PENDING, adoptAfterFollowup, followupBody, followupConflict, followupLine, followupOutcome, followupResultFor, followupsOf, forkOnOpen, isAddressed, keepsOver, mayFollowUp, rememberFollowupResult, subscribeFollowupResults } from "./followup.ts";
 import { CHANGE_WORDING, OVERRULE_WORDING, cancelDiscards, changeAnswerStart, changeMode, draftBody, mayChangeAnswer, overruleBody, overruleOutcome, planClick, requestSend, sendRoute, staleChangeKeys, unsentKey, withoutGrant, type CardAction } from "./reanswer.ts";
@@ -86,11 +86,12 @@ import { createSemanticSearch, fetchSemantic, openTarget, resultRoute, searchKey
 import { RESULTS_ID, SearchResults, optionId, resultItems } from "./results.tsx";
 import { WakeButton } from "./WakeButton.tsx";
 import { showsRowBell, wakeFields } from "./wake.ts";
+import { CommsFeed, CommsFilters, CommsRows, commsMissing, listenComms, useComms, usePinned } from "./comms.tsx";
 
 export { ticketKeys };
 type Pane = { url: string; label: string; source: Brief["source"] | "link"; trust: Trust };
 type Theme = "auto" | "light" | "dark";
-type View = "asks" | "proofs" | "broadcasts";
+type View = "asks" | "proofs" | "broadcasts" | "comms";
 const FILTERS: Filter[] = ["open", "ruled", "settled", "all"];
 const FILTER_LABEL: Record<Filter, string> = { open: "Open", ruled: "Ruled below you", settled: "Answered", all: "All" };
 
@@ -160,6 +161,12 @@ export function App() {
   const bcast = route.broadcast;
   const proofs = useProofs(view === "proofs");
   const broadcasts = useBroadcasts(view === "broadcasts");
+  // COMMSUI: the SSE `change` moves this tick, and the Comms feed reloads on it like the asks do.
+  const [changeTick, setChangeTick] = useState(0);
+  const comms = useComms(view === "comms", { seat: route.seat, tier: route.tier, kind: route.kind }, changeTick);
+  const commsFiltered = !!(route.seat || route.tier?.length || route.kind?.length);
+  // A notice or its tell that this filter hides is looked up by id (TELL as landed: id= ignores the filters).
+  const commsPinned = usePinned(view === "comms" && commsMissing(comms.state, comms.query, route.comm) ? [route.comm!] : [], changeTick);
   const portrait = useMedia("(orientation: portrait)");
   const [sideW, setSideW] = useStoredNumber("askclient.sideW", () => sideDefault(typeof innerWidth === "number" ? innerWidth : 1440), clampSide);
   const [ratioX, setRatioX] = useStoredNumber("askclient.splitX", () => 0.5, clampRatio);
@@ -188,8 +195,11 @@ export function App() {
       if (hellos++ === 0) return;
       void refreshToken().then((r) => setAppNotice(!r.ok && r.updated ? RELOAD_UPDATED : ""));
       load();
+      setChangeTick((n) => n + 1);
     });
     es.addEventListener("change", () => load());
+    // COMMSUI: the Comms feed reloads on `change` and on the server's `comms` event (a tell, ack or withdrawal).
+    listenComms(es, () => setChangeTick((n) => n + 1));
     es.onerror = () => setLive(false);
     return () => es.close();
   }, [load]);
@@ -202,7 +212,7 @@ export function App() {
     [],
   );
   // The flush-before-push and cancel-on-Back rules live in createRouteNav (tested in search-review.test.ts).
-  const nav = useMemo(() => createRouteNav(urlSync, route, { serialize: serializeRoute, isNavigation, onChange: setRoute }), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const nav = useMemo(() => createRouteNav(urlSync, route, { serialize: serializeRoute, isNavigation, normalize: normalizeRoute, onChange: setRoute }), []); // eslint-disable-line react-hooks/exhaustive-deps
   const routeNow = useMemo(() => ({ get current() { return nav.get(); } }), [nav]);
   useEffect(() => {
     const pop = () => nav.pop(parseRoute(location.pathname, location.search, location.hash));
@@ -346,8 +356,8 @@ export function App() {
     if (act?.type === "open") openResult(act.item);
     return act !== null;
   };
-  // NIT-1: the search box lives in the asks view only, so ?q= is dropped on the way to proofs or broadcasts.
-  const setView = (v: View) => navigate({ section: v, ask: currentRef, proof: undefined, broadcast: undefined, pane: undefined, fork: undefined, ...(v === "asks" ? {} : { q: undefined }) });
+  // NIT-1: the search box lives in the asks view only, so ?q= is dropped on the way to any other view (viewPatch in route.ts).
+  const setView = (v: View) => navigate(viewPatch(v, currentRef));
   const openInPane = useCallback((url: string) => navigate({ pane: url }, true), [navigate]);
   const closePane = () => navigate({ pane: "off" }, false);
   const toggleBrief = () => {
@@ -389,9 +399,9 @@ export function App() {
         <header className="top">
           <h1>Asks</h1>
           <div className="seg views" role="tablist" aria-label="View">
-            {(["asks", "proofs", "broadcasts"] as View[]).map((v) => (
+            {(["asks", "proofs", "broadcasts", "comms"] as View[]).map((v) => (
               <button key={v} role="tab" aria-selected={view === v} aria-pressed={view === v} onClick={() => setView(v)}>
-                {v === "asks" ? <>Asks <span className="n">{waiting}</span></> : v === "proofs" ? "Proofs" : "Broadcasts"}
+                {v === "asks" ? <>Asks <span className="n">{waiting}</span></> : v === "proofs" ? "Proofs" : v === "comms" ? "Comms" : "Broadcasts"}
               </button>
             ))}
           </div>
@@ -427,9 +437,15 @@ export function App() {
         {appNotice && <p className="tray-result" role="alert">{appNotice} <button className="linkish" onClick={() => location.reload()}>Reload</button></p>}
         {batchResult && !sending && <p className="tray-result" role="status">{batchResult}</p>}
         <div className="desk" ref={desk} style={{ gridTemplateColumns: `${sideW}px 8px minmax(0, 1fr)` }}>
-          <nav className={`side${slim ? " slim" : ""}`} {...{ [SCROLL_ROOT]: "" }} id="asklist" aria-label={view === "asks" ? "Asks" : view === "proofs" ? "Proof pages" : "Broadcasts"}>
+          <nav className={`side${slim ? " slim" : ""}`} {...{ [SCROLL_ROOT]: "" }} id="asklist" aria-label={view === "asks" ? "Asks" : view === "proofs" ? "Proof pages" : view === "comms" ? "Messages between seats" : "Broadcasts"}>
             {view === "proofs" && (
               <ProofRows list={proofs.list} busy={proofs.busy} onReload={proofs.reload} slim={slim} current={pane?.url} onOpen={(p) => navigate({ proof: p.key, pane: undefined }, true)} />
+            )}
+            {view === "comms" && (
+              <>
+                <CommsFilters seat={route.seat} tier={route.tier} seats={comms.seats} onSeat={(seat) => navigate({ seat }, false)} onTier={(tier) => navigate({ tier }, false)} kind={route.kind} onKind={(kind) => navigate({ kind }, false)} onReload={comms.reload} busy={comms.busy} at={comms.state?.at} />
+                <CommsRows state={comms.state} query={comms.query} filtered={commsFiltered} current={route.comm} onPick={(id) => navigate({ comm: id }, true)} slim={slim} />
+              </>
             )}
             {view === "broadcasts" && <BroadcastRows list={broadcasts.list} error={broadcasts.error} current={bcast} onPick={(id) => navigate({ broadcast: id }, true)} slim={slim} />}
             {view === "asks" && <>
@@ -515,7 +531,9 @@ export function App() {
             main={
               <main className="detail" ref={detail} {...{ [SCROLL_ROOT]: "" }}>
                 {proofMissing && view === "proofs" && <p className="chip warn notice" role="status">No proof page “{route.proof}” in the store. The list on the left still works.</p>}
-                {view === "broadcasts" ? (
+                {view === "comms" ? (
+                  <CommsFeed state={comms.state} query={comms.query} current={route.comm} filtered={commsFiltered} pinned={commsPinned} onComm={(id) => navigate({ comm: id }, true)} onOpenAsk={pick} onSeat={(seat) => navigate({ seat }, false)} />
+                ) : view === "broadcasts" ? (
                   <BroadcastFeed list={broadcasts.list} error={broadcasts.error} current={bcast} />
                 ) : askMissing ? (
                   <p className="chip warn notice" role="status">No ask “{named}” here. It may have been moved to another seat, renamed or deleted; pick one from the list.</p>

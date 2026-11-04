@@ -13,6 +13,7 @@ import { parseAskFile } from "../src/lib/format.ts";
 import { askRow, sortRows, type StoredAsk } from "../src/client/model.ts";
 import { highlight, lowerWithMap, matchAsk, searchRows, shownTitleText, sidebarView, snippet } from "../src/client/search.ts";
 import { URL_DEBOUNCE_MS, createRouteNav, createUrlSync } from "../src/client/urlsync.ts";
+import { normalizeRoute, parseRoute, viewPatch, type Route, type Section } from "../src/client/route.ts";
 
 const app = fs.readFileSync(path.join(import.meta.dirname, "../src/client/App.tsx"), "utf8");
 const NOW = Date.parse("2026-10-29T13:00:00.000Z");
@@ -77,7 +78,7 @@ describe("SHOULD-1: the URL write is debounced, outside the updater, and cannot 
     expect(direct.length).toBe(2);
     expect(app).toMatch(/createUrlSync\(\{ pushState: \(d, u, url\) => history\.pushState\(d, u, url\), replaceState: \(d, u, url\) => history\.replaceState\(d, u, url\) \}/);
     expect(app).toMatch(/navigate\(\{ q: v \|\| undefined, \.\.\.pin \}, false, true\)/);
-    expect(app).toMatch(/createRouteNav\(urlSync, route, \{ serialize: serializeRoute, isNavigation, onChange: setRoute \}\)/);
+    expect(app).toMatch(/createRouteNav\(urlSync, route, \{ serialize: serializeRoute, isNavigation, normalize: normalizeRoute, onChange: setRoute \}\)/);
     expect(app).toContain("const pop = () => nav.pop(parseRoute(");
     expect(app).toMatch(/const navigate = useCallback\(\(patch: Partial<Route>, push\?: boolean, typing = false\) => nav\.navigate\(patch, push, typing\), \[nav\]\);/);
   });
@@ -189,8 +190,14 @@ describe("SHOULD-3: a matching row always shows why", () => {
 });
 
 describe("NITs", () => {
-  it("NIT-1: q is dropped on the way to proofs or broadcasts", () => {
-    expect(app).toMatch(/const setView = \(v: View\) => navigate\(\{[^}]*\.\.\.\(v === "asks" \? \{\} : \{ q: undefined \}\) \}\);/);
+  it("NIT-1: q is dropped on the way to any view but asks, and kept on asks", () => {
+    // Behaviour, not source text (COMMSUI N-1): setView is navigate(viewPatch(v, currentRef)).
+    expect(app).toContain("const setView = (v: View) => navigate(viewPatch(v, currentRef));");
+    const step = (from: Route, v: Section) => normalizeRoute({ ...from, ...viewPatch(v, from.ask) });
+    const asks = parseRoute("/a/s:1/q1", "?q=parser");
+    for (const v of ["proofs", "broadcasts", "comms"] as Section[]) expect(step(asks, v).q).toBeUndefined();
+    expect(step(asks, "asks").q).toBe("parser");
+    expect(step(asks, "proofs").ask).toBe("s:1/q1");
   });
 
   it("NIT-3: with no ask named, typing names the ask on screen so the pane does not switch", () => {
