@@ -35,6 +35,7 @@ Each intake project carries its **own complete copy**, attached to the project s
 | Product: Ideas site | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-77c40cb0e4fb) | `04a1a8e3-1b89-412f-aa3a-12523a32cdda` · `77c40cb0e4fb` |
 | Product: Orchestration | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-orchestration-intake-inboxes-work-1ff5597c997b) | `83a9a7d7-fecf-4135-b47b-75514e9f3b6e` · `1ff5597c997b` |
 | Product: Market & Jobs | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-market-and-jobs-intake-inboxes-work-4b8c10a1ebe7) | `163b1b3d-74e0-4f14-a169-ad448c295c60` · `4b8c10a1ebe7` |
+| Collaboration | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-991f32257ace) | `55c09887-d8cb-42ff-b2fa-73ecb75d120f` · `991f32257ace` |
 
 **A row's project id alone resolves the project.** A caller that needs only the project (`/snapshot --yes` filing un-ticketed work, for one) takes the **Project id** from the project's section below and needs nothing else here. A project with no handbook document — Product: Realm's case, or any section reading *No inbox handbook yet* — still resolves; the missing handbook only means no handbook rules apply.
 
@@ -95,6 +96,16 @@ A wave can attach a project to an initiative it is given by name — `save_proje
 - No channels yet. Its seat is app:writer, and the handbook says to drop writer and editor findings in Product: Editor's channels until this project's exist.
 
 *Created 2026-10-30 on the operator's per-area project ruling. Channels and an Inboxes milestone are not scaffolded; add them here when they exist rather than inventing ids.*
+
+## Collaboration
+- **Project id**: `a5231c8b-0d64-4fef-8187-34184943d582` (`P-IDE-18`, team Idealic) · **Inboxes milestone**: `14f2f6ce-81ba-44e4-bb33-039484bf914b`
+- 🟪 Inquiries — [IDE-360](https://linear.app/idealic/issue/IDE-360/inquiries)
+- 🔴 Observed problems — [IDE-361](https://linear.app/idealic/issue/IDE-361/observed-problems)
+- 🔵 Feature requirements — [IDE-362](https://linear.app/idealic/issue/IDE-362/feature-requirements)
+- 🟦 Documentation — [IDE-363](https://linear.app/idealic/issue/IDE-363/documentation)
+- Kit's `converge/`, `converge-policies/`, `admit/` and `afford/` are this project's, by the operator's ruling of 2026-11-04 (ask `packages:converge/20261104-013033`, which named the project).
+
+*Four channels rather than the default set. Seat: packages:converge. Created 2026-11-04 on that ruling.*
 
 ## Product: Idea
 - **Project id**: `1116afcd-4829-4bda-872d-df146b9d5450` · **Inboxes milestone**: `d22ec35a-8b99-44f0-886c-50496a39db08`

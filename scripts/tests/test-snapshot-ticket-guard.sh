@@ -350,6 +350,42 @@ test_registry_rows() {
   has_fixed "only means no handbook rules apply" "$r" "registry: says a missing handbook only means no handbook rules"
 }
 
+# registry_project_for <path> → the `## ` heading of the registry section whose body names the path's
+# directory as a backticked prefix (`converge/`, `app/deploy/`), longest prefix winning; empty when none.
+# This is the reading /snapshot §1 makes by eye ("the section of the project whose area the work's paths
+# belong to"), made mechanical so a test can see a section claim a path or fail to.
+registry_project_for() {
+  awk -v p="$1" '
+    /^## / { sec = substr($0, 4); next }
+    sec != "" {
+      line = $0
+      while (match(line, /`[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*\/`/)) {
+        pre = substr(line, RSTART + 1, RLENGTH - 2); line = substr(line, RSTART + RLENGTH)
+        if (index(p, pre) == 1 && length(pre) > best) { best = length(pre); hit = sec }
+      }
+    }
+    END { print hit }' "$REGISTRY"
+}
+
+# Collaboration (P-IDE-18, operator ruling on ask packages:converge/20261104-013033): its four kit
+# packages resolve to it, and a path outside them keeps the project it had.
+test_registry_collaboration() {
+  local r; r=$(cat "$REGISTRY")
+  has_fixed '## Collaboration' "$r" "registry: Collaboration has a section"
+  has_fixed '`a5231c8b-0d64-4fef-8187-34184943d582` (`P-IDE-18`' "$r" "registry: Collaboration's project id"
+  has_fixed '| Collaboration |' "$r" "registry: Collaboration has a handbook row"
+  has_fixed '`55c09887-d8cb-42ff-b2fa-73ecb75d120f` · `991f32257ace`' "$r" "registry: Collaboration's handbook doc id and slugId"
+  has_fixed '[IDE-363](https://linear.app/idealic/issue/IDE-363/documentation)' "$r" "registry: Collaboration's Documentation channel"
+  local p
+  for p in converge/src/merge.ts converge-policies/src/index.ts admit/src/door.ts afford/vocabulary.idea; do
+    assert_eq "Collaboration" "$(registry_project_for "$p")" "registry: $p resolves to Collaboration"
+  done
+  # Negative cases: a path the registry already sent elsewhere stays there, and an unclaimed path stays unclaimed.
+  assert_eq "Product: Deploy" "$(registry_project_for app/deploy/compose.yml)" "registry: app/deploy/ stays with Product: Deploy"
+  assert_eq "" "$(registry_project_for resource-kernel/src/index.ts)" "registry: resource-kernel/ is not claimed by Collaboration"
+  assert_eq "" "$(registry_project_for convergence/x.ts)" "registry: a sibling name that only starts with converge does not resolve"
+}
+
 # ── Round 6 (R5-M1, R5-M2, R5-S1..S4, R5-N1..N3). An entry never selects the target; it only blocks
 # a re-filing. These arms read the one sentence that states each rule and check that it carries the
 # rule and lacks the inverting qualifiers listed in each arm. A qualifier not on a list, or one put
