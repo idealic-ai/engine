@@ -94,7 +94,7 @@ export type NewAskFields = { from: string; to: string; id: string } & Record<str
 
 /**
  * ASKFLOOR: which floor a filing clears. "author" is what `engine ask new` and `revise` pass (the CLI
- * is the only way an author files an ask): every fork explains itself and every option is costed
+ * is the only way an author files an ask): every fork explains itself (option costs are warned, staged)
  * (authorFloorProblems). Left out, the structural floor (floorProblems) applies, which callers that
  * build asks from code — and the tests that drive the store — rely on.
  */

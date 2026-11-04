@@ -261,7 +261,7 @@ test_prompt_routes_questions_to_their_skill() {
   # AskUserQuestion at this terminal) cannot be the wake's route. The route is an ask
   # addressed up the chain; the two skills survive only as the operator-present exception.
   for clause in \
-    '`Skill(ask, "<the question> --to <the first word hop.sh target prints: your parent seat, or operator>")`' \
+    '`Skill(ask, "<the question you need answered> --to <the first word hop.sh target prints: your parent seat, or operator>")`' \
     'never a hand-rolled ask' \
     'only for an operator present at this terminal' \
     'never from a seat with a parent'; do

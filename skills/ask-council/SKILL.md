@@ -76,7 +76,7 @@ Three open asks all turn on which page an ask links, so one panel can read them 
   Cost: the asks are answered without a panel's reads
 ```
 
-Each fork keeps /ask's floor: a paragraph under its heading saying what is decided and why it matters, and under each option a line saying what picking it changes and a `Cost:` line. `engine ask new` refuses a fork or option without them.
+Each fork keeps /ask's floor: a paragraph under its heading saying what is decided and why it matters, and under each option a line saying what picking it changes and a `Cost:` line. `engine ask new` refuses a fork without its paragraph, and warns on an option without a change line or `Cost:` (a refusal in a later landing).
 
 ```
 Skill(ask, "<the question you need answered> --to operator --reserved-for operator")

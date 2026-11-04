@@ -1728,12 +1728,14 @@ export const FORK_PARAGRAPH_MIN_WORDS = 12;
 /** Kinds that put a decision to the operator: each owes a paragraph of its own. */
 const isDecision = (q: AskQuestion) => isChoice(q) || q.kind === "yesno";
 /**
- * Words of explanation in a text: fenced blocks, URLs and bare paths (`a/b/c.md`, `~/x`) are taken
- * out first, so a code sample or a path cannot supply the twelve words on its own.
+ * Words of explanation in a text: fenced blocks (three or more backticks or tildes, closed by a line
+ * of at least as many of the same character), URLs and bare paths (`a/b/c.md`, `~/x`) are taken out
+ * first, so a code sample or a path cannot supply the twelve words on its own. The path rule also
+ * drops slashed words (`and/or`, `yes/no`), which is acceptable for a tripwire.
  */
 export function wordCount(s: string): number {
   const prose = s
-    .replace(/^\s*(```|~~~)[^\n]*\n[\s\S]*?^\s*\1\s*$/gm, " ")
+    .replace(/^\s*((`)\2{2,}|(~)\3{2,})[^\n]*\n[\s\S]*?^\s*\1(?:\2|\3)*\s*$/gm, " ")
     .replace(/https?:\/\/\S+/g, " ")
     .replace(/(?:^|\s)[`(]?(?:~|\.{1,2})?\/?[\w.@:-]+(?:\/[\w.@:-]*)+[`)]?(?=[\s.,;:]|$)/g, " ");
   return (prose.match(/[\p{L}\p{N}`'’_-]+/gu) ?? []).length;
@@ -1763,10 +1765,10 @@ function hasExample(ask: ParsedAsk, index: number): boolean {
 }
 /** A leaf option that says what picking it changes: a description, a Then: line, or a Cost: line (S1). */
 function optionSaysWhatChanges(o: AskOption): boolean {
-  // An Elegance: or Unblocks: line does not say it. Any field echoed into the description
-  // (ECHOED_IN_DESCRIPTION, empty today) is taken out first.
+  // An Elegance: or Unblocks: line does not say it, nor does a field echoed into the description
+  // (ECHOED_IN_DESCRIPTION, empty since WAKEUI drew `Reversible:`), so those are taken out first.
   let own = o.description ?? "";
-  for (const f of ["elegance", "unblocks", "then"] as const) {
+  for (const f of ["elegance", "unblocks", "then", ...ECHOED_IN_DESCRIPTION] as OptionField[]) {
     const v = o[f]?.trim();
     if (v) own = own.split(new RegExp(String.raw`\b${f}:\s*`, "i")).map((part) => (part.trimStart().startsWith(v) ? part.trimStart().slice(v.length) : part)).join(" ");
   }

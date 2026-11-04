@@ -634,7 +634,7 @@ test_X3_exit_3_remapped_to_no_target() {
 }
 
 test_X4_parented_Setup_waits() {
-  perl_in "$plant_dir/S.md" 'and keeps working on the defaults until that ask is answered' 'and dispatches no lane until that ask is answered' || { fail "X4: setup" "applied" "missed"; return; }
+  perl_in "$plant_dir/S.md" 'keeps working on the defaults until that ask is answered' 'dispatches no lane until that ask is answered' || { fail "X4: setup" "applied" "missed"; return; }
   assert_plant_reddens "X4 parented Setup dispatches no lane until its ask is answered"
 }
 

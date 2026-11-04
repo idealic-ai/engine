@@ -17,13 +17,15 @@ import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { newAsk, reviseAsk } from "../src/lib/store.ts";
-import { AskFloorError, authorFloorProblems, authorWarnings, floorProblems, FORK_PARAGRAPH_MIN_WORDS, parseAskFile } from "../src/lib/format.ts";
+import { AskFloorError, authorFloorProblems, authorOptionWarnings, authorWarnings, floorProblems, FORK_PARAGRAPH_MIN_WORDS, parseAskFile } from "../src/lib/format.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(HERE, "..", "src", "cli.ts");
 const COLONBAN = fs.readFileSync(path.join(HERE, "fixtures", "askfloor-colonban.body.md"), "utf8");
 const RAISEREND = fs.readFileSync(path.join(HERE, "fixtures", "askfloor-raiserend.body.md"), "utf8");
 const DEPLOY = fs.readFileSync(path.join(HERE, "fixtures", "askfloor-deploy-keys.body.md"), "utf8");
+const RELAY = fs.readFileSync(path.join(HERE, "fixtures", "askfloor-coordinate-relay.body.md"), "utf8");
+const LOOMSETUP = fs.readFileSync(path.join(HERE, "fixtures", "askfloor-loom-setup.body.md"), "utf8");
 const SEAT = "domain:language";
 const FIELDS = { from: SEAT, to: "operator" };
 const AUTHOR = { floor: "author" as const };
@@ -131,6 +133,14 @@ describe("each fork carries a paragraph of its own", () => {
     expect(problems(GOOD.replace(PARA, fence))[0]).toMatch(/it has 0 words/);
     expect(problems(GOOD.replace(PARA, "Context: ~/project/sessions/2026_10_29/builds/a_b/COLONBAN_PLAN.md and https://example.com/a/b/c/d")).length).toBe(1);
     expect(problems(GOOD.replace(PARA, `Counter: ${words(6)}\nEvidence: ${words(6)}`))).toEqual([]);
+  });
+
+  it("a fence of four or more backticks, or of tildes, is not words either (ASKPAIR S5)", () => {
+    for (const fence of ["````md\n" + words(20) + "\n````", "`````\n" + words(20) + "\n`````", "~~~~\n" + words(20) + "\n~~~~"]) {
+      expect(problems(GOOD.replace(PARA, fence))[0], fence.slice(0, 5)).toMatch(/it has 0 words/);
+    }
+    // a four-backtick fence holding a three-backtick one closes on its own four, not the inner three
+    expect(problems(GOOD.replace(PARA, "````md\n```\n" + words(20) + "\n```\n````"))[0]).toMatch(/it has 0 words/);
   });
 
   it(`counts the prose before the options with Context: and Stake: lines; ${FORK_PARAGRAPH_MIN_WORDS} words pass and one fewer is refused`, () => {
@@ -278,8 +288,10 @@ describe("the app: the ask's opening context is reachable from every fork card",
 });
 
 describe("the docs' own examples are fileable", () => {
-  const SKILL_DIR = path.resolve(HERE, "..", "..", "..", "skills", "ask");
-  const docs = [path.join(SKILL_DIR, "SKILL.md"), path.join(SKILL_DIR, "assets", "ASK_AUTHOR_GUIDE.md")];
+  const SKILLS = path.resolve(HERE, "..", "..", "..", "skills");
+  const SKILL_DIR = path.join(SKILLS, "ask");
+  // ASKPAIR S7: ask-council's plan template is the one full body another skill ships for /ask.
+  const docs = [path.join(SKILL_DIR, "SKILL.md"), path.join(SKILL_DIR, "assets", "ASK_AUTHOR_GUIDE.md"), path.join(SKILLS, "ask-council", "SKILL.md")];
   /** Every example body: a heredoc fed to `engine ask new`, or a fenced block holding a fork heading. */
   function examples(file: string): { at: string; body: string }[] {
     const text = fs.readFileSync(file, "utf8");
@@ -297,6 +309,7 @@ describe("the docs' own examples are fileable", () => {
     const all = docs.flatMap(examples);
     expect(all.filter((e) => isBefore(e.body))).toHaveLength(2);
     expect(all.filter((e) => !isBefore(e.body)).length).toBeGreaterThanOrEqual(4);
+    expect(all.filter((e) => e.at.startsWith("SKILL.md") && e.body.includes("¶ASK_S1")), "ask-council's ¶ASK_S1 template").toHaveLength(1);
   });
 
   it("every example the docs recommend clears the author floor, and each 'before' is refused", () => {
@@ -317,5 +330,33 @@ describe("the header's context and stakes count for the first fork, whose card s
   it("a second fork does not borrow them", () => {
     const p = withHeader(`context: ${words(6)}\nstakes: ${words(6)}\n`, `${bare}\n${bare.replace("ASK_GO", "ASK_GO2").replace("Ship it?", "Ship it later?")}`);
     expect(p).toEqual([expect.stringMatching(/^"Ship it later\?": this fork has no paragraph of its own/)]);
+  });
+});
+
+describe("the relay and Setup shapes other skills prescribe clear the author floor (ASKPAIR S1, S2, S7)", () => {
+  it("a /coordinate relay that quotes the worker, or says it gave no reason, files", () => {
+    expect(problems(RELAY)).toEqual([]);
+    expect(authorOptionWarnings(parseAskFile(head + RELAY))).toEqual([]);
+  });
+  it("the no-reason form is itself enough paragraph (control: without it the fork is refused)", () => {
+    const bare = RELAY.replace("Relayed from domain:agent; the worker gave no reason beyond the question.\n", "").replace(/^Context \(manager:domain's own\).*\n/m, "");
+    expect(problems(bare)).toEqual([expect.stringMatching(/^"Should a final failure email the user\?": this fork has no paragraph of its own/)]);
+    expect(problems(RELAY.replace(/^Context \(manager:domain's own\).*\n/m, ""))).toEqual([]);
+  });
+  it("a loom Setup ask with a paragraph per disposition files; drop one and that fork is refused", () => {
+    expect(problems(LOOMSETUP)).toEqual([]);
+    expect(authorOptionWarnings(parseAskFile(head + LOOMSETUP))).toEqual([]);
+    const cut = LOOMSETUP.replace(/^Council decides when.*\n/m, "");
+    expect(problems(cut)).toEqual([expect.stringMatching(/^"Council": this fork has no paragraph of its own/)]);
+  });
+});
+
+describe("an echoed Reversible: line is not the option's change line (ASKPAIR S4)", () => {
+  it("an option with only Reversible: under it is warned as saying nothing", () => {
+    const body = GOOD.replace("  The release goes out tonight.\n  Cost: a night watch", "  Reversible: no");
+    expect(body).not.toBe(GOOD);
+    const w = authorOptionWarnings(parseAskFile(head + body));
+    expect(w).toEqual([expect.stringMatching(/\[YES\].*nothing says what picking it changes/)]);
+    expect(authorOptionWarnings(parseAskFile(head + GOOD))).toEqual([]);
   });
 });

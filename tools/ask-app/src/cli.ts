@@ -225,7 +225,7 @@ async function main() {
     for (const k of HEADER_FIELDS) if (opt[k] !== undefined && !["status", "revision", "created"].includes(k)) fields[k] = opt[k];
     let file: string;
     try {
-      // ASKFLOOR: an author's filing clears the author floor (every fork explains itself, every option is costed).
+      // ASKFLOOR: an author's filing clears the author floor (every fork explains itself; option costs are warned, staged).
       file = newAsk(root, fields as { from: string; to: string; id: string }, body, { floor: "author" });
     } catch (e) {
       process.stderr.write(`${guideLine()}\n`);
