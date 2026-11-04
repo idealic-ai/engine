@@ -694,6 +694,14 @@ test_round2_nits() {
   assert_contains "regular file" "$(jqr "$out" .reason)" "SU-41f: saying it is not a regular file"
   out=$(jq -n --arg f "$SCRATCH" --argjson lane "$PLANE" '{wave:"W",project:"Docs",projectLevel:true,bodyFile:$f,lane:$lane,existing:[]}' | run_wu project)
   assert_eq "decline" "$(jqr "$out" .action)" "SU-41g: a directory declines as not a regular file"
+  # R1: a FIFO with no writer blocks a plain open(); it must decline without waiting (alarm 3 kills a hang)
+  local fifo t0 t1; fifo="$SCRATCH/body.fifo"; mkfifo "$fifo"
+  t0=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')
+  out=$(jq -n --arg f "$fifo" --argjson lane "$PLANE" '{wave:"W",project:"Docs",projectLevel:true,bodyFile:$f,lane:$lane,existing:[]}' | perl -e 'alarm 3; exec @ARGV' node "$WU" project 2>/dev/null)
+  t1=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')
+  assert_eq "decline" "$(jqr "$out" .action)" "SU-41h: a FIFO with no writer declines instead of hanging"
+  assert_contains "regular file" "$(jqr "$out" .reason)" "SU-41i: saying it is not a regular file"
+  assert_eq "1" "$([ $((t1 - t0)) -lt 1000 ] && echo 1 || echo 0)" "SU-41j: and answers in under a second ($((t1 - t0)) ms)"
 }
 
 # SU-35 — F5: projectLevel beside a ticket renders the ticket's lane, key and state move kept.

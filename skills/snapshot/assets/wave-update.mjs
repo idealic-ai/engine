@@ -25,7 +25,7 @@
 // so a lane re-posting moves it. With a ticket, projectLevel is ignored and the ticket lane renders.
 // Tests: engine/scripts/tests/test-snapshot-update-sh.sh.
 
-import { readFileSync, realpathSync, writeSync, openSync, fstatSync, closeSync, existsSync } from "node:fs";
+import { readFileSync, realpathSync, writeSync, openSync, fstatSync, closeSync, existsSync, statSync, constants } from "node:fs";
 import { sep, join } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
@@ -308,9 +308,13 @@ function approvedBody(input, { health, reason, healthSource }) {
   }
   // N4 (round 2): fstat the opened file before reading it, so /dev/zero, a FIFO or a directory
   // declines instead of hanging or failing, and a file too large to send under the cap even after
-  // CRLF halves it is declined unread.
+  // CRLF halves it is declined unread. R1: a plain open() of a FIFO blocks until a writer opens it,
+  // before any fstat can run, so the path is stat'd first and opened non-blocking; the fstat on the
+  // descriptor stays, for a path swapped between the stat and the open.
   let raw, fd;
-  try { fd = openSync(real, "r"); } catch (e) { die(`body file ${JSON.stringify(file)} cannot be read: ${e.code ?? e.message}`); }
+  try { if (!statSync(real).isFile()) return out({ action: "decline", reason: "the body file is not a regular file" }); }
+  catch (e) { die(`body file ${JSON.stringify(file)} cannot be read: ${e.code ?? e.message}`); }
+  try { fd = openSync(real, constants.O_RDONLY | constants.O_NONBLOCK); } catch (e) { die(`body file ${JSON.stringify(file)} cannot be read: ${e.code ?? e.message}`); }
   try {
     const st = fstatSync(fd);
     if (!st.isFile()) return out({ action: "decline", reason: "the body file is not a regular file" });
