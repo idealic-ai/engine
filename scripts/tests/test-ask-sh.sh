@@ -1146,14 +1146,14 @@ test_notifyq_withdraw_queues_the_holders_digest_in_broadcast_dir() {
   assert_eq "1" "$q" "one digest is queued for the holder under BROADCAST_DIR"
 }
 
-test_notifyq_unset_broadcast_dir_refuses_a_fixture_ask_and_writes_nothing() {
+test_notifyq_unset_broadcast_dir_queues_beside_the_ask_root_and_writes_nothing_under_home() {
   printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id nq2 >/dev/null
   local home="$TMP/home" out
   mkdir -p "$home"
   out=$(env -u BROADCAST_DIR HOME="$home" "$ASK_SH" withdraw idealic:kernel/nq2 --reason "moot" 2>&1)
-  assert_contains "notice manager:idealic undelivered: refused:" "$out" "a fixture ask's notice is refused when it would reach the live queue"
-  assert_eq "0" "$(find "$home" -name 'ask-notice-*' | wc -l | tr -d ' ')" "nothing is written under the default broadcast dir"
-  assert_contains "status: withdrawn" "$(cat "$ASK_ROOT/idealic:kernel/nq2.md")" "the withdraw itself still lands"
+  assert_contains "notice manager:idealic queued for its next prompt" "$out" "with BROADCAST_DIR unset the notice is still queued"
+  assert_eq "1" "$(ls "$(dirname "$ASK_ROOT")/broadcasts/queued/manager:idealic" 2>/dev/null | grep -c '^ask-notice-')" "in broadcasts beside the scratch ask root"
+  assert_eq "0" "$(find "$home" -name 'ask-notice-*' | wc -l | tr -d ' ')" "and nothing under HOME"
 }
 
 # Named to run last (tests run in name order): this run left no digest in the fleet's live queue.

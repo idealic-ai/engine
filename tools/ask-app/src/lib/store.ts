@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pushToSeat, type DeliverOptions, type DeliveryResult } from "./deliver.ts";
+import { defaultBroadcastDir } from "./broadcasts.ts";
 import { queueNotice, type NoticeEvent, type NoticeOptions, type NoticeResult } from "./notice-queue.ts";
 
 /**
@@ -13,9 +14,10 @@ import { queueNotice, type NoticeEvent, type NoticeOptions, type NoticeResult } 
  * next prompt as one digest per ask (notice-queue.ts), never pushed. `notice` is the test seam; `push`
  * is still accepted on these verbs but no longer used by them.
  */
-export type NoticeOpts = NoticeOptions & { notice?: typeof queueNotice };
-async function sendNotice(seat: string, ev: NoticeEvent, o: NoticeOpts): Promise<NoticeResult> {
-  return (o.notice ?? queueNotice)(seat, ev, { noticeDir: o.noticeDir, now: o.now });
+export type NoticeOpts = Partial<NoticeOptions> & { notice?: typeof queueNotice };
+/** The queue is the broadcast dir of the ask root the verb works in (broadcasts.ts), the one the app reads. */
+async function sendNotice(root: string, seat: string, ev: NoticeEvent, o: NoticeOpts): Promise<NoticeResult> {
+  return (o.notice ?? queueNotice)(seat, ev, { noticeDir: o.noticeDir ?? defaultBroadcastDir(root), now: o.now });
 }
 import {
   AskFormatError,
@@ -1227,7 +1229,7 @@ export async function reviseAsk(
   );
   const ev: NoticeEvent = { ref: `${seat}/${id}`, file, kind: "revised", by: o.by, detail: `revised by ${o.by} to revision ${res.revision} (changed: ${res.changed.join(", ")}); an answer or draft made against an earlier revision is refused` };
   const pushes: ReviseResult["pushes"] = [];
-  for (const s of seats) pushes.push({ seat: s, delivery: await sendNotice(s, ev, o) });
+  for (const s of seats) pushes.push({ seat: s, delivery: await sendNotice(root, s, ev, o) });
   return { file, revision: res.revision, changed: res.changed, pushes };
 }
 
@@ -1316,7 +1318,7 @@ export async function supersedeAsk(
   );
   const ev: NoticeEvent = { ref: oldRef, file: oldFile, kind: "superseded", by: o.by, detail: `superseded by ${newRef} (${o.by}): answer ${newRef} instead; an answer or draft on ${oldRef} is refused` };
   const pushes: SupersedeResult["pushes"] = [];
-  for (const s of seats) pushes.push({ seat: s, delivery: await sendNotice(s, ev, o) });
+  for (const s of seats) pushes.push({ seat: s, delivery: await sendNotice(root, s, ev, o) });
   return { file: oldFile, revision: res.revision, pushes };
 }
 
@@ -1409,7 +1411,7 @@ export async function withdrawAsk(
     detail: `withdrawn by ${o.by} via the ask CLI: ${reason}; an answer or draft on it is refused${res.draftOf ? `; a draft saved by ${res.draftOf} on it is no longer sendable, its content is kept in the file` : ""}`,
   };
   const pushes: WithdrawResult["pushes"] = [];
-  for (const s of seats) pushes.push({ seat: s, delivery: await sendNotice(s, ev, o) });
+  for (const s of seats) pushes.push({ seat: s, delivery: await sendNotice(root, s, ev, o) });
   return { file, revision: res.revision, ...(res.draftOf ? { draftOf: res.draftOf } : {}), pushes };
 }
 
@@ -1785,7 +1787,7 @@ export async function attachPanel(
   if (res.asker && res.asker !== o.by && res.asker !== "operator") {
     const n = (k: number, w: string) => `${k} ${w}${k === 1 ? "" : "s"}`;
     const detail = `panel on fork ${o.fork} from ${o.by}: ${n(panel.length, "read")}${proposals.length ? `, ${n(proposals.length, "proposed option")}` : ""}; the reads show beside the fork's options. Report: ${o.council}`;
-    pushes.push({ seat: res.asker, delivery: await sendNotice(res.asker, { ref: r, file, kind: "panel", by: o.by, fork: o.fork, detail }, o) });
+    pushes.push({ seat: res.asker, delivery: await sendNotice(root, res.asker, { ref: r, file, kind: "panel", by: o.by, fork: o.fork, detail }, o) });
   }
   return { file, entry: res.entry, pushes, ...(res.already ? { already: true } : {}) };
 }

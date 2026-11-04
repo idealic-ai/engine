@@ -14,8 +14,13 @@
  *   - `<dir>/queued/<seat, lowercased>/<id>` is an empty file saying the seat has not seen it;
  *   - hooks/user-prompt-broadcast-queue.sh runs `engine broadcast pending --queued`, which claims each
  *     entry by rename, prints it once and appends `delivered <seat> at-wake … via=queue`.
- * `<dir>` is resolved exactly as broadcast.sh resolves BDIR — BROADCAST_DIR, else
- * ~/.claude/data/yarik/broadcasts — and never from ASK_ROOT, so a notice lands where the drain reads.
+ * `<dir>` is the caller's: store.ts passes `defaultBroadcastDir(root)` (broadcasts.ts) — BROADCAST_DIR,
+ * else `broadcasts` beside the ask root — the same directory /api/broadcasts, /api/comms and search
+ * read, so a scratch ASK_ROOT gets a scratch queue by construction. This module has no default and
+ * imports nothing from the app. With ASK_ROOT unset that directory is broadcast.sh's own default BDIR,
+ * which its drain reads. Owed (broadcast.sh, not here): under a non-default ASK_ROOT with BROADCAST_DIR
+ * unset, broadcast.sh still drains its own default, so such notices are written where no hook reads
+ * them until BDIR is derived from ASK_ROOT (or `engine ask path`) as well.
  *
  * The record: `from: ask-app` (the actors are named in each detail line and in `notice-events:`),
  * `kind: ask-notice` (broadcast.sh prints it without an ack line and `resend` refuses it), and
@@ -29,17 +34,13 @@
  * drain can neither show nor mark the record while it is rewritten; if the drain got the entry first,
  * the notice starts a new record and the shown one is left untouched. Nothing is lost or shown twice.
  *
- * Refusals (`undelivered`, never a throw): `operator`, which is not a seat; and — the fixture guard — a
- * notice bound for the fleet's live queue (BROADCAST_DIR unset) about an ask file outside the fleet's
- * live ask root. A test or a scratch ASK_ROOT that forgets BROADCAST_DIR therefore writes nothing into
- * real seats' queues.
+ * Refusals (`undelivered`, never a throw): `operator`, which is not a seat.
  *
  * Cleanup: when a seat's new digest is written, that seat's earlier digests that were delivered more
  * than NOTICE_KEEP_MS ago and are no longer queued are deleted.
  */
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 export type NoticeKind = "panel" | "revised" | "superseded" | "withdrawn";
@@ -61,7 +62,8 @@ export type NoticeEvent = {
 
 export type NoticeResult = { status: "queued"; id: string; record: string; merged: boolean; reason?: string } | { status: "undelivered"; reason: string };
 
-export type NoticeOptions = { noticeDir?: string; now?: string };
+/** `noticeDir` is required: the queue is wherever the caller's ask root says, never a default here. */
+export type NoticeOptions = { noticeDir: string; now?: string };
 
 /** broadcast.sh's ID_RE. */
 const ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -71,12 +73,6 @@ export const DIGEST_DETAIL_MAX = 10;
 export const NOTICE_KEEP_MS = 24 * 60 * 60_000;
 const LOCK_STALE_MS = 10_000;
 
-const fleetData = () => path.join(os.homedir(), ".claude", "data", "yarik");
-/** broadcast.sh's BDIR, exactly: BROADCAST_DIR, else ~/.claude/data/yarik/broadcasts. */
-export const noticeQueueDir = () => process.env.BROADCAST_DIR || path.join(fleetData(), "broadcasts");
-/** True when the queue dir is the fleet's live one (BROADCAST_DIR unset). */
-const isLiveQueue = (dir: string) => !process.env.BROADCAST_DIR && path.resolve(dir) === path.join(fleetData(), "broadcasts");
-
 /** A record's header (before `## Text`) says it is an ask-app digest. Shared by every broadcast reader. */
 export function isAskNotice(text: string): boolean {
   return /^kind: ask-notice$/m.test(text.split("\n## Text\n")[0]);
@@ -85,18 +81,6 @@ export function isAskNotice(text: string): boolean {
 const queueDir = (dir: string, seat: string) => path.join(dir, "queued", seat.toLowerCase());
 const keyOf = (seat: string, ref: string) => createHash("sha256").update(`${seat.toLowerCase()}\n${ref}`).digest("hex").slice(0, 10);
 const oneLine = (s: string) => s.replace(/[\r\n]+/g, " ").trim();
-const real = (p: string) => {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return path.resolve(p);
-  }
-};
-const inside = (file: string, root: string) => {
-  const rel = path.relative(real(root), real(path.dirname(file)));
-  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
-};
-
 function atomic(file: string, text: string) {
   const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.tmp`);
   fs.writeFileSync(tmp, text);
@@ -215,15 +199,17 @@ function prune(dir: string, seat: string, now: number) {
   const qd = queueDir(dir, seat);
   const want = seat.toLowerCase();
   let names: string[];
+  let queued: string[];
   try {
     names = fs.readdirSync(dir).filter((n) => n.startsWith("ask-notice-") && n.endsWith(".md"));
+    queued = fs.readdirSync(qd);
   } catch {
     return;
   }
   for (const n of names) {
     const id = n.slice(0, -3);
     try {
-      if (fs.readdirSync(qd).some((q) => q === id || q.startsWith(`.${id}.`))) continue;
+      if (queued.some((q) => q === id || q.startsWith(`.${id}.`))) continue;
       const rec = path.join(dir, n);
       const text = fs.readFileSync(rec, "utf8");
       if (!isAskNotice(text) || text.match(/^audience: (.*)$/m)?.[1].trim().toLowerCase() !== want) continue;
@@ -240,13 +226,10 @@ function prune(dir: string, seat: string, now: number) {
  * Never throws: a refusal or a queue that cannot be written comes back `undelivered` with the reason,
  * and the ask file stays the record.
  */
-export async function queueNotice(seat: string, event: NoticeEvent, o: NoticeOptions = {}): Promise<NoticeResult> {
+export async function queueNotice(seat: string, event: NoticeEvent, o: NoticeOptions): Promise<NoticeResult> {
   if (!seat || seat === "operator") return { status: "undelivered", reason: "operator is not a seat; nothing is queued" };
-  const dir = o.noticeDir ?? noticeQueueDir();
-  const liveAsks = path.join(fleetData(), "asks");
-  if (isLiveQueue(dir) && !inside(event.file, liveAsks)) {
-    return { status: "undelivered", reason: `refused: ${event.file} is outside the fleet's ask root ${liveAsks} and BROADCAST_DIR is unset, so a notice about it would reach real seats' queues; set BROADCAST_DIR` };
-  }
+  if (!o?.noticeDir) return { status: "undelivered", reason: "no broadcast directory was given; nothing is queued" };
+  const dir = o.noticeDir;
   const at = o.now ?? new Date().toISOString();
   const ev: NoticeEvent = { ...event, detail: oneLine(event.detail), at: event.at ?? at };
   try {

@@ -99,29 +99,44 @@ describe("no-action notices to a seat", () => {
   });
 });
 
-describe("where a notice may land (M1)", () => {
-  it("with BROADCAST_DIR unset, a notice about an ask outside the fleet's ask root is refused and nothing is written", async () => {
+describe("where a notice may land (M1, M-R1)", () => {
+  it("with BROADCAST_DIR unset, the queue is `broadcasts` beside the ask root, never under HOME", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "notifyq-home-"));
     const saved = { HOME: process.env.HOME, BROADCAST_DIR: process.env.BROADCAST_DIR };
     process.env.HOME = home;
     delete process.env.BROADCAST_DIR;
     try {
       const r = await withdrawAsk(root, { seat: ASKER, id: "outline" }, { by: ASKER, reason: "moot", push });
-      expect(r.pushes[0].delivery).toMatchObject({ status: "undelivered" });
-      expect(r.pushes[0].delivery.reason).toMatch(/^refused: .* is outside the fleet's ask root .* BROADCAST_DIR is unset/);
+      expect(r.pushes[0].delivery.status).toBe("queued");
+      expect(fs.readdirSync(path.join(path.dirname(root), "broadcasts", "queued", HOLDER))).toHaveLength(1);
       expect(fs.existsSync(path.join(home, ".claude"))).toBe(false);
-      // An ask inside the fleet's root is queued at broadcast.sh's default dir, not beside ASK_ROOT.
-      const live = path.join(home, ".claude", "data", "yarik", "asks");
-      newAsk(live, { from: ASKER, to: HOLDER, id: "real" }, BODY);
-      const ok = await withdrawAsk(live, { seat: ASKER, id: "real" }, { by: ASKER, reason: "moot", push });
-      expect(ok.pushes[0].delivery.status).toBe("queued");
-      expect(fs.readdirSync(path.join(home, ".claude", "data", "yarik", "broadcasts", "queued", HOLDER))).toHaveLength(1);
     } finally {
       process.env.HOME = saved.HOME;
       if (saved.BROADCAST_DIR === undefined) delete process.env.BROADCAST_DIR;
       else process.env.BROADCAST_DIR = saved.BROADCAST_DIR;
     }
     expect(pushes).toEqual([]);
+  });
+  it("queueNotice has no default directory: without one it queues nothing", async () => {
+    expect(await queueNotice(HOLDER, { ref: "a/b", file: "/x", kind: "revised", by: ASKER, detail: "d" }, {} as never)).toMatchObject({ status: "undelivered" });
+  });
+  it("no source file under src/ names an operator, beyond the one pre-existing default ask root", () => {
+    const src = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src");
+    const hits: string[] = [];
+    const walk = (d: string) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const f = path.join(d, e.name);
+        if (e.isDirectory()) walk(f);
+        else if (/\.(ts|tsx|css|html)$/.test(e.name)) {
+          fs.readFileSync(f, "utf8").split("\n").forEach((l, i) => {
+            if (/yarik/.test(l)) hits.push(`${path.relative(src, f)}:${i + 1}: ${l.trim()}`);
+          });
+        }
+      }
+    };
+    walk(src);
+    // store.ts's defaultAskRoot predates NOTIFYQ (it is main's); it is the only line allowed, and it is pinned exactly.
+    expect(hits).toEqual([expect.stringMatching(/^lib\/store\.ts:\d+: process\.env\.ASK_ROOT \|\| path\.join\(os\.homedir\(\), "\.claude", "data", "yarik", "asks"\);$/)]);
   });
 });
 
