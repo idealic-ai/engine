@@ -38,7 +38,9 @@
 #   With no <project> and no branch ticket key (a seat on `main`), `next` ranks team-wide too and
 #   says so on stderr. The team is --team (a key or a name), else the `## Tracker` block of
 #   CLAUDE.md at the git toplevel (its Issue-key prefix, else its Team), else, for --all only,
-#   the prefix of a branch ticket key. The bare branch name is never a team. Every team is checked
+#   the prefix of a branch ticket key. The bare branch name is never a team. A ticket key starts
+#   the branch or follows a `/` (`invizko/ide-118-…`); only a branch with NO key widens to the
+#   team. A key whose issue cannot be read, does not exist or has no project exits 1 and says so. Every team is checked
 #   against Linear's teams before any issue is read: an unknown team, a prefix whose Linear team
 #   is not the configured Team, or a Tracker that is not Linear exits 1 and names the problem,
 #   because an issues filter on an unknown key would answer 0 rows at exit 0.
@@ -409,20 +411,37 @@ _fetch_anchor() {
   printf '%s' "$acc" | jq 'unique_by([.identifier, .relation, .anchor])'
 }
 
-# Resolve a project id from the current git branch's leading ticket key (e.g. fin-2833-… → FIN-2833).
+# _branch_ticket_key → the current branch's ticket key, uppercased (IDE-118), or return 1 when the
+# branch carries none. A key starts the branch or follows a `/`: `ide-118-…` and Linear's
+# `invizko/ide-118-…` both give IDE-118; `main` gives nothing.
+_branch_ticket_key() {
+  local branch key
+  branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || return 1
+  key=$(printf '%s' "$branch" | grep -oiE '(^|/)[a-z]+-[0-9]+' | head -1 | sed 's#^/##')
+  [ -n "$key" ] || return 1
+  printf '%s' "$key" | tr '[:lower:]' '[:upper:]'
+}
+
+# Resolve a project id from the current git branch's ticket key (e.g. fin-2833-… → FIN-2833).
 _q_issue_project() { cat <<'GQL'
 query($id: String!) { issue(id: $id) { id identifier project { id name } } }
 GQL
 }
+# _infer_project_from_branch → project id. Return 1 (silent) only when the branch has NO ticket
+# key; return 2 with the reason on stderr when there is a key but no project to read from it
+# (a failed read, no such issue, or an issue with no project).
 _infer_project_from_branch() {
-  local branch key resp pid
-  branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || return 1
-  key=$(printf '%s' "$branch" | grep -oiE '^[a-z]+-[0-9]+' | head -1)
-  [ -n "$key" ] || return 1
-  key=$(printf '%s' "$key" | tr '[:lower:]' '[:upper:]')
-  resp=$(_graphql "$(_q_issue_project)" "$(jq -n --arg id "$key" '{id: $id}')") || return 1
+  local key resp pid
+  key=$(_branch_ticket_key) || return 1
+  resp=$(_graphql "$(_q_issue_project)" "$(jq -n --arg id "$key" '{id: $id}')") || {
+    echo "project: could not read branch key $key's issue from Linear; pass a <project> or --all" >&2; return 2; }
+  if [ "$(printf '%s' "$resp" | jq -r '.data.issue // null | type')" != "object" ]; then
+    echo "project: branch key $key names no issue in Linear; pass a <project> or --all" >&2; return 2
+  fi
   pid=$(printf '%s' "$resp" | jq -r '.data.issue.project.id // empty')
-  [ -n "$pid" ] || return 1
+  if [ -z "$pid" ]; then
+    echo "project: branch key $key's issue has no project; pass a <project> or --all" >&2; return 2
+  fi
   printf '%s' "$pid"
 }
 
@@ -430,35 +449,11 @@ _infer_project_from_branch() {
 #
 # The team comes from, in order: --team; the `## Tracker` block of CLAUDE.md at the git
 # toplevel (its Issue-key prefix, else its Team name); for --all only, the prefix of a branch
-# TICKET key (ide-118-… → IDE). The bare branch name is never a team: on `main` it guessed MAIN.
+# TICKET key (ide-118-… or invizko/ide-118-… → IDE). The bare branch name is never a team: on `main` it guessed MAIN.
 # Whatever the source, the team is checked against Linear's teams before any issue is read,
 # because an issues filter on an unknown team key answers with an empty list, not an error.
 
-# _tracker_file → path of CLAUDE.md at the git toplevel, or return 1.
-_tracker_file() {
-  local top
-  top=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
-  [ -f "$top/CLAUDE.md" ] || return 1
-  printf '%s' "$top/CLAUDE.md"
-}
-
-# _tracker_field FILE LABEL → the value of `- **LABEL**: value` inside `## Tracker`, cut at
-# the first " (" and with backticks removed. Empty when absent.
-_tracker_field() {
-  awk -v want="$2" '
-    /^## / { inblk = ($0 ~ /^## Tracker[[:space:]]*$/); next }
-    inblk {
-      line = $0
-      if (line !~ /^[-*][[:space:]]+\*\*/) next
-      sub(/^[-*][[:space:]]+\*\*/, "", line)
-      i = index(line, "**:"); if (i == 0) next
-      if (substr(line, 1, i - 1) != want) next
-      v = substr(line, i + 3)
-      j = index(v, " ("); if (j > 0) v = substr(v, 1, j - 1)
-      gsub(/`/, "", v); gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
-      print v; exit
-    }' "$1"
-}
+# tracker_file / tracker_field live in lib.sh (shared with skills/next/assets/seat-projects.sh).
 
 _q_teams() { cat <<'GQL'
 query { teams(first: 250) { nodes { id key name } } }
@@ -504,10 +499,10 @@ _resolve_next_team() {
     team=$(_check_team "$explicit" "" "--team" 1) || return 1
     printf '%s\t%s' "$team" "--team"; return 0
   fi
-  if file=$(_tracker_file); then
-    tracker=$(_tracker_field "$file" "Tracker")
-    key=$(_tracker_field "$file" "Issue-key prefix")
-    name=$(_tracker_field "$file" "Team")
+  if file=$(tracker_file); then
+    tracker=$(tracker_field "$file" "Tracker")
+    key=$(tracker_field "$file" "Issue-key prefix")
+    name=$(tracker_field "$file" "Team")
     if [ -n "$tracker$key$name" ]; then
       source="§ Tracker in $file"
       if [ -n "$tracker" ] && ! printf '%s' "$tracker" | grep -qi 'linear'; then
@@ -524,7 +519,7 @@ _resolve_next_team() {
     fi
   fi
   if [ "$allow_branch" = "1" ]; then
-    key=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | grep -oiE '^[a-z]+-[0-9]+' | head -1 | grep -oiE '^[a-z]+')
+    key=$(_branch_ticket_key) && key="${key%%-*}"
     if [ -n "$key" ]; then
       source="branch ticket key"
       team=$(_check_team "$key" "" "$source") || return 1
@@ -727,7 +722,13 @@ cmd_next() {
   local raw fallback=0
   # No <project> and no branch ticket key: rank the repository's § Tracker team, team-wide.
   if [ "$all" = "0" ] && [ -z "$input" ]; then
-    input=$(_infer_project_from_branch) || { input=""; all=1; fallback=1; }
+    local irc
+    input=$(_infer_project_from_branch); irc=$?
+    case "$irc" in
+      0) ;;
+      1) input=""; all=1; fallback=1 ;;   # the branch carries no ticket key at all
+      *) return 1 ;;                       # a key with no readable project: named on stderr
+    esac
   fi
   if [ "$all" = "1" ]; then
     local resolved rrc source allow_branch=1

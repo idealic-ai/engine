@@ -29,7 +29,7 @@ setup() {
     "app:writer-x	Product: Other	primary" \
     "meta:overseer	-	none" \
     "" > "$TABLE"
-  unset NEXT_SEAT_PROJECTS 2>/dev/null || true
+  unset NEXT_SEAT_PROJECTS FLEET_LIVE_PANES FLEET_WARN_ONCE_DIR TMUX TMUX_PANE 2>/dev/null || true
 }
 
 teardown() {
@@ -117,6 +117,7 @@ test_seatprojects_default_path_from_a_worktree() {
   assert_eq "0" "$rc" "default path resolves from a worktree"
   assert_eq "Product: Orchestration	primary" "$out" "read the main checkout's table in place"
   assert_contains "$(cd "$repo" && pwd -P)/sessions/2026_10_28_DIRECTOR/builds/SEAT_PROJECTS.tsv" "$(cat "$TMP_DIR/err")" "stderr names the table it read"
+  assert_contains "temporary" "$(cat "$TMP_DIR/err")" "stderr labels the hardcoded default as temporary"
 }
 
 # LIVE CONFIG: the director's own file, read in place, when it exists on this machine.
@@ -132,6 +133,102 @@ test_seatprojects_skill_calls_the_helper() {
   assert_contains "assets/seat-projects.sh" "$(cat "$SKILL")" "SKILL.md calls the helper"
   assert_contains "no seat-projects row" "$(cat "$SKILL")" "SKILL.md says what a seat with no row reports"
   assert_contains "SEAT_PROJECTS.tsv" "$(cat "$SKILL")" "SKILL.md names the table"
+}
+
+# ---- Fix round (F3 SEATPATH, F4 live seat, F5) ----
+
+# mk_kit DIR [tracker-line] — a main checkout with a committed CLAUDE.md § Tracker and the table
+# under a gitignored-style sessions/ that exists only in the main checkout.
+mk_kit() {
+  local repo="$1" line="${2:-}"
+  mkdir -p "$repo/sessions/x/builds"
+  cp "$TABLE" "$repo/sessions/x/builds/SEATS.tsv"
+  git -C "$repo" init -q 2>/dev/null
+  printf '%s\n' '## Tracker' '' '- **Tracker**: Linear' '- **Issue-key prefix**: `IDE`' > "$repo/CLAUDE.md"
+  [ -n "$line" ] && printf '%s\n' "$line" >> "$repo/CLAUDE.md"
+  printf 'sessions/\n' > "$repo/.gitignore"
+  git -C "$repo" add CLAUDE.md .gitignore
+  git -C "$repo" -c user.email=t@t -c user.name=t commit -q -m init
+}
+
+test_seatprojects_tracker_line_names_the_table() {
+  local repo="$TMP_DIR/kit" out rc err
+  mk_kit "$repo" '- **Seat projects**: `sessions/x/builds/SEATS.tsv`'
+  out=$(cd "$repo" && FLEET_PANE=meta:engine bash "$HELPER" 2>"$TMP_DIR/err"); rc=$?
+  err=$(cat "$TMP_DIR/err")
+  assert_eq "0" "$rc" "§ Tracker Seat projects line is read"
+  assert_eq "Product: Orchestration	primary" "$out" "row from the table the line names"
+  assert_contains "§ Tracker" "$err" "stderr names § Tracker as the source"
+  assert_not_contains "temporary" "$err" "the hardcoded default is not used"
+}
+
+# A worktree carries CLAUDE.md (tracked) but not sessions/ (ignored): resolve against the main checkout.
+test_seatprojects_tracker_line_from_a_worktree() {
+  local repo="$TMP_DIR/kit" wt="$TMP_DIR/kitwt" out rc
+  mk_kit "$repo" '- **Seat projects**: sessions/x/builds/SEATS.tsv'
+  git -C "$repo" worktree add -q "$wt" 2>/dev/null
+  out=$(cd "$wt" && FLEET_PANE=meta:engine bash "$HELPER" 2>"$TMP_DIR/err"); rc=$?
+  assert_eq "0" "$rc" "worktree resolves the line against the main checkout"
+  assert_eq "Product: Orchestration	primary" "$out" "row read from the main checkout's sessions/"
+}
+
+test_seatprojects_tracker_line_missing_path_is_unread() {
+  local repo="$TMP_DIR/kit" out rc err
+  mk_kit "$repo" '- **Seat projects**: sessions/x/builds/NOPE.tsv'
+  out=$(cd "$repo" && FLEET_PANE=meta:engine bash "$HELPER" 2>"$TMP_DIR/err"); rc=$?
+  err=$(cat "$TMP_DIR/err")
+  assert_eq "2" "$rc" "a § Tracker line naming a missing path exits 2"
+  assert_contains "NOPE.tsv" "$err" "stderr names the path"
+  assert_contains "§ Tracker" "$err" "stderr names the source"
+  assert_not_contains "temporary" "$err" "no fallback to the hardcoded default"
+}
+
+test_seatprojects_env_beats_tracker_line_and_file_beats_env() {
+  local repo="$TMP_DIR/kit" out rc
+  mk_kit "$repo" '- **Seat projects**: sessions/x/builds/NOPE.tsv'
+  out=$(cd "$repo" && NEXT_SEAT_PROJECTS="$TABLE" FLEET_PANE=meta:engine bash "$HELPER" 2>"$TMP_DIR/err"); rc=$?
+  assert_eq "0" "$rc" "NEXT_SEAT_PROJECTS wins over the § Tracker line"
+  assert_contains "NEXT_SEAT_PROJECTS" "$(cat "$TMP_DIR/err")" "stderr names the env source"
+  out=$(cd "$repo" && NEXT_SEAT_PROJECTS="$TMP_DIR/nope.tsv" FLEET_PANE=meta:engine bash "$HELPER" --file "$TABLE" 2>"$TMP_DIR/err"); rc=$?
+  assert_eq "0" "$rc" "--file wins over NEXT_SEAT_PROJECTS"
+  assert_contains "--file" "$(cat "$TMP_DIR/err")" "stderr names --file as the source"
+}
+
+# F4: the seat is read live from tmux (here through FLEET_LIVE_PANES), FLEET_PANE is the cache.
+test_seatprojects_live_seat_wins_and_warns() {
+  local out rc err
+  printf 'meta:engine %%9 manager:meta\n' > "$TMP_DIR/panes"
+  out=$(TMUX_PANE=%9 FLEET_LIVE_PANES="$TMP_DIR/panes" FLEET_PANE=app:writer bash "$HELPER" --file "$TABLE" 2>"$TMP_DIR/err"); rc=$?
+  err=$(cat "$TMP_DIR/err")
+  assert_eq "0" "$rc" "live seat read"
+  assert_eq "Product: Orchestration	primary" "$out" "rows of the live seat, not the cached one"
+  assert_contains "FLEET_PANE 'app:writer'" "$err" "stderr warns that the cached FLEET_PANE differs"
+  assert_contains "stale" "$err" "the warning says the cache is stale"
+}
+
+test_seatprojects_falls_back_to_fleet_pane_when_live_unreadable() {
+  local out rc
+  out=$(TMUX_PANE=%9 FLEET_LIVE_PANES="$TMP_DIR/no-such-panes" FLEET_PANE=app:writer bash "$HELPER" --file "$TABLE" 2>"$TMP_DIR/err"); rc=$?
+  assert_eq "0" "$rc" "cache used when tmux cannot be read"
+  assert_eq "Product: Writer	primary
+Product: Editor	primary" "$out" "rows of FLEET_PANE"
+}
+
+# F5: CRLF rows lose their CR; an uncommented header row is not data.
+test_seatprojects_crlf_rows_are_stripped() {
+  local out rc
+  printf 'meta:engine\tProduct: Orchestration\tprimary\r\n' > "$TMP_DIR/crlf.tsv"
+  out=$(FLEET_PANE=meta:engine bash "$HELPER" --file "$TMP_DIR/crlf.tsv" 2>/dev/null); rc=$?
+  assert_eq "0" "$rc" "CRLF table read"
+  assert_eq "Product: Orchestration	primary" "$out" "no carriage return in the role"
+  assert_eq "0" "$(printf '%s' "$out" | tr -cd '\r' | wc -c | tr -d ' ')" "no CR byte in the output"
+}
+
+test_seatprojects_uncommented_header_only_is_unread() {
+  local rc
+  printf 'seat\tlinear_project\trole\n' > "$TMP_DIR/hdr.tsv"
+  FLEET_PANE=app:writer bash "$HELPER" --file "$TMP_DIR/hdr.tsv" >/dev/null 2>"$TMP_DIR/err"; rc=$?
+  assert_eq "2" "$rc" "a header-only table exits 2, not 1"
 }
 
 run_discovered_tests

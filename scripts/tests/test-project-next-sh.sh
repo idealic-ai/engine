@@ -375,4 +375,76 @@ test_projectnext_bare_on_main_without_tracker_errors() {
   assert_not_contains "MAIN" "$err" "the branch name is never taken as a team"
 }
 
+# ---- Branch ticket keys (TICKETFLOW fix round: F1, F2) ----
+#
+# Widen to the team only when the branch carries NO ticket key. A key whose issue has no project,
+# a missing issue, or a failed read is a named failure, never "no branch ticket key" at exit 0.
+# A key is matched at the start of the branch or after a `/` (Linear's `invizko/ide-118-…`).
+
+# on_branch DIR BRANCH — move the repo made by make_repo onto BRANCH (needs one commit).
+on_branch() {
+  git -C "$1" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+  git -C "$1" checkout -q -b "$2"
+}
+
+test_projectnext_key_without_project_fails_named() {
+  local out rc err
+  make_repo "$TMP_DIR/repo" "$TRACKER_IDE"; on_branch "$TMP_DIR/repo" ide-118-foo
+  out=$(cd "$TMP_DIR/repo" && LINEAR_FIXTURE="$FXDIR/issue-noproject.json:$FXDIR/teams.json:$FXDIR/team-issues.json" "$PS" next --json 2>"$TMP_DIR/err"); rc=$?
+  err=$(cat "$TMP_DIR/err")
+  assert_neq "0" "$rc" "branch key whose issue has no project -> non-zero"
+  assert_empty "$out" "no team-wide list in place of the project's"
+  assert_contains "IDE-118" "$err" "stderr names the branch key"
+  assert_contains "no project" "$err" "stderr says the issue has no project"
+  assert_not_contains "no branch ticket key" "$err" "never claims there was no key"
+}
+
+test_projectnext_key_missing_issue_fails_named() {
+  local out rc err
+  make_repo "$TMP_DIR/repo" "$TRACKER_IDE"; on_branch "$TMP_DIR/repo" ide-118-foo
+  out=$(cd "$TMP_DIR/repo" && LINEAR_FIXTURE="$FXDIR/issue-missing.json:$FXDIR/teams.json:$FXDIR/team-issues.json" "$PS" next --json 2>"$TMP_DIR/err"); rc=$?
+  err=$(cat "$TMP_DIR/err")
+  assert_neq "0" "$rc" "branch key with no such issue -> non-zero"
+  assert_empty "$out" "nothing ranked"
+  assert_contains "IDE-118" "$err" "stderr names the branch key"
+  assert_not_contains "no branch ticket key" "$err" "never claims there was no key"
+}
+
+test_projectnext_key_failed_read_fails_named() {
+  local out rc err
+  make_repo "$TMP_DIR/repo" "$TRACKER_IDE"; on_branch "$TMP_DIR/repo" ide-118-foo
+  out=$(cd "$TMP_DIR/repo" && LINEAR_FIXTURE="$FXDIR/errors.json:$FXDIR/teams.json:$FXDIR/team-issues.json" "$PS" next --json 2>"$TMP_DIR/err"); rc=$?
+  err=$(cat "$TMP_DIR/err")
+  assert_neq "0" "$rc" "failed Linear read for the branch key -> non-zero"
+  assert_empty "$out" "nothing ranked"
+  assert_contains "IDE-118" "$err" "stderr names the branch key"
+  assert_not_contains "no branch ticket key" "$err" "never claims there was no key"
+}
+
+# Kit's branch shape: the key follows a `user/` prefix.
+test_projectnext_prefixed_branch_key_finds_project() {
+  local tmp="$TMP_DIR/out.json" rc
+  make_repo "$TMP_DIR/repo" "$TRACKER_IDE"; on_branch "$TMP_DIR/repo" invizko/ide-118-foo
+  ( cd "$TMP_DIR/repo" && LINEAR_FIXTURE="$FXDIR/issue-project.json:$FXDIR/intake.json" "$PS" next --json >"$tmp" 2>"$TMP_DIR/err" ); rc=$?
+  assert_eq "0" "$rc" "prefixed branch key exits 0"
+  assert_json "$tmp" '.project.name' "Product: Intake System" "the key's project is ranked, not the team"
+}
+
+# --all with no Tracker falls back to a branch key's prefix, prefixed or not.
+test_projectnext_all_branch_key_fallback() {
+  local tmp="$TMP_DIR/out.json" rc
+  make_repo "$TMP_DIR/repo"; on_branch "$TMP_DIR/repo" fin-7-thing
+  ( cd "$TMP_DIR/repo" && LINEAR_FIXTURE="$FXDIR/teams.json:$FXDIR/team-issues.json" "$PS" next --all --json >"$tmp" 2>"$TMP_DIR/err" ); rc=$?
+  assert_eq "0" "$rc" "--all on fin-7-thing exits 0"
+  assert_json "$tmp" '.project.name' "(team FIN)" "team from the branch key's prefix"
+}
+
+test_projectnext_all_prefixed_branch_key_fallback() {
+  local tmp="$TMP_DIR/out.json" rc
+  make_repo "$TMP_DIR/repo"; on_branch "$TMP_DIR/repo" someone/fin-7-thing
+  ( cd "$TMP_DIR/repo" && LINEAR_FIXTURE="$FXDIR/teams.json:$FXDIR/team-issues.json" "$PS" next --all --json >"$tmp" 2>"$TMP_DIR/err" ); rc=$?
+  assert_eq "0" "$rc" "--all on someone/fin-7-thing exits 0"
+  assert_json "$tmp" '.project.name' "(team FIN)" "team from a prefixed branch key"
+}
+
 run_discovered_tests

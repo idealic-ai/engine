@@ -25,6 +25,8 @@
 #   is_engine_tag_cmd CMD   — Returns 0 if CMD is an engine tag invocation
 #   is_engine_glob_cmd CMD  — Returns 0 if CMD is an engine glob invocation
 #   fleet_self              — This seat's window:label, live tmux first (exit 3 = launch-time cache)
+#   tracker_file            — CLAUDE.md at the git toplevel (the repository's § Tracker config)
+#   tracker_field FILE LABEL — a `- **LABEL**: value` line's value inside that file's `## Tracker`
 #   fleet_parent [--live V] [--of SEAT] — This seat's parent, live @pane_parent first (exit 3 = cache)
 #   seat_activity_record EVENT INPUT — rewrite this seat's activity record (broadcast reads it)
 
@@ -1792,4 +1794,38 @@ transcript_by_key() {
   done
   [ -n "$best" ] || return 1
   printf '%s\n' "$best"
+}
+
+# ---- The repository's § Tracker config ----
+#
+# Read by `engine project next` (team) and skills/next/assets/seat-projects.sh (seat table), so
+# both parse it one way.
+
+# tracker_file → path of CLAUDE.md at the git toplevel, or return 1. In a worktree that is the
+# worktree's tracked copy.
+tracker_file() {
+  local top
+  top=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+  [ -f "$top/CLAUDE.md" ] || return 1
+  printf '%s' "$top/CLAUDE.md"
+}
+
+# tracker_field FILE LABEL → the value of the first `- **LABEL**: value` (or `* **LABEL**: …`)
+# line inside the `## Tracker` section, or nothing when absent. The value is cut at its first
+# " (" (so a trailing remark like "(keys look like IDE-118)" drops) and loses every backtick:
+# a value that itself contains " (" is read short.
+tracker_field() {
+  awk -v want="$2" '
+    /^## / { inblk = ($0 ~ /^## Tracker[[:space:]]*$/); next }
+    inblk {
+      line = $0
+      if (line !~ /^[-*][[:space:]]+\*\*/) next
+      sub(/^[-*][[:space:]]+\*\*/, "", line)
+      i = index(line, "**:"); if (i == 0) next
+      if (substr(line, 1, i - 1) != want) next
+      v = substr(line, i + 3)
+      j = index(v, " ("); if (j > 0) v = substr(v, 1, j - 1)
+      gsub(/`/, "", v); gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
+      print v; exit
+    }' "$1"
 }
