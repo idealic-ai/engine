@@ -619,4 +619,188 @@ assert_eq 0 "$(grep -c -i 'land anyway' "$LEASE")" "L49 lease.sh tells nobody to
 # Every take failure after the store check names the no-push tail: lock timeout, write failure, read-back failure.
 assert_eq 5 "$(grep -c 'NO_TAKE"' "$LEASE")" "L49 all five take failure messages end in the no-push tail"
 
+# L50-L61 — the FIFO waiting list (LEASEQ). A seat joins with `wait` (or `take --queue`); on release or expiry the
+# next command hands the turn to the head by writing a reservation, an ordinary lease file for the seat
+# `reserved-for:<head>` that expires when the head's grace ends. The head takes its turn with `take`; anyone else is
+# refused until the grace ends; a head that lets its grace pass drops off. Nothing runs on a timer: every hand-off and
+# drop is computed by the next lease command. `check` reads no queue at all.
+qfile="$DIR/kit@main.queue"
+age_lease() { # age_lease <file> <secs-ago-expired>: rewrite a lease so it expired that many seconds ago
+  local f="$1" ago="$2" n; n=$(date -u +%s)
+  sed -i.bak -e "s/^taken=.*/taken=$(iso_at $((n - 600 - ago)))/" -e "s/^expires=.*/expires=$(iso_at $((n - ago)))/" "$f"; rm -f "$f.bak"
+}
+age_queue() { # age_queue <secs-ago>: every waiter joined that many seconds ago (while the aged lease was still live)
+  local n; n=$(date -u +%s)
+  awk -F'\t' -v OFS='\t' -v j="$(iso_at $((n - $1)))" '$1=="entry"{$2=j} {print}' "$qfile" > "$qfile.tmp" && mv "$qfile.tmp" "$qfile"
+}
+
+# L50 — FIFO order, and `show` lists the queue in order.
+reset
+run take a:one --repo kit --branch main >/dev/null 2>&1
+out="$(run wait b:two --repo kit --branch main --what 'fix B' 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L50 wait exits 0"
+assert_contains "position 1" "$out" "L50 the first waiter is told it is position 1"
+out="$(run wait c:three --repo kit --branch main 2>&1)"
+assert_contains "position 2" "$out" "L50 the second waiter is position 2"
+out="$(run show 2>&1)"
+assert_contains "queue kit/main: 1. b:two" "$out" "L50 show lists the queue head first"
+assert_contains "2. c:three" "$out" "L50 and the second waiter second"
+out="$(run show --repo kit --branch dev 2>&1)"
+assert_not_contains "queue kit/main" "$out" "L50 show for another trunk does not list kit/main's queue"
+
+# L51 — joining twice keeps the first place.
+out="$(run wait b:two --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L51 a second wait exits 0"
+assert_contains "position 1" "$out" "L51 and keeps position 1"
+assert_eq 1 "$(grep -c "	b:two	" "$qfile")" "L51 the queue holds b:two once"
+assert_contains "1. b:two" "$(run show 2>&1)" "L51 b:two is still first"
+
+# L52 — hand-off on release: the turn passes to the head, a non-head take is refused naming the head and when its
+# grace ends, and the head's take succeeds and leaves the queue.
+out="$(run release a:one 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L52 release exits 0"
+assert_contains "turn passes to b:two" "$out" "L52 release says the turn passes to the head"
+assert_file_exists "$DIR/reserved-for_b_two@kit@main.lease" "L52 the head's reservation is written"
+out="$(run take c:three --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 1 "$rc" "L52 a non-head take during the grace is refused (exit 1)"
+assert_contains "reserved for b:two" "$out" "L52 the refusal names the head"
+assert_contains "ends at 20" "$out" "L52 and says when the head's grace ends"
+assert_file_not_exists "$DIR/c_three@kit@main.lease" "L52 the refused seat leaves no lease file"
+out="$(run take b:two --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L52 the head's take succeeds"
+assert_contains "taken by b:two" "$out" "L52 and it holds the lease"
+assert_file_not_exists "$DIR/reserved-for_b_two@kit@main.lease" "L52 the reservation is gone"
+assert_eq 0 "$(grep -c "	b:two	" "$qfile")" "L52 the head left the queue"
+assert_contains "queue kit/main: 1. c:three" "$(run show 2>&1)" "L52 c:three is now first"
+
+# L53 — a seat not in the queue is refused during another's grace, and `take --queue` joins on refusal.
+run release b:two >/dev/null 2>&1
+out="$(run take d:four --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 1 "$rc" "L53 a seat outside the queue is refused during the head's grace"
+assert_contains "reserved for c:three" "$out" "L53 and is told whose turn it is"
+out="$(run take d:four --repo kit --branch main --queue 2>&1)"; rc=$?
+assert_eq 1 "$rc" "L53 take --queue is still refused"
+assert_contains "position 2" "$out" "L53 but joins the queue behind the head"
+assert_contains "2. d:four" "$(run show 2>&1)" "L53 show lists d:four second"
+
+# L54 — hand-off on expiry: a holder that never releases; once its lease expires the next command hands the turn on.
+reset
+run take a:one --repo kit --branch main >/dev/null 2>&1
+run wait b:two --repo kit --branch main >/dev/null 2>&1
+run wait c:three --repo kit --branch main >/dev/null 2>&1
+age_lease "$DIR/a_one@kit@main.lease" 10
+age_queue 300
+out="$(run take c:three --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 1 "$rc" "L54 after the holder's lease expires, a non-head take is refused"
+assert_contains "reserved for b:two" "$out" "L54 because the turn passed to the head"
+r="$DIR/reserved-for_b_two@kit@main.lease"
+assert_file_exists "$r" "L54 the head's reservation was written by that command"
+assert_eq "$(sed -n 's/^expires=//p' "$DIR/a_one@kit@main.lease")" "$(sed -n 's/^taken=//p' "$r")" "L54 the head's turn starts when the lease expired"
+
+# L55 — the grace drop: a head that lets its grace pass drops off on the next command, and the turn moves on.
+reset
+run take a:one --repo kit --branch main >/dev/null 2>&1
+run wait b:two --repo kit --branch main >/dev/null 2>&1
+run wait c:three --repo kit --branch main >/dev/null 2>&1
+age_lease "$DIR/a_one@kit@main.lease" 200
+age_queue 500
+out="$(run show 2>&1)"
+assert_contains "queue kit/main: 1. c:three" "$out" "L55 show computes the drop: c:three is first"
+assert_eq 1 "$(grep -c "	b:two	" "$qfile")" "L55 show writes nothing (b:two is still in the file)"
+out="$(run take b:two --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 1 "$rc" "L55 the dropped head's take is refused"
+assert_contains "reserved for c:three" "$out" "L55 because the turn moved to c:three"
+assert_eq 0 "$(grep -c "	b:two	" "$qfile")" "L55 b:two was dropped from the queue"
+assert_contains "drop	seat=b:two" "$(cat "$DIR/history.log")" "L55 the drop is in history.log"
+out="$(run take c:three --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L55 the new head takes its turn"
+
+# L56 — leaving the queue; leaving as head passes the turn on.
+reset
+run take a:one --repo kit --branch main >/dev/null 2>&1
+run wait b:two --repo kit --branch main >/dev/null 2>&1
+run wait c:three --repo kit --branch main >/dev/null 2>&1
+out="$(run leave c:three --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L56 leave exits 0"
+assert_eq 0 "$(grep -c "	c:three	" "$qfile")" "L56 the seat is gone from the queue"
+out="$(run leave c:three --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L56 leaving a queue one is not in exits 0"
+run wait c:three --repo kit --branch main >/dev/null 2>&1
+run release a:one >/dev/null 2>&1
+out="$(run leave b:two --repo kit --branch main 2>&1)"
+assert_file_not_exists "$DIR/reserved-for_b_two@kit@main.lease" "L56 a head that leaves takes its reservation with it"
+assert_file_exists "$DIR/reserved-for_c_three@kit@main.lease" "L56 and the turn passes to the next seat"
+
+# L57 — per-repo isolation: a kit/main queue and reservation do not touch engine/main.
+reset
+run take a:one --repo kit --branch main >/dev/null 2>&1
+run wait b:two --repo kit --branch main >/dev/null 2>&1
+run release a:one >/dev/null 2>&1
+out="$(run take c:three --repo engine --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L57 an engine/main take succeeds during kit/main's reservation"
+run wait d:four --repo engine --branch main >/dev/null 2>&1
+assert_file_exists "$DIR/engine@main.queue" "L57 engine/main has its own queue file"
+assert_eq 0 "$(grep -c "	d:four	" "$qfile")" "L57 and kit/main's queue does not hold its waiter"
+out="$(run check c:three --repo engine --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L57 engine/main's holder still passes its own check"
+
+# L58 — check during a reservation: nobody holds the lease, so every seat's push is refused with check's existing
+# exit-3 wording (head included: it must take its turn first), nothing on stdout, and check writes nothing.
+reset
+run take a:one --repo kit --branch main >/dev/null 2>&1
+run wait b:two --repo kit --branch main >/dev/null 2>&1
+run wait c:three --repo kit --branch main >/dev/null 2>&1
+run release a:one >/dev/null 2>&1
+for s in c:three b:two; do
+  out="$(run check "$s" --repo kit --branch main 2>/dev/null)"; rc=$?
+  assert_eq 3 "$rc" "L58 check by $s during b:two's reservation exits 3"
+  assert_eq "" "$out" "L58 and prints nothing on stdout"
+  err="$(run check "$s" --repo kit --branch main 2>&1 >/dev/null)"
+  m=0; [[ "$err" =~ ^lease:\ $s\ may\ not\ push\ now\;\ held\ by\ reserved-for:b:two\ \(repo=kit\ branch=main\ taken=.*,\ [0-9]+s\ left\) ]] && m=1
+  assert_eq 1 "$m" "L58 and its stderr is the existing refusal line, naming the reservation (got: $err)"
+done
+age_lease "$DIR/reserved-for_b_two@kit@main.lease" 5
+before="$(cd "$DIR" && ls -la; cat "$qfile")"
+out="$(run check c:three --repo kit --branch main 2>/dev/null)"; rc=$?
+assert_eq 0 "$rc" "L58 once the grace passed and no command ran, check reads the trunk free"
+assert_eq "lease: free" "$out" "L58 with the pinned 'lease: free' line, which the hook refuses"
+assert_eq "$before" "$(cd "$DIR" && ls -la; cat "$qfile")" "L58 check wrote nothing, even with a drop due"
+
+# L59 — an older store (no queue file anywhere) behaves exactly as before and gains no queue file; and an older
+# engine reading a store with a reservation fails safe: it refuses every take and every push during the turn.
+reset
+run take a:one --repo kit --branch main >/dev/null 2>&1
+run show >/dev/null 2>&1; run check b:two --repo kit --branch main >/dev/null 2>&1
+out="$(run take b:two --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 1 "$rc" "L59 with no queue a take over a live lease is refused as before"
+assert_contains "wait until it expires, then take again" "$out" "L59 with the old wording"
+run release a:one >/dev/null 2>&1
+out="$(run take b:two --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L59 and the trunk is free after release, with no reservation"
+assert_eq 0 "$(ls "$DIR" | grep -c '\.queue$')" "L59 no command wrote a queue file"
+OLD="$TMP_DIR/lease-v2.sh"
+if git -C "$(dirname "$0")" show 8d83237:scripts/lease.sh > "$OLD" 2>/dev/null; then
+  reset
+  run take a:one --repo kit --branch main >/dev/null 2>&1
+  run wait b:two --repo kit --branch main >/dev/null 2>&1
+  run release a:one >/dev/null 2>&1
+  out="$(LANDING_LEASE_DIR="$DIR" bash "$OLD" take c:three --repo kit --branch main 2>&1)"; rc=$?
+  assert_eq 1 "$rc" "L59 an older engine's take during the reservation is refused"
+  out="$(LANDING_LEASE_DIR="$DIR" bash "$OLD" check b:two --repo kit --branch main 2>/dev/null)"; rc=$?
+  assert_eq 3 "$rc" "L59 an older engine's check refuses the head's push too (exit 3)"
+else
+  fail "L59 the v2 lease.sh (8d83237) is readable from git" "readable" "missing"
+fi
+
+# L60 — queueing needs a trunk, and the reservation name cannot be taken by a seat.
+reset
+out="$(run wait b:two --repo kit 2>&1)"; rc=$?
+assert_eq 2 "$rc" "L60 wait without --branch is a usage error"
+out="$(run take reserved-for:x --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 2 "$rc" "L60 a seat named reserved-for:... is refused"
+out="$(run wait b:two --repo kit --branch main 2>&1)"
+assert_contains "take it now" "$out" "L60 a seat that joins an empty queue on a free trunk is told to take it now"
+out="$(run take b:two --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L60 and its take succeeds"
+
 exit_with_results
