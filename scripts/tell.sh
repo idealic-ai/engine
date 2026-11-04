@@ -29,6 +29,8 @@
 #                      back. "Its manager" is the sender's live parent in the tmux tree (or, once
 #                      the sender has left it, the manager recorded at send time); `engine ask
 #                      withdraw` reads FLEET_MANAGES instead, so the two can disagree.
+#                      A plain broadcast records no sender-manager, so once its sender has left
+#                      the tree only the operator can withdraw it.
 #                      Unseen queued copies are removed, a shown one is marked withdrawn, and each
 #                      seat that had acked it and is still live gets a lazy tell from you. No
 #                      acknowledgement is asked. A go request cannot be withdrawn.

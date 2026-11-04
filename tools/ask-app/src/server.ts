@@ -250,7 +250,7 @@ const server = http.createServer(async (req, res) => {
     // Broadcasts, read-only: the director's notices and which seats acked them. Token-checked like /api/ticket/.
     if (url.pathname === "/api/broadcasts" && req.method === "GET") {
       if (req.headers["x-ask-token"] !== token) return send(res, 403, { error: "missing or wrong ask token" });
-      return send(res, 200, { broadcasts: listBroadcasts() });
+      return send(res, 200, { broadcasts: listBroadcasts(defaultBroadcastDir(root)) });
     }
     // TELL: the Comms feed, one row per tell, broadcast or ask, newest first. Read-only; gated like
     // /api/search (the page's token, no foreign Origin), since the feed carries ask subjects.
