@@ -187,7 +187,7 @@ safe_name() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_' | sed 's/^\./_/'; }
 scope_suffix() { [ -z "$1" ] && [ -z "$2" ] && return 0; printf '@%s@%s' "$(safe_name "$1")" "$(safe_name "$2")"; }
 # seat_file <seat> [repo] [branch] — the seat's own file for that scope.
 seat_file() { printf '%s/%s%s.lease' "$LEASE_DIR" "$(safe_name "$1")" "$(scope_suffix "${2:-}" "${3:-}")"; }
-field() { sed -n "s/^$1=//p" "$2" | head -1; }
+field() { [ -n "$2" ] && [ -f "$2" ] || return 0; sed -n "s/^$1=//p" "$2" | head -1; }
 # one_line — a value for a history.log field: every control byte (TAB, CR, LF, ESC, DEL…) folded to a space, and so
 # are U+0085 (NEL), U+2028 and U+2029 (their UTF-8 bytes, written in octal), which Python's splitlines() and JS treat
 # as line breaks.
@@ -355,28 +355,46 @@ queue_set_turn() {
 }
 # queue_position <seat> — 1-based place of <seat> in Q_SEATS, or empty.
 queue_position() { printf '%s\n' "$Q_SEATS" | awk -v s="$1" '$0==s{print NR; exit}'; }
+# queue_dropped_at <seat> <repo> <branch> — the at= of the seat's newest drop line, if it is newer than its newest wait.
+queue_dropped_at() {
+  awk -F'\t' -v s="seat=$1" -v r="repo=$2" -v b="branch=$3" \
+    '($2=="wait"||$2=="drop") && $3==s && $4==r && $5==b {ev=$2; at=$6} END{if (ev=="drop") {sub(/^at=/,"",at); print at}}' \
+    "$LEASE_DIR/history.log" 2>/dev/null
+}
+# queue_append <seat> <repo> <branch> <what> — put <seat> at the end of the list (history `wait`).
+queue_append() {
+  printf 'entry\t%s\t%s\t%s\n' "$(epoch_to_iso "$(now_epoch)")" "$1" "$(one_line "$4" | tr '\t' ' ')" >> "$(queue_file "$2" "$3")" \
+    || die "cannot write $(queue_file "$2" "$3")"
+  lease_history wait "seat=$1" "repo=$2" "branch=$3"
+}
 # queue_join <seat> <repo> <branch> <what> — append <seat> unless it is already waiting (it keeps its place), settle,
 # and say where it stands. Call under the trunk's lock.
 queue_join() {
-  local seat="$1" repo="$2" branch="$3" what="$4" qf pos
+  local seat="$1" repo="$2" branch="$3" what="$4" qf pos h
   qf="$(queue_file "$repo" "$branch")"
   [ -f "$qf" ] || printf 'repo=%s\nbranch=%s\nturn=\n' "$repo" "$branch" > "$qf" || die "cannot write $qf"
   # Settle first, so a seat whose turn has passed is dropped now and rejoins at the end, and is told so.
   queue_settle "$repo" "$branch" 1
   local dropped_at=""
   if ! awk -F'\t' -v s="$seat" '$1=="entry" && $3==s{f=1} END{exit !f}' "$qf"; then
-    # Was this seat dropped since it last joined? Its newest wait or drop line in history.log says.
-    dropped_at="$(awk -F'\t' -v s="seat=$seat" -v r="repo=$repo" -v b="branch=$branch" \
-      '($2=="wait"||$2=="drop") && $3==s && $4==r && $5==b {ev=$2; at=$6} END{if (ev=="drop") {sub(/^at=/,"",at); print at}}' \
-      "$LEASE_DIR/history.log" 2>/dev/null)"
-    printf 'entry\t%s\t%s\t%s\n' "$(epoch_to_iso "$(now_epoch)")" "$seat" "$(one_line "$what" | tr '\t' ' ')" >> "$qf" || die "cannot write $qf"
-    lease_history wait "seat=$seat" "repo=$repo" "branch=$branch"
+    dropped_at="$(queue_dropped_at "$seat" "$repo" "$branch")"
+    queue_append "$seat" "$repo" "$branch" "$what"
   fi
+  [ -z "${LANDING_LEASE_TEST_JOIN_PAUSE:-}" ] || sleep "$LANDING_LEASE_TEST_JOIN_PAUSE"   # test seam (L67): a turn ends here
   queue_settle "$repo" "$branch" 1
   pos="$(queue_position "$seat")"
+  # R1: the seat's own turn can end between the membership check and this settle, which then drops it. Put it back
+  # at the end, as a wait after the drop would, rather than print a blank position.
+  if [ -z "$pos" ]; then
+    dropped_at="$(queue_dropped_at "$seat" "$repo" "$branch")"
+    queue_append "$seat" "$repo" "$branch" "$what"
+    queue_settle "$repo" "$branch" 1
+    pos="$(queue_position "$seat")"
+  fi
   [ -z "$dropped_at" ] || printf 'lease: %s was dropped from the %s/%s queue at %s (its turn passed untaken); it rejoined at the end\n' \
     "$seat" "$repo" "$branch" "$dropped_at"
-  if [ "$Q_HEAD" = "$seat" ] && [ -n "$(field reserved "$(holder_file "$repo" "$branch")")" ]; then
+  h="$(holder_file "$repo" "$branch")"
+  if [ "$Q_HEAD" = "$seat" ] && [ -n "$h" ] && [ -n "$(field reserved "$h")" ]; then
     printf 'lease: %s is position %s in the %s/%s queue and it is its turn: take it now, before %s: engine lease take %s --repo %s --branch %s\n' \
       "$seat" "$pos" "$repo" "$branch" "$(epoch_to_iso "$Q_END")" "$seat" "$repo" "$branch"
   else
@@ -622,7 +640,7 @@ lease_release() {
       [ -f "$qf" ] || continue
       qr="$(field repo "$qf")"; qb="$(field branch "$qf")"
       overlaps "$qr" "$qb" "$(norm_repo "$r")" "$(norm_branch "$b")" || continue
-      take_qlock "$qr" "$qb" || die "could not take the $qr/$qb take lock, so $f was not released; try again"
+      take_qlock "$qr" "$qb" || die "could not take the $qr/$qb take lock, so $f was not released (released $removed lease file(s) before it); try again"
       queue_set_turn "$qr" "$qb"; release_qlock
     done
     rm -f "$f" || die "cannot remove $f"

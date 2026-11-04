@@ -912,4 +912,15 @@ reset
 run take w:one --repo kit --branch main --what $'x\nreserved=w:one' >/dev/null 2>&1
 assert_eq "" "$(sed -n 's/^reserved=//p' "$DIR/w_one@kit@main.lease")" "L66 a --what with a newline cannot make a lease read as a turn (N1)"
 
+# L67 — re-review R1: a wait whose own turn ends between its membership check and its final settle is put back at the
+# end and told it was dropped, never left out of the list with a blank position. LANDING_LEASE_TEST_JOIN_PAUSE is the
+# seam that holds the wait in that window.
+reset
+LANDING_LEASE_GRACE=2 run wait b:two --repo kit --branch main >/dev/null 2>&1
+out="$(LANDING_LEASE_GRACE=2 LANDING_LEASE_TEST_JOIN_PAUSE=3 run wait b:two --repo kit --branch main 2>&1)"
+assert_eq 1 "$(grep -c "	b:two	" "$qfile")" "L67 a wait whose turn lapsed mid-call leaves the seat in the queue"
+assert_contains "b:two was dropped from the kit/main queue at" "$out" "L67 and says it was dropped"
+assert_contains "is position 1 in" "$out" "L67 and prints its position, not a blank"
+assert_not_contains "No such file" "$out" "L67 and no read of an empty holder path (R2)"
+
 exit_with_results
