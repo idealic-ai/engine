@@ -23,7 +23,8 @@ import { AskFormatError, parseAskFile, STAMP_FIELDS } from "../src/lib/format.ts
 import { holderNoticeMessage, noticeHolder, NOTICE_FIELDS } from "../src/lib/holder-notice.ts";
 import { wakeView } from "../src/lib/wake.ts";
 
-const BODY = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n";
+// ASKPAIR: `engine ask new` applies the author floor, so the fork carries a paragraph of its own.
+const BODY = "## ¶ASK_GO: Choose one: Ship it?\nContext: the release is ready, and this decides whether it goes out tonight or waits a week.\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n";
 const ASKER = "domain:security";
 const HOLDER = "manager:domain";
 const PARENT = "manager:director";
