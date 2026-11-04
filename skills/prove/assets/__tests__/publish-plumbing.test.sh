@@ -408,6 +408,134 @@ echo '{}' | "$assets/bake-tickets.sh" --inject "$scanSrc" --tickets - --out - >/
 echo 'not json' | "$assets/bake-tickets.sh" --inject "$scanSrc" --tickets - --out - >/dev/null 2>&1 \
   && no "unparseable json is fatal" "exited 0" || ok "unparseable tickets json is fatal"
 
+echo "== publish-s3.sh: markdown is rendered, never uploaded as one block (loopback store) =="
+# A storing stub (objects kept under $mdStore) so the assertions read the bytes that were UPLOADED,
+# not the argv. Loopback config, with PROVE_S3_PROFILE set as well as PROVE_S3_ENV: the publisher's
+# dev-pair fallback only applies to a clean environment (¶PTF_THE_PROOF_PUBLISHERS_DEV_PAIR_FALLBACK…).
+mdStub="$tmp/mdbin"; mdStore="$tmp/mdstore"; mkdir -p "$mdStub" "$mdStore"
+cat > "$mdStub/aws" <<'STUB'
+#!/usr/bin/env bash
+store="${STUB_STORE:?}"; args=("$@"); bucket=""; key=""
+for ((i=0; i<${#args[@]}; i++)); do
+  case "${args[$i]}" in --bucket) bucket="${args[$((i+1))]}" ;; --key) key="${args[$((i+1))]}" ;; esac
+done
+case "$1 $2" in
+  "s3 cp") dst="${4#s3://}"; mkdir -p "$store/$(dirname "$dst")"; cp "$3" "$store/$dst" ;;
+  "s3api get-object") out="${args[$((${#args[@]}-1))]}"; [ -f "$store/$bucket/$key" ] || exit 1; cp "$store/$bucket/$key" "$out" ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$mdStub/aws"
+mdEnv="$tmp/md.env"
+printf 'PROVE_S3_BUCKET=proofs\nPROVE_S3_ENDPOINT=http://127.0.0.1:9\nPROVE_S3_PUBLIC_BASE=http://127.0.0.1:9\nPROVE_S3_PREFIX=proofs\nPROVE_S3_USER=t\n' > "$mdEnv"
+mdPublish() { # mdPublish <file> <tag> [slug]
+  env PATH="$mdStub:$PATH" STUB_STORE="$mdStore" PROVE_S3_ENV="$mdEnv" PROVE_S3_PROFILE=loopback-test \
+    PROVE_S3_BUCKET=proofs PROVE_S3_ENDPOINT=http://127.0.0.1:9 PROVE_S3_PUBLIC_BASE=http://127.0.0.1:9 PROVE_S3_USER=t \
+    PROVE_SEAT=meta:engine bash "$assets/publish-s3.sh" "$1" ${3:+"$3"} > "$tmp/$2.out" 2> "$tmp/$2.err"
+}
+mdStored() { local url; url="$(cat "$tmp/$1.out")"; printf '%s/%s' "$mdStore" "${url#http://127.0.0.1:9/}"; }
+
+cat > "$tmp/fixture-report.md" <<'MD'
+# Council Report — fixture
+
+## Verdict
+**sound_with_fixes**, see [the ticket](https://linear.app/idealic/issue/IDE-1?a=1&b=2).
+
+- first finding
+- second finding
+
+```bash
+echo "hello"
+```
+
+| # | Tier | Finding |
+|---|------|---------|
+| 1 | MUST FIX | a root again |
+
+<script>alert('md')</script>
+MD
+if mdPublish "$tmp/fixture-report.md" md1; then
+  ok "a .md publishes (exit 0)"
+  obj="$(mdStored md1)"
+  grep -q '^http://127.0.0.1:9/proofs/proofs/t/fixture-report-[0-9a-f]\{8\}\.html$' "$tmp/md1.out" \
+    && ok "the key drops .md and ends .html" || no "the key drops .md and ends .html" "$(cat "$tmp/md1.out")"
+  grep -q 'rendered markdown fixture-report.md' "$tmp/md1.err" && ok "the publisher says it rendered markdown" \
+    || no "the publisher says it rendered markdown" "$(head -5 "$tmp/md1.err")"
+  grep -q '<h1>Council Report — fixture</h1>' "$obj" && ok "heading rendered" || no "heading rendered" "no <h1>"
+  grep -q '<li>first finding</li>' "$obj" && ok "list rendered" || no "list rendered" "no <li>"
+  grep -q '<pre class="language-bash"><code class="language-bash">echo &quot;hello&quot;</code></pre>' "$obj" \
+    && ok "fenced code rendered with its language" || no "fenced code rendered with its language" "$(grep -o '<pre[^>]*>' "$obj" | head -3)"
+  grep -q '<td>a root again</td>' "$obj" && ok "table rendered" || no "table rendered" "no <td>"
+  grep -q '<a href="https://linear.app/idealic/issue/IDE-1?a=1&amp;b=2">the ticket</a>' "$obj" \
+    && ok "link rendered, query escaped once" || no "link rendered" "$(grep -o '<a [^>]*>' "$obj" | head -3)"
+  grep -q "&lt;script&gt;alert('md')&lt;/script&gt;" "$obj" && ok "a <script> line in the markdown is escaped to text" \
+    || no "a <script> line is escaped" "escaped form missing"
+  grep -q "<script>alert('md')" "$obj" && no "no raw <script> from the markdown reaches the page" "found it" \
+    || ok "no raw <script> from the markdown reaches the page"
+  grep -q 'verified by content' "$tmp/md1.err" && ok "the read-back verifies the rendered bytes" \
+    || no "the read-back verifies" "$(tail -3 "$tmp/md1.err")"
+  grep -q '^# Council Report' "$obj" && no "the raw markdown is not what was uploaded" "raw source uploaded" \
+    || ok "the raw markdown is not what was uploaded"
+else
+  no "a .md publishes (exit 0)" "$(tail -5 "$tmp/md1.err")"
+fi
+[ "$(head -1 "$tmp/fixture-report.md")" = "# Council Report — fixture" ] && ok "the .md source on disk is untouched" \
+  || no "the .md source on disk is untouched" "changed"
+
+# An HTML page with no marked block: uploaded as authored (the only rewrites are the seat strip and the
+# highlighter, both older than this change), and an
+# UNMARKED language-markdown block stays source.
+cat > "$tmp/plainpage.html" <<'HTML'
+<!doctype html><html><head><title>plain</title></head><body><main>
+<h1>Plain page</h1>
+<pre class="language-markdown"><code class="language-markdown"># kept as source
+- not a list</code></pre>
+</main></body></html>
+HTML
+if mdPublish "$tmp/plainpage.html" html1; then
+  obj="$(mdStored html1)"
+  grep -q '<pre class="language-markdown"><code class="language-markdown"># kept as source' "$obj" \
+    && ok "an .html upload keeps its unmarked markdown block as source" || no "unmarked block kept" "changed"
+  grep -q 'md-render' "$obj" && no "an .html page with no marked block gets no md-render rewrite" "found md-render" \
+    || ok "an .html page with no marked block gets no md-render rewrite"
+  python3 - "$tmp/plainpage.html" "$obj" <<'PY' && ok "the .html upload equals its source once the seat strip is removed" || no "the .html upload equals its source minus the strip" "differs"
+import re, sys
+src = open(sys.argv[1], encoding="utf-8").read()
+got = open(sys.argv[2], encoding="utf-8").read()
+got = re.sub(r"<!--prove-seat-strip:begin-->.*?<!--prove-seat-strip:end-->", "", got, flags=re.S)
+# the kit highlighter rides inline on any page with a highlightable block (a rewrite that predates this change)
+got = re.sub(r"<style data-proof-highlight[^>]*>.*?</style>\s*<script data-proof-highlight[^>]*>.*?</script>\n?", "", got, flags=re.S)
+if got != src:
+    import difflib
+    sys.stderr.write("".join(difflib.unified_diff(src.splitlines(True), got.splitlines(True), "source", "uploaded-minus-strip")))
+sys.exit(0 if got == src else 1)
+PY
+else
+  no "a plain .html publishes" "$(tail -5 "$tmp/html1.err")"
+fi
+
+# An HTML page that embeds a markdown report in a marked block: rendered in place.
+cat > "$tmp/embedpage.html" <<'HTML'
+<!doctype html><html><head><title>embed</title></head><body><main>
+<h1>Proof with a council report</h1>
+<pre data-md-render><code class="language-markdown">## Embedded verdict
+- point one
+&lt;script&gt;alert(&#x27;e&#x27;)&lt;/script&gt;</code></pre>
+</main></body></html>
+HTML
+if mdPublish "$tmp/embedpage.html" emb1; then
+  obj="$(mdStored emb1)"
+  grep -q '<div class="md-render">' "$obj" && ok "a marked block is rendered in place" || no "marked block rendered" "no md-render div"
+  grep -q '<h2>Embedded verdict</h2>' "$obj" && grep -q '<li>point one</li>' "$obj" \
+    && ok "the embedded markdown's heading and list render" || no "embedded heading/list" "missing"
+  grep -q 'data-md-render>' "$obj" && no "no marked <pre> is left" "still there" || ok "no marked <pre> is left"
+  grep -q "&lt;script&gt;alert('e')&lt;/script&gt;" "$obj" && ! grep -q "<script>alert('e')" "$obj" \
+    && ok "a <script> inside embedded markdown stays escaped" || no "embedded script escaped" "raw or missing"
+  grep -c '<style data-md-render-css>' "$obj" | grep -qx 1 && ok "one scoped stylesheet" || no "one scoped stylesheet" "count wrong"
+else
+  no "an embedding page publishes" "$(tail -5 "$tmp/emb1.err")"
+fi
+
 printf '\n%s\n' "-------------------------------------"
 printf 'passed %d   failed %d\n' "$pass" "$fail"
 [ "$fail" = 0 ] || exit 1

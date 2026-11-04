@@ -55,7 +55,32 @@ set -euo pipefail
 
 proofPath="${1:?usage: publish-s3.sh <proofPath> [slug]}"
 [ -f "$proofPath" ] || { echo "publish-s3: file not found: $proofPath" >&2; exit 1; }
-slug="${2:-$(basename "$proofPath" .html)}"
+slug="${2:-$(basename "$proofPath" | sed -E 's/\.(html?|md|markdown)$//')}"
+
+# --- A markdown file is rendered to a page before anything else reads it ---
+# Every object goes up as text/html, so a raw .md would show as one unformatted run of text (HTML
+# collapses its line breaks). A .md / .markdown input is therefore rendered by _md-page.py into a
+# self-contained page (headings, lists, tables, fenced code, links; every character escaped, so a
+# report quoting <script> shows it as text) and THAT page is what the checks below and the upload
+# see. The source file is never modified. The temp dir is removed by the single EXIT trap set below.
+mdWork=""
+case "$proofPath" in
+  *.md|*.MD|*.markdown)
+    if [ ! -f "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_md-page.py" ]; then
+      echo "publish-s3: REFUSED — $proofPath is markdown and _md-page.py is missing beside publish-s3.sh, so it cannot be rendered. Land the helper." >&2
+      exit 5
+    fi
+    mdWork="$(mktemp -d -t prove-md)"
+    trap 'rm -rf "$mdWork"' EXIT
+    mdSource="$proofPath"
+    python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_md-page.py" page "$mdSource" "$mdWork/$slug.html" || {
+      echo "publish-s3: REFUSED — could not render markdown $mdSource; nothing was uploaded" >&2
+      exit 5
+    }
+    proofPath="$mdWork/$slug.html"
+    echo "publish-s3: rendered markdown $(basename "$mdSource") → HTML page before upload" >&2
+    ;;
+esac
 
 # --- Resolve config through THE shared resolver (real env vars still win) ---
 # This used to be a private `envget()` — a second KEY= parser with its own walk-up and
@@ -202,7 +227,7 @@ key="${prefix}/${user}/${stem}.html"
 # points at the authored source on every other path, and a second `trap … EXIT` REPLACES the
 # first (bash does not stack them), silently leaking the earlier temp file.
 work="$(mktemp -d -t fb-publish)"
-trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work" ${mdWork:+"$mdWork"}' EXIT
 upload="${work}/board.html"
 cp "$proofPath" "$upload"
 
@@ -774,6 +799,25 @@ PY
   echo "publish-s3: the page references tickets but no <page>.tickets.json was found — publishing WITHOUT ticket data" >&2
   echo "publish-s3:   refs render as plain links and the page says so; it will NOT try to fetch a sibling that was never uploaded" >&2
   echo "publish-s3:   bake it with: bake-tickets.sh --scan <page> → fetch each key → bake-tickets.sh --emit <page> --tickets <in.json>" >&2
+fi
+
+# --- A markdown file shown inside a page is rendered ---
+# A page that embeds a markdown file (a council report, a build report) marks the block
+# <pre data-md-render><code class="language-markdown">…escaped…</code></pre>; _md-page.py embed
+# replaces each marked block with the rendered markdown plus one scoped stylesheet. Unmarked
+# language-markdown blocks stay source on purpose. Runs before the highlighter, so fenced code inside
+# the markdown is coloured too. A page with no marked block is untouched.
+if grep -q 'data-md-render' "$upload"; then
+  if [ ! -f "$here/_md-page.py" ]; then
+    echo "publish-s3: REFUSED — the page marks markdown for rendering (data-md-render) and _md-page.py is missing beside publish-s3.sh; nothing was uploaded" >&2
+    exit 5
+  fi
+  if python3 "$here/_md-page.py" embed "$upload" > "${work}/md.html" 2>"${work}/md.err" && [ -s "${work}/md.html" ]; then
+    mv "${work}/md.html" "$upload"
+    echo "publish-s3: $(sed -n 's/^_md-page: //p' "${work}/md.err" | head -1)" >&2
+  else
+    echo "publish-s3: WARNING — embedded markdown could not be rendered ($(tr -d '\n' < "${work}/md.err" | cut -c1-160)); it uploads as source" >&2
+  fi
 fi
 
 # --- The code highlighter rides inline ---
