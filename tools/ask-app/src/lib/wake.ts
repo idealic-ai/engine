@@ -1,10 +1,15 @@
 /**
  * WAKEBTN: wake the seat an ask is waiting on, on the operator's click in the ask app.
  *
- * Why it exists: a new ask is written to a file and pushed to nobody, and broadcasts push only to a
- * seat that is busy right now, so a seat sitting idle never hears the ask it holds. The operator's
+ * Why it exists: a new ask tells its holder once, when it is written or forwarded (AUTOWAKE,
+ * lib/holder-notice.ts, on the operator's ruling ask-wakes-holder), and never again on its own. When
+ * the holder still has not answered, this button is how the operator wakes it again. The operator's
  * standing rule is "no --wake without the operator's order"; a click on this button IS that order,
  * given for one ask and one seat. Nothing else calls this: no timer, no hook, no CLI verb.
+ *
+ * The holder's notice is shown beside the wake state (`noticedAt`, `noticedSeat`, `noticeDelivery`,
+ * `noticeDeliveryNote` on WakeView, read from the ask's `newDelivery*` stamps), so a client can say
+ * "holder told 2 min ago" next to the button. A notice starts no cooldown: only a wake does.
  *
  * How a seat is found and woken: the same way every ask push reaches a seat. `lookupSeat`
  * (deliver.ts) matches the seat name in ~/.claude/sessions/<pid>.json against a live pid; none or
@@ -105,7 +110,18 @@ export type WakeView = {
   /** Why the button would be refused right now; absent when a wake would be attempted. */
   wakeBlocked?: WakeBlock;
   wakeBlockedReason?: string;
+  /** AUTOWAKE: when the holder's notice was pushed (`newDeliveryAt`); absent when none was. */
+  noticedAt?: string;
+  /** The seat that notice went to (`newDeliverySeat`). */
+  noticedSeat?: string;
+  /** `delivered` (queued at that seat, not read) or `undelivered` (`newDelivery`). */
+  noticeDelivery?: string;
+  /** Why it was not delivered (`newDeliveryNote`). */
+  noticeDeliveryNote?: string;
 };
+
+/** WakeView's names for the holder-notice stamps (format.ts NOTICE_FIELDS). */
+const NOTICE_VIEW = { newDeliveryAt: "noticedAt", newDeliverySeat: "noticedSeat", newDelivery: "noticeDelivery", newDeliveryNote: "noticeDeliveryNote" } as const;
 
 /**
  * The wake state of one ask at `now`. `lookup` defaults to lookupSeat over `sessionsDir`; a lister
@@ -118,6 +134,7 @@ export function wakeView(ask: ParsedAsk, o: { now?: number; sessionsDir?: string
   const target = wakeTarget(ask);
   const v: WakeView = { wakeTarget: target };
   for (const k of ["wokenAt", "wokenBy", "wokenSeat", "wakeDelivery", "wakeDeliveryNote"] as const) if (h[k]) v[k] = h[k];
+  for (const [k, name] of Object.entries(NOTICE_VIEW) as [keyof typeof NOTICE_VIEW, (typeof NOTICE_VIEW)[keyof typeof NOTICE_VIEW]][]) if (h[k]) v[name] = h[k];
   const after = isOpen(ask) ? cooldownUntil(ask, now, target) : undefined;
   if (after) v.wakeAfter = after;
   const no = refusalOf(`${h.from ?? ""}/${h.id ?? ""}`, ask, target, now, lookup);

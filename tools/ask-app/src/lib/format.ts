@@ -212,6 +212,9 @@ export const HEADER_FIELDS = [
   "reserved-for", "provenance", "sourceRef",
 ] as const;
 
+/** AUTOWAKE: the holder's notice that `new`, `forward` and a reserved pass-up push (lib/holder-notice.ts). */
+export const NOTICE_FIELDS = ["newDelivery", "newDeliverySeat", "newDeliveryAt", "newDeliveryNote"] as const;
+
 /** Fields written by the store as the ask moves, never set by `engine ask new`. */
 export const STAMP_FIELDS = [
   "ruledInChat", "revisions", "delivery", "deliveryNote", "deliveryWriter", "readAt", "readBy", "reads", "acted", "actedAt", "actedBy", "draft", "forwards",
@@ -225,6 +228,7 @@ export const STAMP_FIELDS = [
   "overruled",
   // WAKEBTN: the operator's latest wake of the ask's holder (lib/wake.ts).
   "wokenAt", "wokenBy", "wokenSeat", "wakeDelivery", "wakeDeliveryNote",
+  ...NOTICE_FIELDS,
 ] as const;
 
 const KIND_WORDS: Record<string, QuestionKind> = {

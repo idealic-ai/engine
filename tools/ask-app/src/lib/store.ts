@@ -32,6 +32,7 @@ import {
   draftAuthor,
   GRANT_CLASSES,
   isOperatorName,
+  NOTICE_FIELDS,
   readsOf,
   relayerOf,
   replacedSummary,
@@ -249,6 +250,29 @@ export async function withFileLock<T>(file: string, fn: () => T | Promise<T>): P
   return out;
 }
 
+/**
+ * AUTOWAKE: stamp the holder's notice on an ask, under its lock (lib/holder-notice.ts pushes it).
+ * `seat` is the holder pushed; `delivery` undefined clears the record, because the ask now waits on
+ * the operator, who is never pushed. Never moves `revision`. Here rather than in holder-notice.ts so
+ * the reserved pass-up can record its own push without the two modules importing each other.
+ */
+export async function recordNotice(file: string, seat: string, delivery: DeliveryResult | undefined, at: string): Promise<void> {
+  await withFileLock(file, () => {
+    let text = fs.readFileSync(file, "utf8");
+    if (!delivery) {
+      for (const k of NOTICE_FIELDS) text = removeHeaderField(text, k);
+    } else {
+      text = setHeaderField(text, "newDelivery", delivery.status);
+      text = setHeaderField(text, "newDeliverySeat", seat);
+      text = setHeaderField(text, "newDeliveryAt", at);
+      text = delivery.status !== "delivered" && delivery.reason
+        ? setHeaderField(text, "newDeliveryNote", delivery.reason.replace(/\s*\n\s*/g, " "))
+        : removeHeaderField(text, "newDeliveryNote");
+    }
+    atomicWrite(file, text);
+  });
+}
+
 const isENOENT = (e: unknown) => (e as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
 
 /**
@@ -393,6 +417,12 @@ export async function answerAsk(
             `It is still open, at revision ${passed.revision}. Answer it only if you are who it is reserved for; otherwise decline it to pass it up again. The file is the record:`,
             file,
           ].join("\n"), opts);
+    // AUTOWAKE: this push is the new holder's notice, so it is recorded as `new` and `forward` record theirs.
+    try {
+      await recordNotice(file, passed.to, isOperatorName(passed.to) ? undefined : delivery, new Date().toISOString());
+    } catch {
+      // the pass-up stands and its push has happened; only the record of it is missing
+    }
     return { file, revision: passed.revision, delivery, passedUpTo: passed.to };
   }
   const { written, record, parsed, replaced } = await withFileLock(file, () => {

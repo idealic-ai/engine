@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { askUrl } from "./lib/url.ts";
+import { noticeHolder, type HolderNoticeKind } from "./lib/holder-notice.ts";
 import { actedAsk, answerAsk, defaultAskRoot, discardDraft, forwardAsk, listAsks, newAsk, pickupUnread, readAsk, renameSeat, repushPending, reviseAsk, saveDraft, sendBatch, supersedeAsk, withdrawAsk, attachPanel } from "./lib/store.ts";
 import { answeredByText, authorWarnings, noteLine, parsePanelArg, parseProposalArg, GRANT_CLASSES, HEADER_FIELDS, parseAskFile, seatEq, UntaggedFenceError, type AnswerMap, type AskAnswer, type AskFollowup, type GrantClass } from "./lib/format.ts";
 
@@ -59,6 +60,22 @@ function flags(argv: string[]): { pos: string[]; opt: Record<string, string> } {
     } else pos.push(a);
   }
   return { pos, opt };
+}
+
+/**
+ * AUTOWAKE (ask-wakes-holder): after `new` or `forward` has written the file, push the holder its
+ * notice (lib/holder-notice.ts). The outcome goes to stderr, so stdout keeps its contract; nothing
+ * here can fail the command, because the ask is already filed. Asks to the operator are not pushed.
+ */
+async function reportNotice(root: string, seat: string, id: string, kind: HolderNoticeKind, by: string): Promise<void> {
+  try {
+    const r = await noticeHolder(root, seat, id, { kind, by });
+    if ("skipped" in r) return;
+    if (r.delivery.status === "delivered") process.stderr.write(`ask: notice delivered to ${r.seat} (queued at its session, not yet read)\n`);
+    else process.stderr.write(`ask: notice did not reach ${r.seat}: ${r.delivery.reason ?? r.delivery.status}; the ask is filed, so tell them by its URL\n`);
+  } catch (e) {
+    process.stderr.write(`ask: notice did not reach the holder of ${seat}/${id}: ${(e as Error).message}; the ask is filed, so tell them by its URL\n`);
+  }
 }
 
 function die(msg: string, code = 1): never {
@@ -217,6 +234,7 @@ async function main() {
     // ASKLINK: the app URL on its own line — what the operator is given, never the path or a bare id.
     console.log(askUrl(root, from, fields.id));
     warnAuthoring(file);
+    await reportNotice(root, from, fields.id, "new", from);
     return;
   }
 
@@ -387,6 +405,7 @@ async function main() {
     } catch (e) {
       die((e as Error).message);
     }
+    await reportNotice(root, seat, id, "forward", identity("forward"));
     return;
   }
 

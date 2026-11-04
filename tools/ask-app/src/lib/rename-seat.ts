@@ -31,9 +31,9 @@ import { ANSWER_FENCES, DRAFT_FENCES, FOLLOWUP_ENTRIES, HISTORY_FENCES, PANEL_FE
 export type SeatChange = { field: string; from: string; to: string };
 
 /** Header fields whose whole value is one seat. */
-export const SEAT_FIELDS = ["to", "from", "reserved-for", "askedBy", "readBy", "actedBy", "superseded-actor", "overruled", "withdrawn-actor", "withdrawn-draft-of", "wokenSeat"] as const;
+export const SEAT_FIELDS = ["to", "from", "reserved-for", "askedBy", "readBy", "actedBy", "superseded-actor", "overruled", "withdrawn-actor", "withdrawn-draft-of", "wokenSeat", "newDeliverySeat"] as const;
 /** Store-written stamps in which any whole-name mention of the seat is the seat. */
-const STAMP_TEXT_FIELDS = ["delivery", "deliveryNote", "revisions", "replaced", "wakeDeliveryNote"] as const;
+const STAMP_TEXT_FIELDS = ["delivery", "deliveryNote", "revisions", "replaced", "wakeDeliveryNote", "newDeliveryNote"] as const;
 /** JSON keys, in the answer and draft records, whose value is a seat. */
 const JSON_SEAT_KEYS = ["answeredBy", "readBy", "relayedFrom", "actedBy"];
 /** ASKFOLLOWUP: JSON keys, in a follow-up record, whose value is a seat. */
