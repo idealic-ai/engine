@@ -57,13 +57,26 @@ Context: grouped by topic: field "ask proofs"; all three ask which page an ask l
 Lean: CRIT
 Counter: the forks already carry their asker's reasoning; a panel may only restate it
 Unblocks: the operator answers three asks with the panel's reads beside the options
+
+Three open asks all turn on which page an ask links, so one panel can read them together. Approving a run here spends a council on this set; nothing runs for a set you leave unpicked.
 - [ ] [CRIT] Critique, size 3
+  Three experts read the forks and say where each lean is weak.
   Cost: one /council run, ~15 min
 - [ ] [REFU] Refute the lean, size 3
+  The panel argues against each fork's lean, to test it before you accept it.
+  Cost: one /council run, ~15 min; adds nothing where a lean is already weak
 - [ ] [DOFF] Design-off, size 3
+  Each expert proposes its own answer to the shared question, side by side.
+  Cost: one /council run, ~20 min; reads less of the askers' own reasoning
 - [ ] [SCRU] /scrutinize instead of a panel
+  One adversarial reviewer instead of three, for finished work.
+  Cost: one /scrutinize run, ~10 min; one viewpoint only
 - [ ] [SKIP] Not this set
+  Nothing runs for these three asks.
+  Cost: the asks are answered without a panel's reads
 ```
+
+Each fork keeps /ask's floor: a paragraph under its heading saying what is decided and why it matters, and under each option a line saying what picking it changes and a `Cost:` line. `engine ask new` refuses a fork or option without them.
 
 ```
 Skill(ask, "<the question you need answered> --to operator --reserved-for operator")
