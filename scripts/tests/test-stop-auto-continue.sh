@@ -261,13 +261,14 @@ test_prompt_routes_questions_to_their_skill() {
   # AskUserQuestion at this terminal) cannot be the wake's route. The route is an ask
   # addressed up the chain; the two skills survive only as the operator-present exception.
   for clause in \
-    '`engine ask new --to <the first word hop.sh target prints: your parent seat, or operator>`' \
+    '`Skill(ask, "<the question> --to <the first word hop.sh target prints: your parent seat, or operator>")`' \
     'never a hand-rolled ask' \
     'only for an operator present at this terminal' \
     'never from a seat with a parent'; do
     [[ "$first" == *"$clause"* ]] || missing="$missing [$clause]"
   done
   [[ "$first" == *'route a question for the user to `/interrogate` or `/decide`'* ]] && missing="$missing [old route still present]"
+  [[ "$first" == *'engine ask new --to'* ]] && missing="$missing [hand-run route still present]"
   if [ -z "$missing" ]; then
     pass "ASK-01: line 1 routes an operator-only question to an ask up the chain, /interrogate and /decide only for an operator at this terminal"
   else
@@ -337,12 +338,12 @@ run_test test_atom_has_no_anchor_or_call_form
 test_commands_entry_names_the_ask_route() {
   local entry; entry=$(atom_section)
   if [[ "$entry" == *'Skill(ask, "<the question you need answered> --to'* ]] && [[ "$entry" == *'the first word `hop.sh target` prints'* ]] \
-     && [[ "$entry" == *'`engine open-asks`'* ]] \
+     && [[ "$entry" == *'`engine open-asks`'* ]] && [[ "$entry" != *'engine ask new --to'* ]] \
      && [[ "$entry" == *'present at this terminal'* ]] && [[ "$entry" != *'auto-continues;'* ]]; then
     pass "ATOM-04: the COMMANDS.md entry routes an operator-only question to an ask, the skills only for an operator present"
   else
     fail "ATOM-04: the COMMANDS.md entry routes an operator-only question to an ask, the skills only for an operator present" \
-      "Skill(ask, … --to), the first word hop.sh target prints, engine open-asks, present at this terminal" "$entry"
+      "Skill(ask, … --to) and no hand-run engine ask new --to, the first word hop.sh target prints, engine open-asks, present at this terminal" "$entry"
   fi
 }
 run_test test_commands_entry_names_the_ask_route

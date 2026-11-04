@@ -60,18 +60,24 @@ The skill shows you the text it composed from your guidance before sending. Chec
 An ordinary broadcast **wakes nobody**. It is pushed live only to a seat that is busy right now, because a busy seat is already awake, and it is queued for every idle seat, which sees it once at its next prompt, its next tool call or its next session start. A queued seat is a normal outcome, not a failure.
 
 *   **Use an ordinary broadcast** for everything you decide to send yourself. This is the default and almost always right.
-*   **`--wake-reason "<why>"` wakes every seat in the audience**, idle or not. Use it **only on the operator's explicit order** (the standing rule: no wake without the operator's order), such as a resume after a usage limit lifted. The reason names the order: `--wake-reason "operator 04:37: resume, the limit lifted"`. If you do not have that order, send it ordinary and let the queue deliver it; if waking seems necessary, ask the operator first with `Skill(ask, "<why the seats need waking> --to operator --reserved-for operator")`.
+*   **`--wake-reason "<why>"` wakes every seat in the audience**, idle or not. Use it **only on the operator's explicit order** (the standing rule: no wake without the operator's order), such as a resume after a usage limit lifted. **The same rule covers `engine broadcast resend <id> --wake-reason "<why>"`**, which turns an ordinary record into a wake: a resend after exit 1 is `resend <id> --undelivered` with no wake flag, unless the operator ordered the wake.
+*   **The reason cites something a reader can check**, never only a time and a paraphrase. Cite one of these:
+    *   an answered ask marked `reserved-for: operator`, by its `<seat>/<id>`, whose answer orders the wake: `--wake-reason "operator, ask meta:engine/wake-resume-0431: resume, the limit lifted"`;
+    *   the broadcast id of the operator's order as a seat relayed it: `--wake-reason "operator 04:37, relayed in broadcast account-changed-resume-4: resume"`.
+
+    If you have neither, you do not have the order. Send it ordinary and let the queue deliver it, or, if waking seems necessary, ask first with `Skill(ask, "<why the seats need waking> --to operator --reserved-for operator")`.
+*   **Nothing but this text enforces the rule.** `engine broadcast` checks only that the reason is one non-blank line, so a wake sent on a made-up reason goes out. Script-side enforcement belongs to `scripts/broadcast.sh`'s owner.
 *   **`--sticky`** also reaches seats that start later, until they ack it or it expires (`--expires YYYY-MM-DD`). Use it for a rule that stands, not for news. Withdraw it with `engine broadcast retract <id>` when it stops applying.
 
 ## What the skill runs
 
 1.  **Parse** the arguments: the audience flag, the optional `--sticky`, `--expires`, `--id` and `--wake-reason`, and the guidance after `--`. No audience flag, or no guidance, stops here with one line saying what is missing.
-2.  **Refuse a wake without an order.** If `--wake-reason` is present but its text does not name the operator's order (who ruled and when), stop and say so, and offer to send it ordinary instead.
+2.  **Refuse a wake without a checkable order.** If `--wake-reason` is present but does not cite an answered operator-reserved ask (`<seat>/<id>`) or the broadcast id that relayed the operator's order, stop and say so, and offer to send it ordinary instead. Read the cited ask (`engine ask read <seat>/<id>`) or record (`engine broadcast status <id>`) to confirm it says what the reason claims.
 3.  **Compose** the text from the guidance to the four points above. Choose an id if none was given: a short lowercase slug of the subject, such as `rebase-onto-8f483e6`. An id that already exists is refused by the command, so pick another.
 4.  **Dry run** to see the audience: `engine broadcast <audience flags> --id <id> --dry-run <<'MSG' … MSG`. Read the seats it lists. If it reaches seats you did not mean, narrow the flag rather than sending.
 5.  **Send** with the same flags and no `--dry-run`, the composed text on stdin through a quoted heredoc (`<<'MSG'`) so nothing in it is expanded. Read the exit status from the command itself, never through a pipe:
     *   **0**: every seat was delivered or queued.
-    *   **1**: the record is written and at least one seat was not delivered. Run `engine broadcast status <id>` and, once the cause is fixed, `engine broadcast resend <id> --undelivered`. Never send a second broadcast for the same guidance.
+    *   **1**: the record is written and at least one seat was not delivered. Run `engine broadcast status <id>` and, once the cause is fixed, `engine broadcast resend <id> --undelivered`, with no `--wake-reason` unless the operator ordered the wake (see Queue or wake). Never send a second broadcast for the same guidance.
     *   **2**: usage, identity or an existing id. Fix the named problem and send again.
     *   **3** or **4**: a seat is not in the live tree, or the tree could not be read. Report it; do not retry blindly.
 6.  **Report** in one or two lines: the id, the record path, and the delivered / queued / undelivered counts the command printed. If you asked for an ack, say that `engine broadcast status <id>` shows who has acked.

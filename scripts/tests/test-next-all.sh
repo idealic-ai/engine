@@ -368,6 +368,7 @@ test_unwatched_seat_asks_up() {
   sec=$(section '^## An unwatched seat never blocks' '^## Documentation signals')
   has_fixed "Skill(ask, \"<the question you need answered> --to" "$sec" "§ unwatched: the parented path writes the question by invoking /ask"
   has_fixed "hop.sh target" "$sec" "§ unwatched: whether the seat has a parent is read from hop.sh target"
+  assert_not_contains "engine ask new --to" "$sec" "§ unwatched: no hand-run engine ask new --to beside the skill call"
   has_fixed "puts up no \`AskUserQuestion\`, whatever its argument" "$sec" "§ unwatched: no AskUserQuestion whatever the argument"
   has_fixed "A plain \`/next\` on a parented seat" "$sec" "§ unwatched: a plain /next on a parented seat is covered"
   has_fixed "becomes an ask plus a pointer" "$sec" "§ unwatched: a step with no unattended waiver becomes an ask plus a pointer"

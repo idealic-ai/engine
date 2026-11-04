@@ -115,7 +115,7 @@ elif cmd == "pins":
     if seat < 0: missing.append("seat -> ask route bullet")
     if lane >= 0 and seat >= 0 and lane > seat: missing.append("lane bullet comes before the seat bullet")
     if idx("- " + OP_PRESENT) < 0: missing.append("operator-present bullet")
-    for needle in ["hop.sh target", "§CMD_CONTINUE_ON_STOP", "Skill(ask, \"<the draft question> --to", "engine ask read",
+    for needle in ["hop.sh target", "§CMD_CONTINUE_ON_STOP", "Skill(ask, \"<the question you need answered> --to <target>", "engine ask read",
                    "--reserved-for operator", "Rendered description (postable)", "ONE ask",
                    "`/ticket-search --report`", "/inbox-post --channel",
                    "**`FILE` counts only when every visible fork is answered**",
@@ -125,6 +125,7 @@ elif cmd == "pins":
                    "**If either check now differs from what the ask showed, post nothing and re-ask**",
                    "started you with its Agent or Task tool"]:
         if needle not in route: missing.append(needle)
+    if "engine ask new --to" in route: missing.append("no hand-run engine ask new --to")
     out(missing)
 
 elif cmd == "silence-yes":

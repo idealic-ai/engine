@@ -66,8 +66,10 @@ Unblocks: the operator answers three asks with the panel's reads beside the opti
 ```
 
 ```
-Skill(ask, "<the council plan above> --to operator --reserved-for operator --topic \"ask council pass\" --why \"a council per topic instead of per question; nothing runs until you pick\" --body-file <plan.md>")
+Skill(ask, "<the question you need answered> --to operator --reserved-for operator")
 ```
+
+The question is which council runs to approve, and the plan above is the ask's body. When /ask's walk-through asks for the header, give it topic `ask council pass` and why `a council per topic instead of per question; nothing runs until you pick`.
 
 List the "waiting for company" asks in the preamble. Do not give them forks. Then **stop and wait**. Do not run a set because the plan has sat unanswered; an unanswered plan runs nothing (`IfUnanswered: nothing runs`). Go back to whatever else you were doing; the answer arrives through the ask's delivery.
 
