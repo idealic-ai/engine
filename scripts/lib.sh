@@ -1742,6 +1742,135 @@ fleet_parent() {
   return 1
 }
 
+# ─── The live manager→seat edge ──────────────────────────────────────────────
+# The fleet holds the edge twice: @pane_parent on each child pane (the source of truth) and
+# @pane_manages on the manager pane (a derived copy), which run.sh freezes into FLEET_MANAGES at
+# launch. These helpers read the first. One shared reader, so hop.sh, broadcast.sh and ask-app
+# can point at it instead of keeping copies.
+#
+#   fleet_live_tree
+#       The live tree on stdout, one "<window:label> <pane_id> <parent or ->" line per pane — the
+#       shape and the exact tmux format of hop.sh's live_tree. exit 0, or exit 2 with the reason
+#       on stderr and NOTHING on stdout when it cannot be read (no server named, tmux failed,
+#       tmux returned no panes).
+#
+#   fleet_live_children <seat> [--fallback-launch]
+#       The seats whose live @pane_parent is <seat>, one per line, sorted. Seats are window:label
+#       and match ignoring case (ask-app's seatEq). exit 0 with the list — an empty list only
+#       from a tree that was read.
+#       exit 2  the tree cannot be read: stdout is the single word "unknown", never an empty list,
+#               because a caller reading an empty list as "manages nobody" would lift a restriction.
+#       exit 4  <seat> is carried by more than one pane: refused, stdout "unknown" (ask-app: a seat
+#               two panes carry has no standing). A CHILD seat two panes carry is left out of the
+#               list and named on stderr, for the same reason.
+#       exit 3  only with --fallback-launch, and only when the tree cannot be read: the NAMED
+#               offline fallback. stdout's first line is "fallback FLEET_MANAGES", then this
+#               process's launch-time FLEET_MANAGES entries one per line, as stored (labels or
+#               seats). Unset or empty FLEET_MANAGES stays exit 2 "unknown". FLEET_MANAGES is read
+#               nowhere else.
+#       exit 1  usage.
+#
+# THE TEST SEAM RULE. FLEET_LIVE_PANES (a file in the tree shape) replaces the tmux read ONLY
+# when FLEET_TEST_SEAM=1 is also set. FLEET_LIVE_PANES alone is ignored, with a stderr line
+# saying so, and the live tree is read: a value leaked into a production shell must never stand
+# in for the fleet. Tests set both. (hop.sh's HOP_LIVE_PANES and ask-app's ASK_LIVE_PANES are
+# their own seams and are not read here.)
+#
+# Env: FLEET_TMUX_SOCKET / TMUX — the server, as _fleet_tmux; with neither, there is no read
+#      (never the default server, where the same %N is somebody else's pane).
+#      FLEET_LIVE_PANES + FLEET_TEST_SEAM=1 — the test seam above.
+# Bash 3.2 safe (§PTF_BASH32_COMPATIBILITY).
+
+# _fleet_test_seam <var-value> — true when a seam value is set AND the test marker is on; warns
+# when a seam value is set without it.
+_fleet_test_seam() {
+  [ -n "${1:-}" ] || return 1
+  if [ "${FLEET_TEST_SEAM:-}" = 1 ]; then return 0; fi
+  echo "${FLEET_WARN_PREFIX:-fleet}: ignoring a test seam (${2:-FLEET_LIVE_PANES}) because FLEET_TEST_SEAM=1 is not set; reading the live fleet" >&2
+  return 1
+}
+
+fleet_live_tree() {
+  local pfx="${FLEET_WARN_PREFIX:-fleet}" out=""
+  if _fleet_test_seam "${FLEET_LIVE_PANES:-}" FLEET_LIVE_PANES; then
+    [ -r "$FLEET_LIVE_PANES" ] || { echo "$pfx: cannot read the live tree: $FLEET_LIVE_PANES is not readable" >&2; return 2; }
+    out=$(cat "$FLEET_LIVE_PANES") || { echo "$pfx: cannot read the live tree: $FLEET_LIVE_PANES" >&2; return 2; }
+  else
+    if [ -z "${FLEET_TMUX_SOCKET:-}" ] && [ -z "${TMUX:-}" ]; then
+      echo "$pfx: cannot read the live tree: no tmux server named (no \$TMUX, no FLEET_TMUX_SOCKET)" >&2
+      return 2
+    fi
+    out=$(_fleet_tmux list-panes -a -F '#{window_name}:#{@pane_label} #{pane_id} #{?@pane_parent,#{@pane_parent},-}' 2>/dev/null) \
+      || { echo "$pfx: cannot read the live tree: tmux list-panes failed" >&2; return 2; }
+  fi
+  [ -n "$(printf '%s' "$out" | tr -d '[:space:]')" ] || { echo "$pfx: cannot read the live tree: no panes" >&2; return 2; }
+  printf '%s\n' "$out"
+}
+
+fleet_live_children() {
+  local pfx="${FLEET_WARN_PREFIX:-fleet}" seat="" fallback=0 tree="" n="" res="" e=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --fallback-launch) fallback=1 ;;
+      -*) echo "$pfx: fleet_live_children: unknown argument $1" >&2; return 1 ;;
+      *) [ -z "$seat" ] && seat="$1" || { echo "$pfx: fleet_live_children: one seat only" >&2; return 1; } ;;
+    esac
+    shift
+  done
+  [ -n "$seat" ] || { echo "usage: fleet_live_children <window:label> [--fallback-launch]" >&2; return 1; }
+
+  if ! tree=$(fleet_live_tree); then
+    if [ "$fallback" = 1 ] && [ -n "$(printf '%s' "${FLEET_MANAGES:-}" | tr -d ', ')" ]; then
+      echo "$pfx: the live tree cannot be read; '$seat' children from the launch-time FLEET_MANAGES fallback (may be stale)" >&2
+      echo "fallback FLEET_MANAGES"
+      printf '%s\n' "$FLEET_MANAGES" | tr ',' '\n' | awk 'NF'
+      return 3
+    fi
+    [ "$fallback" = 1 ] && echo "$pfx: --fallback-launch asked, but FLEET_MANAGES is unset or empty" >&2
+    echo unknown
+    return 2
+  fi
+
+  printf '%s\n' "$tree" | _fleet_children_in "$seat"
+}
+
+# _fleet_children_in <seat> — fleet_live_children's rule over a tree already read, on stdin, so
+# a caller walking every pane (fleet.sh stale-managers) reads tmux once. Same stdout and exits
+# (0 list, 4 "unknown" for a seat two panes carry).
+_fleet_children_in() {
+  local pfx="${FLEET_WARN_PREFIX:-fleet}" seat="${1:-}" tree="" n="" res="" e=""
+  tree=$(cat)
+  # How many panes carry <seat>, case folded.
+  n=$(printf '%s\n' "$tree" | awk -v s="$seat" 'tolower($1) == tolower(s) { c++ } END { print c + 0 }')
+  if [ "$n" -gt 1 ]; then
+    echo "$pfx: refused: $n panes carry '$seat', so its children cannot be told apart" >&2
+    echo unknown
+    return 4
+  fi
+  # Rows parented to <seat>; a child seat carried by more than one pane is left out and named.
+  # A row with no label (":", "win:") is not a seat; a row naming itself is not a child.
+  res=$(printf '%s\n' "$tree" | awk -v s="$seat" '
+    { k = tolower($1); seen[k]++; name[k] = $1
+      if ($1 !~ /^[^:]+:[^:]+$/) next
+      if (tolower($3) == tolower(s) && k != tolower(s)) kid[k] = 1 }
+    END { for (k in kid) { if (seen[k] > 1) print "AMBIG " name[k]; else print "KID " name[k] } }')
+  for e in $(printf '%s\n' "$res" | awk '$1 == "AMBIG" { print $2 }'); do
+    echo "$pfx: '$e' is carried by more than one pane; left out of '$seat' children (no live manager)" >&2
+  done
+  printf '%s\n' "$res" | awk '$1 == "KID" { print $2 }' | LC_ALL=C sort
+  return 0
+}
+
+# _fleet_env_value <NAME> <ps eww line> — the value of the LAST "NAME=" token (the environment
+# follows the argv in `ps eww` output, so a later token is the env's). exit 1 when absent.
+_fleet_env_value() {
+  local name="${1:-}" line="${2:-}"
+  [ -n "$name" ] || return 1
+  printf '%s\n' "$line" | awk -v n="$name" '
+    { for (i = 1; i <= NF; i++) if (index($i, n "=") == 1) { v = substr($i, length(n) + 2); f = 1 } }
+    END { if (f) { print v; exit 0 } exit 1 }'
+}
+
 # seat_activity_record <event> <hook-input-json> — note that this seat did something just now.
 # Writes $SEAT_ACTIVITY_DIR/<seat>.json (default ~/.claude/data/yarik/activity, beside broadcasts/
 # and asks/), one line:

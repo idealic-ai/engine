@@ -8,6 +8,8 @@
 #   status               Show running fleet sessions and workers
 #   list                 List configured fleets
 #   attach [session]     Attach to fleet session
+#   live-children SEAT   Seats whose live @pane_parent is SEAT (read-only)
+#   stale-managers       Managers whose launch-time FLEET_MANAGES differs from their live children
 #
 # Fleet configs stored in Google Drive: {gdrive}/{username}/assets/fleet/
 #
@@ -1545,6 +1547,154 @@ Examples:
 EOF
 }
 
+# ─── live-children / stale-managers ─────────────────────────────────────────
+# The manager→seat edge is each child's live @pane_parent; FLEET_MANAGES is run.sh's launch-time
+# copy of the manager pane's @pane_manages. Both commands read tmux only (list-panes, display,
+# show-options) and ps; they change nothing. The tree reader and its test-seam rule
+# (FLEET_LIVE_PANES only with FLEET_TEST_SEAM=1) are scripts/lib.sh fleet_live_tree's.
+#
+#   fleet.sh live-children <window:label> [--fallback-launch]
+#       = lib.sh fleet_live_children: the seats whose live @pane_parent is that seat.
+#       exit 0 list · 2 "unknown" (tree unreadable) · 3 named FLEET_MANAGES fallback · 4 refused
+#       (two panes carry the seat) · 1 usage.
+#
+#   fleet.sh stale-managers
+#       Every pane whose agent's launch-time FLEET_MANAGES (read from the environment of the
+#       `claude` process under the pane, `ps eww`) differs from the pane's live children. Prints,
+#       per stale manager: pane, seat, launch list, live list, the difference, and what a restart
+#       would re-export (@pane_manages). Then one summary line.
+#       exit 0 nothing stale · 3 at least one stale (UNKNOWN rows, if any, are printed too) ·
+#       2 cannot read: the tree (stdout "unknown"), the process table, or a manager's environment
+#       with nothing stale found.
+#       Test seam (only with FLEET_TEST_SEAM=1): FLEET_LAUNCH_ENV, lines
+#       "<pane_id> <FLEET_MANAGES | - unset | ? unreadable> <@pane_manages | ->"; a pane absent
+#       from it has no agent process.
+
+_fleet_load_lib() {
+    declare -F fleet_live_tree >/dev/null 2>&1 && return 0
+    local c cands="" here
+    here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+    if [ "${FLEET_TEST_SEAM:-}" = 1 ] && [ -n "${FLEET_LIB:-}" ]; then cands="$FLEET_LIB"; fi
+    cands="$cands $here/lib.sh $HOME/.claude/scripts/lib.sh"
+    for c in $cands; do
+        [ -r "$c" ] || continue
+        unset _LIB_SH_LOADED
+        # shellcheck disable=SC1090
+        source "$c"
+        declare -F fleet_live_tree >/dev/null 2>&1 && return 0
+    done
+    echo "fleet: no scripts/lib.sh defining fleet_live_tree (tried:$cands)" >&2
+    return 2
+}
+
+cmd_live_children() {
+    set +e
+    _fleet_load_lib || { echo unknown; exit 2; }
+    fleet_live_children "$@"
+    exit $?
+}
+
+# _fleet_stale_diff <launch csv> <kids, one per line> — "LO <entry>" for each launch entry that
+# names no live child, "KO <kid>" for each live child no entry names. An entry names a seat when
+# equal, or when it is the seat's label (`kernel` names `idealic:kernel`), case folded: ask-app's
+# listNames + seatEq.
+_fleet_stale_diff() {
+    printf '%s\n' "$2" | awk -v L="$1" '
+        BEGIN { n = split(L, e, ","); }
+        NF { k[++m] = $1 }
+        END {
+          for (i = 1; i <= n; i++) { if (e[i] == "") continue; hit = 0
+            for (j = 1; j <= m; j++) if (names(e[i], k[j])) { hit = 1; got[j] = 1 }
+            if (!hit) print "LO " e[i] }
+          for (j = 1; j <= m; j++) if (!got[j]) print "KO " k[j] }
+        function names(a, s,   la, ls) { la = tolower(a); ls = tolower(s)
+          return la == ls || (length(ls) > length(la) && substr(ls, length(ls) - length(la)) == ":" la) }'
+}
+
+cmd_stale_managers() {
+    set +e
+    _fleet_load_lib || { echo unknown; exit 2; }
+    local tree procs="" seam="" seat pane parent line launch opt kids krc ppid agent envline
+    local checked=0 stale=0 unknown=0 diff lo ko optdiff csv
+    tree=$(fleet_live_tree) || { echo unknown; exit 2; }
+    if _fleet_test_seam "${FLEET_LAUNCH_ENV:-}" FLEET_LAUNCH_ENV; then
+        [ -r "$FLEET_LAUNCH_ENV" ] || { echo "fleet: cannot read $FLEET_LAUNCH_ENV" >&2; echo unknown; exit 2; }
+        seam="$FLEET_LAUNCH_ENV"
+    else
+        procs=$(ps -A -o pid=,ppid=,command= </dev/null 2>/dev/null)
+        [ -n "$procs" ] || { echo "fleet: cannot read the process table (ps -A)" >&2; echo unknown; exit 2; }
+    fi
+    while read -r seat pane parent; do
+        [ -n "$pane" ] || continue
+        case "$seat" in *:*:*|:*|*:) continue ;; *:*) ;; *) continue ;; esac
+        launch=""; opt=""; agent=""
+        if [ -n "$seam" ]; then
+            line=$(awk -v p="$pane" '$1 == p { print; exit }' "$seam")
+            if [ -n "$line" ]; then
+                agent=seam
+                launch=$(awk '{ print $2 }' <<<"$line"); opt=$(awk '{ print $3 }' <<<"$line")
+                [ "$launch" = "-" ] && launch=""; [ "$opt" = "-" ] && opt=""
+            fi
+        else
+            ppid=$(_fleet_tmux display -p -t "$pane" '#{pane_pid}' </dev/null 2>/dev/null)
+            if [ -n "$ppid" ]; then
+                # The agent: the first `claude` process walking down from the pane's shell
+                # (scripts/migrate-fleet-pane-ids.sh --idle-check finds it the same way).
+                agent=$(printf '%s\n' "$procs" | awk -v root="$ppid" '
+                    { pid=$1; pp=$2; $1=""; $2=""; sub(/^ +/, ""); cmd[pid]=$0; kids[pp]=kids[pp] " " pid }
+                    END { q[1]=root; h=1; t=1
+                          while (h <= t) { p=q[h++]
+                            if (cmd[p] ~ /(^|[ \/])claude( |$)/) { print p; exit }
+                            n=split(kids[p], a, " "); for (i=1; i<=n; i++) q[++t]=a[i] } }')
+            fi
+            if [ -n "$agent" ]; then
+                envline=$(ps eww -o command= -p "$agent" </dev/null 2>/dev/null)
+                if [ -z "$envline" ]; then launch="?"
+                else launch=$(_fleet_env_value FLEET_MANAGES "$envline") || launch=""
+                fi
+                opt=$(_fleet_tmux show-options -p -v -t "$pane" @pane_manages </dev/null 2>/dev/null)
+            fi
+        fi
+        kids=$(printf '%s\n' "$tree" | _fleet_children_in "$seat" 2>/dev/null); krc=$?
+        if [ "$krc" = 4 ]; then
+            [ -n "$launch" ] || continue
+            echo "UNKNOWN $pane $seat — two panes carry this seat, so its live children cannot be read"
+            unknown=$((unknown + 1)); checked=$((checked + 1)); continue
+        fi
+        if [ -z "$agent" ]; then
+            [ -n "$kids" ] && echo "NOTE $pane $seat — has live children but no agent process under the pane; no launch copy to compare"
+            continue
+        fi
+        [ -z "$launch" ] && [ -z "$kids" ] && continue
+        checked=$((checked + 1))
+        if [ "$launch" = "?" ]; then
+            echo "UNKNOWN $pane $seat — cannot read FLEET_MANAGES from its agent's environment (pid $agent); live: $(printf '%s\n' "$kids" | paste -sd, -)"
+            unknown=$((unknown + 1)); continue
+        fi
+        diff=$(_fleet_stale_diff "$launch" "$kids")
+        [ -n "$diff" ] || continue
+        stale=$((stale + 1))
+        lo=$(awk '$1 == "LO" { print $2 }' <<<"$diff" | paste -sd, -)
+        ko=$(awk '$1 == "KO" { print $2 }' <<<"$diff" | paste -sd, -)
+        csv=$(printf '%s\n' "$kids" | awk 'NF' | paste -sd, -)
+        echo "STALE $pane $seat"
+        echo "  launch: ${launch:-(none)}"
+        echo "  live:   ${csv:-(none)}"
+        echo "  launch only: ${lo:-(none)}"
+        echo "  live only: ${ko:-(none)}"
+        optdiff=$(_fleet_stale_diff "$opt" "$kids")
+        if [ -z "$optdiff" ]; then
+            echo "  @pane_manages: ${opt:-(none)} — matches the live children, so restarting this pane re-exports a correct FLEET_MANAGES"
+        else
+            echo "  @pane_manages: ${opt:-(none)} — @pane_manages is stale too: a restart re-exports FLEET_MANAGES from it, so update @pane_manages before restarting"
+        fi
+    done <<<"$tree"
+    echo "stale-managers: $checked manager(s) checked, $stale stale, $unknown unknown (live tree: @pane_parent; launch copy: FLEET_MANAGES in each agent's environment)"
+    [ "$stale" -gt 0 ] && exit 3
+    [ "$unknown" -gt 0 ] && exit 2
+    exit 0
+}
+
 # Main dispatch
 case "${1:-help}" in
     start)    cmd_start "${2:-}" ;;
@@ -1567,6 +1717,8 @@ case "${1:-help}" in
     pane-id)  cmd_pane_id ;;
     config-path) get_config_path "${2:-}" ;;
     init)     cmd_init ;;
+    live-children) cmd_live_children "${@:2}" ;;
+    stale-managers) cmd_stale_managers ;;
     help|-h|--help) cmd_help ;;
     *)
         echo "Unknown command: $1"
