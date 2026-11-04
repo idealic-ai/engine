@@ -20,6 +20,7 @@ import {
   writeFollowup,
 } from "../src/lib/format.ts";
 import { answerAsk, followupAsk, newAsk, renameSeat, reviseAsk, saveDraft, sendBatch, supersedeAsk } from "../src/lib/store.ts";
+import { digestText, type NoticeEvent } from "../src/lib/notice-queue.ts";
 import { leftRefs, rewriteSeatRefs } from "../src/lib/rename-seat.ts";
 
 let root: string;
@@ -31,6 +32,9 @@ const text = (id = "go") => fs.readFileSync(file(id), "utf8");
 const read = (id = "go") => parseAskFile(text(id));
 let pushes: { seat: string; content: string }[] = [];
 const push = async (seat: string, content: string) => (pushes.push({ seat, content }), { status: "delivered" as const });
+// NOTIFYQ: the no-action notices (revise, supersede, withdraw, attach-panel) are queued, not pushed; this
+// seam records each queued notice's digest text where the push seam records a push.
+const notice = async (seat: string, ev: NoticeEvent) => (pushes.push({ seat, content: digestText(ev.ref, ev.file, [ev]) }), { status: "queued" as const, id: "t", record: "t", merged: false });
 const deadPush = async () => ({ status: "undelivered" as const, reason: "no live session for idealic:kernel" });
 const OP = { by: "operator", via: "browser" };
 
@@ -108,7 +112,7 @@ describe("writeFollowup: the file record", () => {
 
   it("an asker cannot plant a follow-up: new and revise refuse the fence", async () => {
     expect(() => newAsk(root, { from: ASKER, to: MGR, id: "p1" }, `${BODY}\n\`\`\`json followup\n{"n":1}\n\`\`\`\n`)).toThrow(/json followup/);
-    await expect(reviseAsk(root, ASKER, "go", {}, `${BODY}\n\`\`\`json followup\n{"n":1}\n\`\`\`\n`, { by: ASKER, push })).rejects.toThrow(/json followup/);
+    await expect(reviseAsk(root, ASKER, "go", {}, `${BODY}\n\`\`\`json followup\n{"n":1}\n\`\`\`\n`, { by: ASKER, push, notice })).rejects.toThrow(/json followup/);
   });
 });
 
@@ -173,7 +177,7 @@ describe("follow-ups survive every rewrite of the file", () => {
 
   it("a body revise keeps the entries", async () => {
     await followupAsk(root, ASKER, "go", { ...OP, kind: "first", text: "rewrite the options" }, { expectedRevision: 1, push });
-    await reviseAsk(root, ASKER, "go", {}, BODY.replace("Ship it?", "Ship it tonight?"), { by: ASKER, push });
+    await reviseAsk(root, ASKER, "go", {}, BODY.replace("Ship it?", "Ship it tonight?"), { by: ASKER, push, notice });
     const p = read();
     expect(p.questions[0].title).toBe("Ship it tonight?");
     expect(p.followups.map((f) => f.text)).toEqual(["rewrite the options"]);
@@ -185,7 +189,7 @@ describe("revise --answers-followup", () => {
     await followupAsk(root, ASKER, "go", { ...OP, kind: "question", text: "a?" }, { expectedRevision: 1, push });
     await followupAsk(root, ASKER, "go", { ...OP, kind: "first", text: "b first" }, { expectedRevision: 2, push });
     pushes = [];
-    const r = await reviseAsk(root, ASKER, "go", {}, undefined, { by: ASKER, push, answersFollowup: [1, 2], now: "2026-10-30T16:00:00.000Z" });
+    const r = await reviseAsk(root, ASKER, "go", {}, undefined, { by: ASKER, push, notice, answersFollowup: [1, 2], now: "2026-10-30T16:00:00.000Z" });
     expect(r.revision).toBe(4);
     expect(r.changed).toEqual(["followup 1,2"]);
     const p = read();
@@ -199,14 +203,14 @@ describe("revise --answers-followup", () => {
 
   it("refuses a follow-up number the ask does not hold", async () => {
     await followupAsk(root, ASKER, "go", { ...OP, kind: "question", text: "a?" }, { expectedRevision: 1, push });
-    await expect(reviseAsk(root, ASKER, "go", {}, undefined, { by: ASKER, push, answersFollowup: [3] })).rejects.toThrow(/no follow-up 3/);
+    await expect(reviseAsk(root, ASKER, "go", {}, undefined, { by: ASKER, push, notice, answersFollowup: [3] })).rejects.toThrow(/no follow-up 3/);
   });
 
   it("NIT-4 (round 2): refuses to re-address a follow-up already addressed, keeping the first stamp", async () => {
     await followupAsk(root, ASKER, "go", { ...OP, kind: "question", text: "a?" }, { expectedRevision: 1, push });
-    await reviseAsk(root, ASKER, "go", {}, undefined, { by: ASKER, push, answersFollowup: [1], now: "2026-10-30T16:00:00.000Z" });
+    await reviseAsk(root, ASKER, "go", {}, undefined, { by: ASKER, push, notice, answersFollowup: [1], now: "2026-10-30T16:00:00.000Z" });
     const before = text();
-    await expect(reviseAsk(root, ASKER, "go", {}, undefined, { by: ASKER, push, answersFollowup: [1] })).rejects.toThrow(/follow-up 1 is already addressed in revision 3 by idealic:kernel/);
+    await expect(reviseAsk(root, ASKER, "go", {}, undefined, { by: ASKER, push, notice, answersFollowup: [1] })).rejects.toThrow(/follow-up 1 is already addressed in revision 3 by idealic:kernel/);
     expect(text()).toBe(before);
   });
 });
@@ -230,7 +234,7 @@ describe("dialogueHistory and /api/asks' history", () => {
 describe("rename-seat rewrites the seats in follow-up entries", () => {
   it("by and addressedBy follow the rename; the text is left alone", async () => {
     await followupAsk(root, ASKER, "go", { ...OP, kind: "question", text: `ask ${ASKER} why` }, { expectedRevision: 1, push });
-    await reviseAsk(root, ASKER, "go", {}, undefined, { by: ASKER, push, answersFollowup: [1] });
+    await reviseAsk(root, ASKER, "go", {}, undefined, { by: ASKER, push, notice, answersFollowup: [1] });
     const r = rewriteSeatRefs(text(), ASKER, "idealic:core");
     const f = parseAskFile(r.text).followups[0];
     expect(f.addressedBy).toBe("idealic:core");
@@ -242,7 +246,7 @@ describe("rename-seat rewrites the seats in follow-up entries", () => {
 
   it("through renameSeat end to end", async () => {
     await followupAsk(root, ASKER, "go", { ...OP, kind: "question", text: "x" }, { expectedRevision: 1, push });
-    await reviseAsk(root, ASKER, "go", {}, undefined, { by: ASKER, push, answersFollowup: [1] });
+    await reviseAsk(root, ASKER, "go", {}, undefined, { by: ASKER, push, notice, answersFollowup: [1] });
     await renameSeat(root, ASKER, "idealic:core", { by: "operator" });
     const f = parseAskFile(fs.readFileSync(path.join(root, "idealic:core", "go.md"), "utf8")).followups[0];
     expect(f.addressedBy).toBe("idealic:core");
@@ -268,7 +272,7 @@ describe("round 2 SHOULD-2: the operator's own follow-up does not stale the oper
 
   it("a draft already stale (an asker's revise moved the ask) is not re-based: it stays refused", async () => {
     await saveDraft(root, ASKER, "go", { answers: { GO: ["NO"] }, answeredBy: "operator", answeredVia: "browser" }, 1);
-    await reviseAsk(root, ASKER, "go", { why: "changed" }, undefined, { by: ASKER, push });
+    await reviseAsk(root, ASKER, "go", { why: "changed" }, undefined, { by: ASKER, push, notice });
     await followupAsk(root, ASKER, "go", { ...OP, kind: "question", text: "?" }, { expectedRevision: 2, push });
     expect(read().draft?.basedOn).toBe(1);
     const res = await sendBatch(root, [`${ASKER}/go`], { by: "operator", push });
@@ -316,7 +320,7 @@ describe("writeDraft: the operator may draft over a seat's answer (the overrule 
 
   it("a superseded ask still takes no draft from anybody", async () => {
     newAsk(root, { from: ASKER, to: MGR, id: "repl" }, BODY);
-    await supersedeAsk(root, { seat: ASKER, id: "go" }, { seat: ASKER, id: "repl" }, { by: ASKER, push });
+    await supersedeAsk(root, { seat: ASKER, id: "go" }, { seat: ASKER, id: "repl" }, { by: ASKER, push, notice });
     await expect(saveDraft(root, ASKER, "go", { answers: { GO: ["NO"] }, answeredBy: "operator", answeredVia: "browser" }, 2)).rejects.toThrow(/superseded/);
   });
 });

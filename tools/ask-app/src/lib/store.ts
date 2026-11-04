@@ -6,6 +6,17 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pushToSeat, type DeliverOptions, type DeliveryResult } from "./deliver.ts";
+import { queueNotice, type NoticeEvent, type NoticeOptions, type NoticeResult } from "./notice-queue.ts";
+
+/**
+ * NOTIFYQ: the four no-action notices (revised, superseded, withdrawn, panel) are queued for the seat's
+ * next prompt as one digest per ask (notice-queue.ts), never pushed. `notice` is the test seam; `push`
+ * is still accepted on these verbs but no longer used by them.
+ */
+export type NoticeOpts = NoticeOptions & { notice?: typeof queueNotice };
+async function sendNotice(seat: string, ev: NoticeEvent, o: NoticeOpts): Promise<NoticeResult> {
+  return (o.notice ?? queueNotice)(seat, ev, { noticeDir: o.noticeDir, now: o.now });
+}
 import {
   AskFormatError,
   assertLive,
@@ -1137,7 +1148,7 @@ export async function followupAsk(
 /** Header fields a revise may change: the card, never identity or state. */
 const FIXED_ON_REVISE = new Set(["id", "from", "to", "status", "revision", "created"]);
 
-export type ReviseResult = { file: string; revision: number; changed: string[]; pushes: { seat: string; delivery: DeliveryResult }[] };
+export type ReviseResult = { file: string; revision: number; changed: string[]; pushes: { seat: string; delivery: NoticeResult }[] };
 
 /**
  * Revise an open ask in place: the asker (`from:`) only. The id, `from:`, `to:`, the forward chain
@@ -1153,7 +1164,7 @@ export async function reviseAsk(
   id: string,
   fields: Record<string, string | undefined>,
   body: string | undefined,
-  o: DeliverOptions & FloorOptions & { by: string; push?: typeof pushToSeat; now?: string; /** ASKFOLLOWUP: the follow-ups this revision answers. */ answersFollowup?: number[] },
+  o: DeliverOptions & FloorOptions & NoticeOpts & { by: string; push?: typeof pushToSeat; now?: string; /** ASKFOLLOWUP: the follow-ups this revision answers. */ answersFollowup?: number[] },
 ): Promise<ReviseResult> {
   const file = resolveAskPath(root, seat, id);
   if (!o?.by) throw new AskFormatError("revise must name who is revising");
@@ -1214,21 +1225,16 @@ export async function reviseAsk(
   const seats = [...new Set([res.parsed.header.to ?? "", ...forwardChain(res.parsed.header).flatMap((h) => [h.from, h.to])])].filter(
     (s) => s && s !== o.by && s !== "operator",
   );
-  const push = o.push ?? pushToSeat;
-  const msg = [
-    `[ask-revised] from ${o.by} via ask-app: ${seat}/${id} is now revision ${res.revision} (changed: ${res.changed.join(", ")})`,
-    `An answer or draft made against an earlier revision is stale and will be refused. \`engine ask list\` shows it; the file is the record:`,
-    file,
-  ].join("\n");
+  const ev: NoticeEvent = { ref: `${seat}/${id}`, file, kind: "revised", by: o.by, detail: `revised by ${o.by} to revision ${res.revision} (changed: ${res.changed.join(", ")}); an answer or draft made against an earlier revision is refused` };
   const pushes: ReviseResult["pushes"] = [];
-  for (const s of seats) pushes.push({ seat: s, delivery: await safePush(push, s, msg, o) });
+  for (const s of seats) pushes.push({ seat: s, delivery: await sendNotice(s, ev, o) });
   return { file, revision: res.revision, changed: res.changed, pushes };
 }
 
 // ── superseding (one ask replaces another) ────────────────
 
 export type AskRef = { seat: string; id: string };
-export type SupersedeResult = { file: string; revision: number; pushes: { seat: string; delivery: DeliveryResult }[] };
+export type SupersedeResult = { file: string; revision: number; pushes: { seat: string; delivery: NoticeResult }[] };
 
 /**
  * Replace the open ask `old` with the ask `by`, so the two can never both be answered (a re-filed
@@ -1251,7 +1257,7 @@ export async function supersedeAsk(
   root: string,
   old: AskRef,
   by: AskRef,
-  o: DeliverOptions & { by: string; manages?: string[]; push?: typeof pushToSeat; now?: string },
+  o: DeliverOptions & NoticeOpts & { by: string; manages?: string[]; push?: typeof pushToSeat; now?: string },
 ): Promise<SupersedeResult> {
   if (!o?.by) throw new AskFormatError("supersede must name who is superseding");
   const oldRef = `${old.seat}/${old.id}`;
@@ -1308,14 +1314,9 @@ export async function supersedeAsk(
   const seats = [...new Set([res.parsed.header.to ?? "", ...forwardChain(res.parsed.header).flatMap((h) => [h.from, h.to]), res.parsed.header.from ?? ""])].filter(
     (s) => s && s !== o.by && s !== "operator",
   );
-  const push = o.push ?? pushToSeat;
-  const msg = [
-    `[ask-superseded] from ${o.by} via ask-app: ${oldRef} is superseded by ${newRef}`,
-    `Do not answer ${oldRef}: an answer or draft on it is refused. Answer ${newRef} instead. The file is the record:`,
-    oldFile,
-  ].join("\n");
+  const ev: NoticeEvent = { ref: oldRef, file: oldFile, kind: "superseded", by: o.by, detail: `superseded by ${newRef} (${o.by}); an answer or draft on ${oldRef} is refused` };
   const pushes: SupersedeResult["pushes"] = [];
-  for (const s of seats) pushes.push({ seat: s, delivery: await safePush(push, s, msg, o) });
+  for (const s of seats) pushes.push({ seat: s, delivery: await sendNotice(s, ev, o) });
   return { file: oldFile, revision: res.revision, pushes };
 }
 
@@ -1335,7 +1336,7 @@ export function assertMayRetract(ask: { header: { from?: string } }, o: { by: st
   throw new AskFormatError(`only the asker (${asker || "?"}), its manager or the operator ${verb} ${ref}; ${o.by} is none of them`);
 }
 
-export type WithdrawResult = { file: string; revision: number; draftOf?: string; pushes: { seat: string; delivery: DeliveryResult }[] };
+export type WithdrawResult = { file: string; revision: number; draftOf?: string; pushes: { seat: string; delivery: NoticeResult }[] };
 
 /**
  * Take the open ask `ref` back (ASKWITHDRAW). Unlike supersede, no newer ask replaces it: nothing is
@@ -1356,7 +1357,7 @@ export type WithdrawResult = { file: string; revision: number; draftOf?: string;
 export async function withdrawAsk(
   root: string,
   ref: AskRef,
-  o: DeliverOptions & { by: string; reason: string; manages?: string[]; push?: typeof pushToSeat; now?: string },
+  o: DeliverOptions & NoticeOpts & { by: string; reason: string; manages?: string[]; push?: typeof pushToSeat; now?: string },
 ): Promise<WithdrawResult> {
   if (!o?.by) throw new AskFormatError("withdraw must name who is withdrawing");
   const reason = (o.reason ?? "").replace(/\s+/g, " ").trim();
@@ -1400,15 +1401,15 @@ export async function withdrawAsk(
   for (const s of [h.to ?? "", ...forwardChain(h).flatMap((x) => [x.from, x.to]), h.from ?? ""]) {
     if (s && s !== "operator" && !seatEq(s, o.by) && !hasSeat(seats, s)) seats.push(s);
   }
-  const push = o.push ?? pushToSeat;
-  const msg = [
-    // N2: withdraw is a CLI verb (ask-app has no route for it), so the notice names the CLI.
-    `[ask-withdrawn] from ${o.by} via the ask CLI: ${r} is withdrawn: ${reason}`,
-    `No action needed: do not answer it and do not acknowledge this notice; an answer or draft on it is refused.${res.draftOf ? ` A draft saved by ${res.draftOf} on it is no longer sendable; its content is kept in the file.` : ""} The file is the record:`,
+  const ev: NoticeEvent = {
+    ref: r,
     file,
-  ].join("\n");
+    kind: "withdrawn",
+    by: o.by,
+    detail: `withdrawn by ${o.by} via the ask CLI: ${reason}; an answer or draft on it is refused${res.draftOf ? `; a draft saved by ${res.draftOf} on it is no longer sendable, its content is kept in the file` : ""}`,
+  };
   const pushes: WithdrawResult["pushes"] = [];
-  for (const s of seats) pushes.push({ seat: s, delivery: await safePush(push, s, msg, o) });
+  for (const s of seats) pushes.push({ seat: s, delivery: await sendNotice(s, ev, o) });
   return { file, revision: res.revision, ...(res.draftOf ? { draftOf: res.draftOf } : {}), pushes };
 }
 
@@ -1731,7 +1732,7 @@ function moveStaged(stage: string, fromDir: string, toDir: string, old: string, 
 
 // ── IDE-338: attach a panel's reads to an ask ─────────────
 
-export type AttachPanelResult = { file: string; entry: PanelAttachment; pushes: { seat: string; delivery: DeliveryResult }[]; already?: boolean };
+export type AttachPanelResult = { file: string; entry: PanelAttachment; pushes: { seat: string; delivery: NoticeResult }[]; already?: boolean };
 
 /**
  * `engine ask attach-panel`: any panel runner appends one council's reads on one fork (and any
@@ -1742,7 +1743,7 @@ export type AttachPanelResult = { file: string; entry: PanelAttachment; pushes: 
 export async function attachPanel(
   root: string,
   ref: AskRef,
-  o: DeliverOptions & { by: string; fork: string; panel?: PanelRead[]; proposals?: PanelProposal[]; council?: string; push?: typeof pushToSeat; now?: string },
+  o: DeliverOptions & NoticeOpts & { by: string; fork: string; panel?: PanelRead[]; proposals?: PanelProposal[]; council?: string; push?: typeof pushToSeat; now?: string },
 ): Promise<AttachPanelResult> {
   const r = `${ref.seat}/${ref.id}`;
   if (!o?.by) throw new AskFormatError("attach-panel must name who is attaching");
@@ -1780,16 +1781,11 @@ export async function attachPanel(
     atomicWrite(file, appendPanelEntry(before, entry));
     return { entry, asker: ask.header.from ?? "", already: false };
   });
-  const push = o.push ?? pushToSeat;
   const pushes: AttachPanelResult["pushes"] = [];
   if (res.asker && res.asker !== o.by && res.asker !== "operator") {
     const n = (k: number, w: string) => `${k} ${w}${k === 1 ? "" : "s"}`;
-    const msg = [
-      `[ask-panel] from ${o.by} via ask-app: ${r} fork ${o.fork} has a panel attached: ${n(panel.length, "read")}${proposals.length ? `, ${n(proposals.length, "proposed option")}` : ""}. Report: ${o.council}`,
-      "No action needed: the reads show beside the fork's options; the question and any answer are unchanged. The file is the record:",
-      file,
-    ].join("\n");
-    pushes.push({ seat: res.asker, delivery: await safePush(push, res.asker, msg, o) });
+    const detail = `panel on fork ${o.fork} from ${o.by}: ${n(panel.length, "read")}${proposals.length ? `, ${n(proposals.length, "proposed option")}` : ""}; the reads show beside the fork's options. Report: ${o.council}`;
+    pushes.push({ seat: res.asker, delivery: await sendNotice(res.asker, { ref: r, file, kind: "panel", by: o.by, fork: o.fork, detail }, o) });
   }
   return { file, entry: res.entry, pushes, ...(res.already ? { already: true } : {}) };
 }

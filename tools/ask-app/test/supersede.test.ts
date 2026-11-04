@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { answerAsk, forwardAsk, listAsks, newAsk, saveDraft, sendBatch, supersedeAsk } from "../src/lib/store.ts";
+import { digestText, type NoticeEvent } from "../src/lib/notice-queue.ts";
 import { parseAskFile, SupersededError, writeAnswer, writeDraft } from "../src/lib/format.ts";
 
 let root: string;
@@ -25,6 +26,9 @@ const push = async (seat: string, content: string) => {
   pushes.push({ seat, content });
   return { status: "delivered" as const };
 };
+// NOTIFYQ: the no-action notices (revise, supersede, withdraw, attach-panel) are queued, not pushed; this
+// seam records each queued notice's digest text where the push seam records a push.
+const notice = async (seat: string, ev: NoticeEvent) => (pushes.push({ seat, content: digestText(ev.ref, ev.file, [ev]) }), { status: "queued" as const, id: "t", record: "t", merged: false });
 function pair(extra: Record<string, string> = {}) {
   newAsk(root, { from: ASKER, to: "manager:idealic", id: "old", ...extra }, BODY);
   newAsk(root, { from: ASKER, to: "manager:idealic", id: "new" }, BODY);
@@ -37,7 +41,7 @@ describe("supersedeAsk: the happy path", () => {
 
   it("marks the old ask superseded with a pointer and a time, and the new ask points back", async () => {
     pair();
-    await supersedeAsk(root, OLD, NEW, { by: ASKER, now: "2026-10-30T01:00:00.000Z", push });
+    await supersedeAsk(root, OLD, NEW, { by: ASKER, now: "2026-10-30T01:00:00.000Z", push, notice });
     const old = read(ASKER, "old");
     expect(old.header.status).toBe("superseded");
     expect(old.header["superseded-by"]).toBe(`${ASKER}/new`);
@@ -56,36 +60,36 @@ describe("supersedeAsk: the happy path", () => {
   it("works across seats, and the holder of the old ask hears one notice naming the new ask", async () => {
     newAsk(root, { from: ASKER, to: "manager:idealic", id: "old" }, BODY);
     newAsk(root, { from: "manager:idealic", to: "operator", id: "n2" }, BODY);
-    await supersedeAsk(root, OLD, { seat: "manager:idealic", id: "n2" }, { by: "operator", push });
+    await supersedeAsk(root, OLD, { seat: "manager:idealic", id: "n2" }, { by: "operator", push, notice });
     expect(read(ASKER, "old").header["superseded-by"]).toBe("manager:idealic/n2");
     expect(read("manager:idealic", "n2").header.supersedes).toBe(`${ASKER}/old`);
     // The holder, and (S4, round 2) the asker, since the operator retired its ask.
     expect(pushes.map((p) => p.seat)).toEqual(["manager:idealic", ASKER]);
-    expect(pushes[0].content).toContain("[ask-superseded]");
+    expect(pushes[0].content).toContain("[ask-notices] idealic:kernel/old: superseded by manager:idealic/n2");
     expect(pushes[0].content).toContain("manager:idealic/n2");
   });
 
   it("drops a draft saved on the old ask: it can never be sent", async () => {
     pair();
     await saveDraft(root, ASKER, "old", { answers: { GO: ["YES"] }, answeredBy: "manager:idealic" }, 1);
-    await supersedeAsk(root, OLD, NEW, { by: ASKER, push });
+    await supersedeAsk(root, OLD, NEW, { by: ASKER, push, notice });
     expect(fs.readFileSync(file(ASKER, "old"), "utf8")).not.toContain("```json draft");
     expect(read(ASKER, "old").header.draft).toBeUndefined();
   });
 
   it("the operator, and a manager of the asker, may supersede; a reserved ask may be superseded", async () => {
     pair({ "reserved-for": "operator" });
-    await supersedeAsk(root, OLD, NEW, { by: "manager:idealic", manages: ["kernel"], push });
+    await supersedeAsk(root, OLD, NEW, { by: "manager:idealic", manages: ["kernel"], push, notice });
     expect(read(ASKER, "old").header.status).toBe("superseded");
     newAsk(root, { from: ASKER, to: "manager:idealic", id: "old2" }, BODY);
-    await supersedeAsk(root, { seat: ASKER, id: "old2" }, NEW, { by: "operator", push });
+    await supersedeAsk(root, { seat: ASKER, id: "old2" }, NEW, { by: "operator", push, notice });
     expect(read(ASKER, "old2").header.status).toBe("superseded");
   });
 
   it("an operator-answered copy may supersede its open original (the IDE-261 clean-up)", async () => {
     pair();
     await answerAsk(root, ASKER, "new", { answers: { GO: ["YES"] }, answeredBy: "operator" }, { expectedRevision: 1, push });
-    await supersedeAsk(root, OLD, NEW, { by: ASKER, push });
+    await supersedeAsk(root, OLD, NEW, { by: ASKER, push, notice });
     expect(read(ASKER, "old").header.status).toBe("superseded");
     expect(read(ASKER, "new").header.status).toBe("answered");
     expect(read(ASKER, "new").answer?.answers).toEqual({ GO: ["YES"] });
@@ -95,21 +99,21 @@ describe("supersedeAsk: the happy path", () => {
 describe("supersedeAsk: refusals", () => {
   it("refuses a missing old or new ask, and writes nothing", async () => {
     pair();
-    await expect(supersedeAsk(root, { seat: ASKER, id: "nope" }, NEW, { by: ASKER, push })).rejects.toThrow(/no ask idealic:kernel\/nope/);
-    await expect(supersedeAsk(root, OLD, { seat: ASKER, id: "nope" }, { by: ASKER, push })).rejects.toThrow(/no ask idealic:kernel\/nope/);
+    await expect(supersedeAsk(root, { seat: ASKER, id: "nope" }, NEW, { by: ASKER, push, notice })).rejects.toThrow(/no ask idealic:kernel\/nope/);
+    await expect(supersedeAsk(root, OLD, { seat: ASKER, id: "nope" }, { by: ASKER, push, notice })).rejects.toThrow(/no ask idealic:kernel\/nope/);
     expect(read(ASKER, "old").header.status).toBe("open");
   });
 
   it("refuses an ask superseding itself", async () => {
     pair();
-    await expect(supersedeAsk(root, OLD, OLD, { by: ASKER, push })).rejects.toThrow(/cannot supersede itself/);
+    await expect(supersedeAsk(root, OLD, OLD, { by: ASKER, push, notice })).rejects.toThrow(/cannot supersede itself/);
     expect(read(ASKER, "old").header.status).toBe("open");
   });
 
   it("refuses an answered or declined old ask: answered asks are history", async () => {
     pair();
     await answerAsk(root, ASKER, "old", { answers: { GO: ["NO"] }, answeredBy: "operator" }, { expectedRevision: 1, push });
-    await expect(supersedeAsk(root, OLD, NEW, { by: ASKER, push })).rejects.toThrow(/answered asks are history.*file a new one instead/);
+    await expect(supersedeAsk(root, OLD, NEW, { by: ASKER, push, notice })).rejects.toThrow(/answered asks are history.*file a new one instead/);
     expect(read(ASKER, "old").header.status).toBe("answered");
     expect(read(ASKER, "new").header.supersedes).toBeUndefined();
   });
@@ -117,28 +121,28 @@ describe("supersedeAsk: refusals", () => {
   it("refuses an old ask that is already superseded, naming what replaced it", async () => {
     pair();
     newAsk(root, { from: ASKER, to: "manager:idealic", id: "third" }, BODY);
-    await supersedeAsk(root, OLD, NEW, { by: ASKER, push });
-    await expect(supersedeAsk(root, OLD, { seat: ASKER, id: "third" }, { by: ASKER, push })).rejects.toThrow(/already superseded by idealic:kernel\/new/);
+    await supersedeAsk(root, OLD, NEW, { by: ASKER, push, notice });
+    await expect(supersedeAsk(root, OLD, { seat: ASKER, id: "third" }, { by: ASKER, push, notice })).rejects.toThrow(/already superseded by idealic:kernel\/new/);
   });
 
   it("refuses a replacement that is itself superseded", async () => {
     pair();
     newAsk(root, { from: ASKER, to: "manager:idealic", id: "third" }, BODY);
-    await supersedeAsk(root, NEW, { seat: ASKER, id: "third" }, { by: ASKER, push });
-    await expect(supersedeAsk(root, OLD, NEW, { by: ASKER, push })).rejects.toThrow(/idealic:kernel\/new is itself superseded/);
+    await supersedeAsk(root, NEW, { seat: ASKER, id: "third" }, { by: ASKER, push, notice });
+    await expect(supersedeAsk(root, OLD, NEW, { by: ASKER, push, notice })).rejects.toThrow(/idealic:kernel\/new is itself superseded/);
     expect(read(ASKER, "old").header.status).toBe("open");
   });
 
   it("refuses a seat that is neither the asker nor its manager — even the holder", async () => {
     pair();
-    await expect(supersedeAsk(root, OLD, NEW, { by: "manager:idealic", push })).rejects.toThrow(/only the asker \(idealic:kernel\), its manager or the operator/);
-    await expect(supersedeAsk(root, OLD, NEW, { by: "app:writer", manages: ["writer", "deploy"], push })).rejects.toThrow(/only the asker/);
+    await expect(supersedeAsk(root, OLD, NEW, { by: "manager:idealic", push, notice })).rejects.toThrow(/only the asker \(idealic:kernel\), its manager or the operator/);
+    await expect(supersedeAsk(root, OLD, NEW, { by: "app:writer", manages: ["writer", "deploy"], push, notice })).rejects.toThrow(/only the asker/);
     expect(read(ASKER, "old").header.status).toBe("open");
   });
 
   it("refuses an actor-less call", async () => {
     pair();
-    await expect(supersedeAsk(root, OLD, NEW, { by: "", push })).rejects.toThrow(/must name who/);
+    await expect(supersedeAsk(root, OLD, NEW, { by: "", push, notice })).rejects.toThrow(/must name who/);
   });
 });
 
@@ -153,15 +157,15 @@ describe("round 2: the replacement must be live, and the asker hears it", () => 
     await answerAsk(root, ASKER, "seat-answered", { answers: { GO: ["YES"] }, answeredBy: "manager:idealic" }, { expectedRevision: 1, push });
     const { actedAsk } = await import("../src/lib/store.ts");
     await actedAsk(root, ASKER, "ruled", "done", { by: ASKER, ruledInChat: "manager:idealic, 02:00" });
-    await expect(supersedeAsk(root, OLD, NEW, { by: ASKER, push })).rejects.toThrow(/idealic:kernel\/new is declined: nothing is left to answer/);
-    await expect(supersedeAsk(root, OLD, { seat: ASKER, id: "seat-answered" }, { by: ASKER, push })).rejects.toThrow(/answered by manager:idealic, not the operator/);
-    await expect(supersedeAsk(root, OLD, { seat: ASKER, id: "ruled" }, { by: ASKER, push })).rejects.toThrow(/idealic:kernel\/ruled is ruled/);
+    await expect(supersedeAsk(root, OLD, NEW, { by: ASKER, push, notice })).rejects.toThrow(/idealic:kernel\/new is declined: nothing is left to answer/);
+    await expect(supersedeAsk(root, OLD, { seat: ASKER, id: "seat-answered" }, { by: ASKER, push, notice })).rejects.toThrow(/answered by manager:idealic, not the operator/);
+    await expect(supersedeAsk(root, OLD, { seat: ASKER, id: "ruled" }, { by: ASKER, push, notice })).rejects.toThrow(/idealic:kernel\/ruled is ruled/);
     expect(read(ASKER, "old").header.status).toBe("open");
   });
 
   it("S4: the operator superseding tells the asker, naming the replacement", async () => {
     pair();
-    await supersedeAsk(root, OLD, NEW, { by: "operator", push });
+    await supersedeAsk(root, OLD, NEW, { by: "operator", push, notice });
     expect(pushes.map((p) => p.seat).sort()).toEqual([ASKER, "manager:idealic"].sort());
     const toAsker = pushes.find((p) => p.seat === ASKER)!;
     expect(toAsker.content).toContain(`superseded by ${ASKER}/new`);
@@ -169,11 +173,11 @@ describe("round 2: the replacement must be live, and the asker hears it", () => 
 
   it("S4: a manager superseding tells the asker; the asker superseding does not tell itself", async () => {
     pair();
-    await supersedeAsk(root, OLD, NEW, { by: "manager:director", manages: ["kernel"], push });
+    await supersedeAsk(root, OLD, NEW, { by: "manager:director", manages: ["kernel"], push, notice });
     expect(pushes.map((p) => p.seat).sort()).toEqual([ASKER, "manager:idealic"].sort());
     pushes.length = 0;
     newAsk(root, { from: ASKER, to: "manager:idealic", id: "old2" }, BODY);
-    await supersedeAsk(root, { seat: ASKER, id: "old2" }, NEW, { by: ASKER, push });
+    await supersedeAsk(root, { seat: ASKER, id: "old2" }, NEW, { by: ASKER, push, notice });
     expect(pushes.map((p) => p.seat)).toEqual(["manager:idealic"]);
   });
 });
@@ -182,7 +186,7 @@ describe("a superseded ask takes no answer, draft or send", () => {
   beforeEach(async () => {
     pair();
     await saveDraft(root, ASKER, "old", { answers: { GO: ["YES"] }, answeredBy: "manager:idealic" }, 1);
-    await supersedeAsk(root, OLD, NEW, { by: ASKER, push });
+    await supersedeAsk(root, OLD, NEW, { by: ASKER, push, notice });
   });
 
   it("answerAsk is refused with a SupersededError naming the new ask, at any revision", async () => {

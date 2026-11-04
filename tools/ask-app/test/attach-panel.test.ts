@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
 import { authorWarnings, bodyDigest, parseAskFile, parsePanelArg, parseProposalArg, RECORD_FENCE_RE, writeAnswer } from "../src/lib/format.ts";
 import { answerAsk, attachPanel, newAsk, renameSeat, reviseAsk, withdrawAsk } from "../src/lib/store.ts";
+import { digestText, type NoticeEvent } from "../src/lib/notice-queue.ts";
 import { rewriteSeatRefs } from "../src/lib/rename-seat.ts";
 
 const SEAT = "core:kernel";
@@ -35,13 +36,16 @@ Lean: X
 let root: string;
 let pushes: { seat: string; content: string }[];
 const push = async (seat: string, content: string) => (pushes.push({ seat, content }), { status: "delivered" as const });
+// NOTIFYQ: the no-action notices (revise, supersede, withdraw, attach-panel) are queued, not pushed; this
+// seam records each queued notice's digest text where the push seam records a push.
+const notice = async (seat: string, ev: NoticeEvent) => (pushes.push({ seat, content: digestText(ev.ref, ev.file, [ev]) }), { status: "queued" as const, id: "t", record: "t", merged: false });
 const file = () => path.join(root, SEAT, "fund.md");
 const reads = [
   { lens: "Security", pick: "B", why: "a separate root keeps the blast small" },
   { lens: "Economist", pick: "A", why: "one root is simpler to audit" },
 ];
 const attach = (o: Partial<Parameters<typeof attachPanel>[2]> = {}) =>
-  attachPanel(root, { seat: SEAT, id: "fund" }, { by: RUNNER, fork: "FUND", panel: reads, council: URL1, push, now: "2026-10-30T22:00:00.000Z", ...o });
+  attachPanel(root, { seat: SEAT, id: "fund" }, { by: RUNNER, fork: "FUND", panel: reads, council: URL1, push, notice, now: "2026-10-30T22:00:00.000Z", ...o });
 
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), "attach-panel-"));
@@ -79,7 +83,7 @@ describe("attach-panel: append-only", () => {
   it("keeps the asker's own Panel: lines first and its Council: line", async () => {
     const own = BODY.replace("Lean: B\n", "Lean: B\nPanel: Copywriter → B — reads plainly\nCouncil: https://x.example/own.html\n");
     newAsk(root, { from: SEAT, to: "operator", id: "own" }, own);
-    await attachPanel(root, { seat: SEAT, id: "own" }, { by: RUNNER, fork: "FUND", panel: reads, council: URL1, push });
+    await attachPanel(root, { seat: SEAT, id: "own" }, { by: RUNNER, fork: "FUND", panel: reads, council: URL1, push, notice });
     const q = parseAskFile(fs.readFileSync(path.join(root, SEAT, "own.md"), "utf8")).questions[0];
     expect(q.panel[0]).toEqual({ lens: "Copywriter", pick: "B", why: "reads plainly" });
     expect(q.panel).toHaveLength(3);
@@ -94,10 +98,11 @@ describe("attach-panel: append-only", () => {
   it("tells the asker, and not the runner", async () => {
     const r = await attach();
     expect(r.pushes.map((p) => p.seat)).toEqual([SEAT]);
-    expect(pushes[0].content).toContain("[ask-panel]");
+    expect(pushes[0].content).toContain("[ask-notices] ");
+    expect(pushes[0].content).toContain("a panel attached on fork FUND");
     expect(pushes[0].content).toContain(URL1);
     pushes = [];
-    await attachPanel(root, { seat: SEAT, id: "fund" }, { by: SEAT, fork: "FUND", panel: reads, council: URL1, push });
+    await attachPanel(root, { seat: SEAT, id: "fund" }, { by: SEAT, fork: "FUND", panel: reads, council: URL1, push, notice });
     expect(pushes).toEqual([]);
   });
 });
@@ -117,7 +122,7 @@ describe("attach-panel: refusals", () => {
     await expect(attach({ council: undefined })).rejects.toThrow(/--council/);
   });
   it("refuses a withdrawn ask", async () => {
-    await withdrawAsk(root, { seat: SEAT, id: "fund" }, { by: SEAT, reason: "no longer asked", push });
+    await withdrawAsk(root, { seat: SEAT, id: "fund" }, { by: SEAT, reason: "no longer asked", push, notice });
     await expect(attach()).rejects.toThrow(/withdrawn/);
   });
   it("accepts an answered ask, as a record beside the answer", async () => {
@@ -139,7 +144,7 @@ describe("the panels record survives every other write", () => {
   });
   it("a revise keeps it", async () => {
     await attach();
-    await reviseAsk(root, SEAT, "fund", {}, BODY.replace("Second?", "Second, reworded?"), { by: SEAT, push });
+    await reviseAsk(root, SEAT, "fund", {}, BODY.replace("Second?", "Second, reworded?"), { by: SEAT, push, notice });
     const ask = parseAskFile(fs.readFileSync(file(), "utf8"));
     expect(ask.questions[1].title).toBe("Second, reworded?");
     expect(ask.questions[0].panel).toHaveLength(2);
@@ -197,17 +202,17 @@ describe("M2: reads stay on the question the panel read", () => {
   const UNNAMED = "## Choose one: Fund?\nContext: c\n- [ ] [A] a\n  Picks A.\n- [ ] [B] b\n  Picks B.\n\n## Choose one: Other?\nContext: c\n- [ ] [X] x\n  Picks X.\n- [ ] [Y] y\n  Picks Y.\n";
   it("refuses an unnamed fork when the ask has more than one fork", async () => {
     newAsk(root, { from: SEAT, to: "operator", id: "anon" }, UNNAMED);
-    await expect(attachPanel(root, { seat: SEAT, id: "anon" }, { by: RUNNER, fork: "q0", panel: [{ lens: "Sec", pick: "B", why: "w" }], council: URL1, push })).rejects.toThrow(/no ¶ASK_ name, and the ask has 2 forks/);
+    await expect(attachPanel(root, { seat: SEAT, id: "anon" }, { by: RUNNER, fork: "q0", panel: [{ lens: "Sec", pick: "B", why: "w" }], council: URL1, push, notice })).rejects.toThrow(/no ¶ASK_ name, and the ask has 2 forks/);
   });
   it("takes an unnamed fork when it is the only one", async () => {
     newAsk(root, { from: SEAT, to: "operator", id: "one" }, "## Choose one: Fund?\nContext: c\n- [ ] [A] a\n  Picks A.\n- [ ] [B] b\n  Picks B.\n");
-    await attachPanel(root, { seat: SEAT, id: "one" }, { by: RUNNER, fork: "q0", panel: [{ lens: "Sec", pick: "B", why: "w" }], council: URL1, push });
+    await attachPanel(root, { seat: SEAT, id: "one" }, { by: RUNNER, fork: "q0", panel: [{ lens: "Sec", pick: "B", why: "w" }], council: URL1, push, notice });
     expect(parseAskFile(fs.readFileSync(path.join(root, SEAT, "one.md"), "utf8")).questions[0].panel).toHaveLength(1);
   });
   it("records the fork's title, and a retitled fork no longer draws the reads but the file keeps them and warns", async () => {
     await attach();
     expect(parseAskFile(fs.readFileSync(file(), "utf8")).panelAttachments[0].title).toBe("What does a world fund its contracts out of?");
-    await reviseAsk(root, SEAT, "fund", {}, BODY.replace("What does a world fund its contracts out of?", "Which root pays?"), { by: SEAT, push });
+    await reviseAsk(root, SEAT, "fund", {}, BODY.replace("What does a world fund its contracts out of?", "Which root pays?"), { by: SEAT, push, notice });
     const ask = parseAskFile(fs.readFileSync(file(), "utf8"));
     expect(ask.questions[0].panel).toHaveLength(0);
     expect(ask.panelAttachments).toHaveLength(1);
@@ -250,7 +255,7 @@ describe("S2: the same council on the same fork is attached once", () => {
 describe("S3: a revise that removes a picked option warns", () => {
   it("names who attached the read whose option is gone", async () => {
     await attach();
-    await reviseAsk(root, SEAT, "fund", {}, BODY.replace("- [ ] [B] A separate root", "- [ ] [C] A shared root"), { by: SEAT, push });
+    await reviseAsk(root, SEAT, "fund", {}, BODY.replace("- [ ] [B] A separate root", "- [ ] [C] A shared root"), { by: SEAT, push, notice });
     const ws = authorWarnings(parseAskFile(fs.readFileSync(file(), "utf8")));
     expect(ws.some((w) => w.includes(`${RUNNER}'s attached read Security → B names an option this fork no longer has`))).toBe(true);
   });

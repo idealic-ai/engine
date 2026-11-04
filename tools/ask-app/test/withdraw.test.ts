@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { actedAsk, answerAsk, assertMayRetract, listAsks, newAsk, readAsk, renameSeat, reviseAsk, saveDraft, sendBatch, supersedeAsk, withdrawAsk } from "../src/lib/store.ts";
+import { digestText, type NoticeEvent } from "../src/lib/notice-queue.ts";
 import { assertLive, bodyDigest, parseAskFile, trailingDraftFence, WithdrawnError } from "../src/lib/format.ts";
 import { SEAT_FIELDS } from "../src/lib/rename-seat.ts";
 import { askRow, rowInFilter } from "../src/client/model.ts";
@@ -30,6 +31,9 @@ const push = async (seat: string, content: string) => {
   pushes.push({ seat, content });
   return { status: "delivered" as const };
 };
+// NOTIFYQ: the no-action notices (revise, supersede, withdraw, attach-panel) are queued, not pushed; this
+// seam records each queued notice's digest text where the push seam records a push.
+const notice = async (seat: string, ev: NoticeEvent) => (pushes.push({ seat, content: digestText(ev.ref, ev.file, [ev]) }), { status: "queued" as const, id: "t", record: "t", merged: false });
 const REF = { seat: ASKER, id: "w1" };
 function ask(id = "w1", extra: Record<string, string> = {}) {
   newAsk(root, { from: ASKER, to: HOLDER, id, ...extra }, BODY);
@@ -39,7 +43,7 @@ const AT = "2026-10-30T16:20:00.000Z";
 describe("withdrawAsk: the asker takes its question back", () => {
   it("stamps status withdrawn with who, when and the reason; the revision moves", async () => {
     ask();
-    const r = await withdrawAsk(root, REF, { by: ASKER, reason: "the ticket was closed", now: AT, push });
+    const r = await withdrawAsk(root, REF, { by: ASKER, reason: "the ticket was closed", now: AT, push, notice });
     const h = read("w1").header;
     expect(h.status).toBe("withdrawn");
     expect(h["withdrawn-actor"]).toBe(ASKER);
@@ -54,13 +58,13 @@ describe("withdrawAsk: the asker takes its question back", () => {
 
   it("a multi-line reason is kept on one header line", async () => {
     ask();
-    await withdrawAsk(root, REF, { by: ASKER, reason: "first\nsecond", push });
+    await withdrawAsk(root, REF, { by: ASKER, reason: "first\nsecond", push, notice });
     expect(read("w1").header["withdrawn-reason"]).toBe("first second");
   });
 
   it("status and reason survive a re-read: listAsks and readAsk see the same", async () => {
     ask();
-    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push });
+    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push, notice });
     const listed = listAsks(root).find((a) => a.header.id === "w1")!;
     expect(listed.header.status).toBe("withdrawn");
     expect(listed.header["withdrawn-reason"]).toBe("moot");
@@ -71,34 +75,34 @@ describe("withdrawAsk: the asker takes its question back", () => {
 
   it("the holder hears one notice that says no action is needed and asks for no acknowledgement", async () => {
     ask();
-    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push });
+    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push, notice });
     expect(pushes.map((p) => p.seat)).toEqual([HOLDER]);
     const c = pushes[0].content;
-    expect(c).toMatch(/^\[ask-withdrawn\] from idealic:kernel via the ask CLI: idealic:kernel\/w1 is withdrawn: moot/);
+    expect(c).toMatch(/^\[ask-notices\] idealic:kernel\/w1: withdrawn by idealic:kernel via the ask CLI: moot/);
     expect(c).not.toContain("via ask-app");
     expect(c).toContain("No action needed");
-    expect(c).toMatch(/do not acknowledge/i);
+    expect(c).toMatch(/do not answer, acknowledge or ack this/i);
     expect(c).toContain(file("w1"));
   });
 
   it("when the operator withdraws, the holder and the asker both hear it; the operator is never pushed", async () => {
     ask("w1", { to: "operator" } as never);
     newAsk(root, { from: ASKER, to: HOLDER, id: "w2" }, BODY);
-    await withdrawAsk(root, { seat: ASKER, id: "w2" }, { by: "operator", reason: "moot", push });
+    await withdrawAsk(root, { seat: ASKER, id: "w2" }, { by: "operator", reason: "moot", push, notice });
     expect(pushes.map((p) => p.seat)).toEqual([HOLDER, ASKER]);
     pushes.length = 0;
-    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push });
+    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push, notice });
     expect(pushes).toEqual([]);
   });
 
   it("a saved draft stops being a draft, and the withdrawal records whose it was", async () => {
     ask();
     await saveDraft(root, ASKER, "w1", { answers: { GO: ["YES"] }, answeredBy: HOLDER }, 1);
-    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push });
+    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push, notice });
     expect(text("w1")).not.toContain("```json draft\n");
     expect(read("w1").draft).toBeUndefined();
     expect(read("w1").header["withdrawn-draft-of"]).toBe(HOLDER);
-    expect(pushes[0].content).toContain(`A draft saved by ${HOLDER} on it is no longer sendable; its content is kept in the file`);
+    expect(pushes[0].content).toContain(`a draft saved by ${HOLDER} on it is no longer sendable, its content is kept in the file`);
   });
 
   it("the draft's content is kept byte for byte as a ```json withdrawn-draft``` record (meta:utils)", async () => {
@@ -106,7 +110,7 @@ describe("withdrawAsk: the asker takes its question back", () => {
     await saveDraft(root, ASKER, "w1", { answers: { GO: ["YES"] }, answeredBy: HOLDER, note: "half-written thought" }, 1);
     const json = /```json draft\n([\s\S]*?)\n```/.exec(text("w1"))![1];
     const digest = bodyDigest(text("w1"));
-    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push });
+    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push, notice });
     const after = text("w1");
     expect(after).toContain("```json withdrawn-draft\n" + json + "\n```");
     const p = read("w1");
@@ -130,12 +134,12 @@ describe("withdrawAsk: the asker takes its question back", () => {
     const fence = "\n```json withdrawn-draft\n{}\n```\n";
     expect(() => newAsk(root, { from: ASKER, to: HOLDER, id: "x1" }, BODY + fence)).toThrow(/withdrawn-draft/);
     ask();
-    await expect(reviseAsk(root, ASKER, "w1", {}, BODY + fence, { by: ASKER, push })).rejects.toThrow(/withdrawn-draft/);
+    await expect(reviseAsk(root, ASKER, "w1", {}, BODY + fence, { by: ASKER, push, notice })).rejects.toThrow(/withdrawn-draft/);
   });
 
   it("with no draft, no draft field is written", async () => {
     ask();
-    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push });
+    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push, notice });
     expect(read("w1").header["withdrawn-draft-of"]).toBeUndefined();
   });
 });
@@ -145,17 +149,17 @@ describe("withdrawAsk: who may withdraw (the supersede set; pending an operator 
     ask("a");
     ask("m");
     ask("o", { "reserved-for": "operator" });
-    await withdrawAsk(root, { seat: ASKER, id: "a" }, { by: ASKER, reason: "r", push });
-    await withdrawAsk(root, { seat: ASKER, id: "m" }, { by: "manager:idealic", manages: ["kernel"], reason: "r", push });
-    await withdrawAsk(root, { seat: ASKER, id: "o" }, { by: "operator", reason: "r", push });
+    await withdrawAsk(root, { seat: ASKER, id: "a" }, { by: ASKER, reason: "r", push, notice });
+    await withdrawAsk(root, { seat: ASKER, id: "m" }, { by: "manager:idealic", manages: ["kernel"], reason: "r", push, notice });
+    await withdrawAsk(root, { seat: ASKER, id: "o" }, { by: "operator", reason: "r", push, notice });
     expect(["a", "m", "o"].map((id) => read(id).header["withdrawn-actor"])).toEqual([ASKER, "manager:idealic", "operator"]);
   });
 
   it("a peer, and the holder that does not manage the asker, are refused and nothing is written", async () => {
     ask();
     const before = text("w1");
-    await expect(withdrawAsk(root, REF, { by: "idealic:runner", reason: "r", push })).rejects.toThrow(/only the asker \(idealic:kernel\), its manager or the operator withdraws/);
-    await expect(withdrawAsk(root, REF, { by: HOLDER, manages: ["runner"], reason: "r", push })).rejects.toThrow(/only the asker/);
+    await expect(withdrawAsk(root, REF, { by: "idealic:runner", reason: "r", push, notice })).rejects.toThrow(/only the asker \(idealic:kernel\), its manager or the operator withdraws/);
+    await expect(withdrawAsk(root, REF, { by: HOLDER, manages: ["runner"], reason: "r", push, notice })).rejects.toThrow(/only the asker/);
     expect(text("w1")).toBe(before);
     expect(pushes).toEqual([]);
   });
@@ -185,9 +189,9 @@ describe("withdrawAsk: who may withdraw (the supersede set; pending an operator 
     ask("new");
     const spelled = "Idealic:Kernel";
     for (const verb of ["withdraws", "supersedes"] as const) expect(() => assertMayRetract(read("w1"), { by: spelled }, verb, "x/y")).not.toThrow();
-    await withdrawAsk(root, REF, { by: spelled, reason: "moot", push });
+    await withdrawAsk(root, REF, { by: spelled, reason: "moot", push, notice });
     expect(read("w1").header.status).toBe("withdrawn");
-    await supersedeAsk(root, { seat: ASKER, id: "old" }, { seat: ASKER, id: "new" }, { by: spelled, push });
+    await supersedeAsk(root, { seat: ASKER, id: "old" }, { seat: ASKER, id: "new" }, { by: spelled, push, notice });
     expect(read("old").header.status).toBe("superseded");
   });
 });
@@ -195,14 +199,14 @@ describe("withdrawAsk: who may withdraw (the supersede set; pending an operator 
 describe("withdrawAsk: refusals", () => {
   it("refuses with no actor, no reason or a blank reason", async () => {
     ask();
-    await expect(withdrawAsk(root, REF, { by: "", reason: "r", push })).rejects.toThrow(/must name who/);
-    await expect(withdrawAsk(root, REF, { by: ASKER, reason: "  ", push })).rejects.toThrow(/needs a reason/);
-    await expect(withdrawAsk(root, REF, { by: ASKER, reason: undefined as never, push })).rejects.toThrow(/needs a reason/);
+    await expect(withdrawAsk(root, REF, { by: "", reason: "r", push, notice })).rejects.toThrow(/must name who/);
+    await expect(withdrawAsk(root, REF, { by: ASKER, reason: "  ", push, notice })).rejects.toThrow(/needs a reason/);
+    await expect(withdrawAsk(root, REF, { by: ASKER, reason: undefined as never, push, notice })).rejects.toThrow(/needs a reason/);
     expect(read("w1").header.status).toBe("open");
   });
 
   it("refuses a missing ask", async () => {
-    await expect(withdrawAsk(root, { seat: ASKER, id: "nope" }, { by: ASKER, reason: "r", push })).rejects.toThrow(/no ask idealic:kernel\/nope/);
+    await expect(withdrawAsk(root, { seat: ASKER, id: "nope" }, { by: ASKER, reason: "r", push, notice })).rejects.toThrow(/no ask idealic:kernel\/nope/);
   });
 
   it("refuses an answered ask: that one is history; its answer and history fences are untouched", async () => {
@@ -213,35 +217,35 @@ describe("withdrawAsk: refusals", () => {
     const before = text("h1");
     expect(before).toContain("```json history");
     expect(before).toContain("overruled: manager:idealic");
-    await expect(withdrawAsk(root, { seat: ASKER, id: "h1" }, { by: ASKER, reason: "r", push })).rejects.toThrow(/is answered: that one is history/);
+    await expect(withdrawAsk(root, { seat: ASKER, id: "h1" }, { by: ASKER, reason: "r", push, notice })).rejects.toThrow(/is answered: that one is history/);
     expect(text("h1")).toBe(before);
   });
 
   it("refuses a declined ask as history", async () => {
     ask();
     await answerAsk(root, ASKER, "w1", { declined: true, reason: "no", answeredBy: "operator" }, { expectedRevision: 1, push: async () => ({ status: "delivered" }) } as never);
-    await expect(withdrawAsk(root, REF, { by: ASKER, reason: "r", push })).rejects.toThrow(/is declined: that one is history/);
+    await expect(withdrawAsk(root, REF, { by: ASKER, reason: "r", push, notice })).rejects.toThrow(/is declined: that one is history/);
   });
 
   it("refuses an already superseded ask, naming its replacement", async () => {
     ask("old");
     ask("new");
-    await supersedeAsk(root, { seat: ASKER, id: "old" }, { seat: ASKER, id: "new" }, { by: ASKER, push });
-    await expect(withdrawAsk(root, { seat: ASKER, id: "old" }, { by: ASKER, reason: "r", push })).rejects.toThrow(/already superseded by idealic:kernel\/new/);
+    await supersedeAsk(root, { seat: ASKER, id: "old" }, { seat: ASKER, id: "new" }, { by: ASKER, push, notice });
+    await expect(withdrawAsk(root, { seat: ASKER, id: "old" }, { by: ASKER, reason: "r", push, notice })).rejects.toThrow(/already superseded by idealic:kernel\/new/);
   });
 
   it("refuses an already withdrawn ask", async () => {
     ask();
-    await withdrawAsk(root, REF, { by: ASKER, reason: "first", push });
-    await expect(withdrawAsk(root, REF, { by: ASKER, reason: "again", push })).rejects.toThrow(/already withdrawn by idealic:kernel/);
+    await withdrawAsk(root, REF, { by: ASKER, reason: "first", push, notice });
+    await expect(withdrawAsk(root, REF, { by: ASKER, reason: "again", push, notice })).rejects.toThrow(/already withdrawn by idealic:kernel/);
     expect(read("w1").header["withdrawn-reason"]).toBe("first");
   });
 
   it("a withdrawn ask is not a replacement for supersede", async () => {
     ask("old");
     ask("gone");
-    await withdrawAsk(root, { seat: ASKER, id: "gone" }, { by: ASKER, reason: "r", push });
-    await expect(supersedeAsk(root, { seat: ASKER, id: "old" }, { seat: ASKER, id: "gone" }, { by: ASKER, push })).rejects.toThrow(/withdrawn/);
+    await withdrawAsk(root, { seat: ASKER, id: "gone" }, { by: ASKER, reason: "r", push, notice });
+    await expect(supersedeAsk(root, { seat: ASKER, id: "old" }, { seat: ASKER, id: "gone" }, { by: ASKER, push, notice })).rejects.toThrow(/withdrawn/);
     expect(read("old").header.status).toBe("open");
   });
 });
@@ -250,7 +254,7 @@ describe("a withdrawn ask takes no answer, draft or send", () => {
   async function withdrawn() {
     ask();
     await saveDraft(root, ASKER, "w1", { answers: { GO: ["YES"] }, answeredBy: HOLDER }, 1);
-    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push });
+    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push, notice });
   }
 
   it("assertLive throws a WithdrawnError carrying who and why", () => {
@@ -292,7 +296,7 @@ describe("a withdrawn ask takes no answer, draft or send", () => {
 describe("N3: acted on a withdrawn ask suggests no command that is then refused", () => {
   it("names the withdrawal and does not offer answer --relayed-from or --ruled-in-chat", async () => {
     ask();
-    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push });
+    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push, notice });
     const before = text("w1");
     const msg = await actedAsk(root, ASKER, "w1", "done", { by: ASKER }).catch((e: Error) => e.message);
     expect(msg).toMatch(/idealic:kernel\/w1 is withdrawn by idealic:kernel \(moot\)/);
@@ -305,7 +309,7 @@ describe("N3: acted on a withdrawn ask suggests no command that is then refused"
   it("a superseded ask names its replacement rather than suggesting an answer", async () => {
     ask("old");
     ask("new");
-    await supersedeAsk(root, { seat: ASKER, id: "old" }, { seat: ASKER, id: "new" }, { by: ASKER, push });
+    await supersedeAsk(root, { seat: ASKER, id: "old" }, { seat: ASKER, id: "new" }, { by: ASKER, push, notice });
     const msg = await actedAsk(root, ASKER, "old", "done", { by: ASKER }).catch((e: Error) => e.message);
     expect(msg).toMatch(/superseded by idealic:kernel\/new/);
     expect(msg).not.toMatch(/relayed-from|ruled-in-chat/);
@@ -315,7 +319,7 @@ describe("N3: acted on a withdrawn ask suggests no command that is then refused"
 describe("the operator's lists", () => {
   it("a withdrawn ask is in All only: not Open, not Settled, not Ruled", async () => {
     ask();
-    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push });
+    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push, notice });
     const row = askRow(listAsks(root)[0]);
     expect(row.status).toBe("withdrawn");
     expect(row.waitingOnYou).toBe(false);
@@ -330,7 +334,7 @@ describe("rename-seat rewrites the withdrawal's seat fields", () => {
     expect(SEAT_FIELDS).toContain("withdrawn-draft-of");
     ask();
     await saveDraft(root, ASKER, "w1", { answers: { GO: ["YES"] }, answeredBy: HOLDER }, 1);
-    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push });
+    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push, notice });
     await renameSeat(root, HOLDER, "manager:kit", { by: "operator" });
     await renameSeat(root, ASKER, "idealic:core", { by: "operator" });
     const h = parseAskFile(fs.readFileSync(path.join(root, "idealic:core", "w1.md"), "utf8")).header;

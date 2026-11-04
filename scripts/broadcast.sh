@@ -894,6 +894,9 @@ any_queued() { local f; for f in "$BDIR"/queued/*/*; do [ -e "$f" ] && return 0;
 wake_message() {
   local by text; by=$(header "$2" sent-by); text=$(text_of "$2")
   if is_go "$2"; then GO_ID="$1" GO_REC="$2" GO_BY="$by" GO_TEXT="$text"; go_msg_for "$3"
+  # NOTIFYQ: an ask-app no-action digest (tools/ask-app/src/lib/notice-queue.ts) asks nothing, so it
+  # carries no ack line: acking it would be the acknowledgement it tells the seat not to send.
+  elif [ "$(header "$2" kind)" = ask-notice ]; then printf '%s\n(no action needed: nothing to answer and nothing to ack)' "$text"
   else message "$1" "$text" "$2" "$by"; fi
 }
 

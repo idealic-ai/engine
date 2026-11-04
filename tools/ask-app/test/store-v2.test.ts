@@ -7,6 +7,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { actedAsk, answerAsk, discardDraft, forwardAsk, newAsk, pickupUnread, readAsk, reviseAsk, saveDraft, sendBatch } from "../src/lib/store.ts";
+import { digestText, type NoticeEvent } from "../src/lib/notice-queue.ts";
 import { parseAskFile, AskFormatError, StaleRevisionError } from "../src/lib/format.ts";
 
 let root: string;
@@ -30,7 +31,9 @@ function recorder() {
     sent.push({ seat, content });
     return seat === "dead:seat" ? { status: "undelivered" as const, reason: "no live session named dead:seat" } : { status: "delivered" as const };
   };
-  return { sent, push };
+  // NOTIFYQ: revise's notice is queued, not pushed; record its digest text beside the pushes.
+  const notice = async (seat: string, ev: NoticeEvent) => (sent.push({ seat, content: digestText(ev.ref, ev.file, [ev]) }), { status: "queued" as const, id: "t", record: "t", merged: false });
+  return { sent, push, notice };
 }
 
 describe("drafts and the batch send (acceptance 1)", () => {
@@ -494,14 +497,14 @@ describe("revise (conductor add-on)", () => {
     newAsk(root, { from: "idealic:kernel", to: "manager:app", id: "rv1" }, GO);
     await forwardAsk(root, "idealic:kernel", "rv1", { to: "manager:director", by: "manager:app", now: "2026-10-29T01:00:00Z" });
     const r = recorder();
-    const out = await reviseAsk(root, "idealic:kernel", "rv1", { stake: "two lanes stall" }, GO.replace("Ship it?", "Ship it tonight?"), { by: "idealic:kernel", push: r.push, now: "2026-10-29T02:00:00Z" });
+    const out = await reviseAsk(root, "idealic:kernel", "rv1", { stake: "two lanes stall" }, GO.replace("Ship it?", "Ship it tonight?"), { by: "idealic:kernel", push: r.push, notice: r.notice, now: "2026-10-29T02:00:00Z" });
     expect(out).toMatchObject({ revision: 3, changed: ["stake", "body"] });
     const a = read("idealic:kernel", "rv1");
     expect(a.header).toMatchObject({ id: "rv1", from: "idealic:kernel", to: "manager:director", revision: "3", stake: "two lanes stall", revisions: "3@2026-10-29T02:00:00Z:stake,body", status: "open" });
     expect(a.header.forwards).toContain("manager:app→manager:director");
     expect(a.questions[0].title).toBe("Ship it tonight?");
     expect(r.sent.map((x) => x.seat).sort()).toEqual(["manager:app", "manager:director"]);
-    expect(r.sent[0].content).toContain("[ask-revised]");
+    expect(r.sent[0].content).toContain("[ask-notices] idealic:kernel/rv1: revised by idealic:kernel to revision 3");
   });
 
   it("a non-asker revising is refused, the forwarder and the operator included", async () => {

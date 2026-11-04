@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
@@ -25,5 +26,7 @@ export default defineConfig({
   // The suite runs on a shared, often heavily loaded machine; the limits are for a hang, not a pace.
   // ASK_SEARCH_AUTO=0: a server a test spawns inherits this env, so it never indexes on start or on an ask write,
   // and never reaches this machine's real embedder or proof store that way (IDE-334). A search test turns it back on with its own sources.
-  test: { root: ".", include: ["test/**/*.test.ts"], testTimeout: 30_000, hookTimeout: 60_000, env: { ASK_SEARCH_AUTO: "0" } },
+  test: { root: ".", include: ["test/**/*.test.ts"], testTimeout: 30_000, hookTimeout: 60_000, // NOTIFYQ: a verb that queues an ask notice writes under BROADCAST_DIR; the suite points it at a scratch
+  // directory so no test ever writes into the fleet's real broadcast queue.
+  env: { ASK_SEARCH_AUTO: "0", BROADCAST_DIR: path.join(os.tmpdir(), `ask-app-test-broadcasts-${process.pid}`) } },
 });

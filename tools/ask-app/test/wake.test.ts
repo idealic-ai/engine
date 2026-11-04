@@ -18,7 +18,7 @@ import net from "node:net";
 import path from "node:path";
 import { answerAsk, forwardAsk, newAsk, renameSeat, reviseAsk } from "../src/lib/store.ts";
 import { AskFormatError, parseAskFile, setHeaderField } from "../src/lib/format.ts";
-import { WAKE_COOLDOWN_MS, WakeRefused, wakeAsk, wakeTarget, wakeView } from "../src/lib/wake.ts";
+import { WAKE_COOLDOWN_MS, WAKE_PENDING_HOLD_MS, WakeRefused, wakeAsk, wakeTarget, wakeView } from "../src/lib/wake.ts";
 import { BUILD_ID_FILE, computeBuildId } from "../src/build-id.ts";
 
 const BODY = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n";
@@ -196,6 +196,35 @@ describe("wakeAsk and wakeView (library)", () => {
     expect(rejected.reason).toBeInstanceOf(WakeRefused);
     expect((rejected.reason as WakeRefused).code).toBe("cooldown");
     expect(pushed).toHaveLength(1);
+  });
+
+  it("NOTIFYQ (b): a pending whose outcome stamp never landed holds the cooldown only for the push bound, not five minutes", async () => {
+    newAsk(root, { from: ASKER, to: HOLDER, id: "stuck" }, BODY);
+    live(HOLDER);
+    // A wake claimed and pushed, but its outcome stamp failed: the record still says pending.
+    let t = fs.readFileSync(file("stuck"), "utf8");
+    for (const [k, v] of [["wokenAt", new Date(T0).toISOString()], ["wokenBy", "operator"], ["wokenSeat", HOLDER], ["wakeDelivery", "pending"]]) t = setHeaderField(t, k, v);
+    fs.writeFileSync(file("stuck"), t);
+    // Inside the bound it is a push in flight: a second click is still refused.
+    expect(wakeView(read("stuck"), { now: T0 + WAKE_PENDING_HOLD_MS - 1, sessionsDir: sessions }).wakeBlocked).toBe("cooldown");
+    // Past it, nothing holds the button.
+    const view = wakeView(read("stuck"), { now: T0 + WAKE_PENDING_HOLD_MS, sessionsDir: sessions });
+    expect(view.wakeBlocked).toBeUndefined();
+    expect(view.wakeAfter).toBeUndefined();
+    const out = await wakeAsk(root, ASKER, "stuck", { by: "operator", now: T0 + WAKE_PENDING_HOLD_MS, push, sessionsDir: sessions });
+    expect(out.delivery.status).toBe("delivered");
+    expect(pushed).toHaveLength(1);
+  });
+
+  it("NOTIFYQ (c): a wake has one target, so a push reporting partial is recorded as undelivered and starts no cooldown", async () => {
+    newAsk(root, { from: ASKER, to: HOLDER, id: "part" }, BODY);
+    live(HOLDER);
+    const partial = async () => ({ status: "partial" as const, reason: "half" });
+    const out = await wakeAsk(root, ASKER, "part", { by: "operator", now: T0, push: partial, sessionsDir: sessions });
+    expect(out.delivery.status).toBe("undelivered");
+    expect(out.delivery.reason).toMatch(/one target; the push reported partial \(half\)/);
+    expect(out.wakeAfter).toBeUndefined();
+    expect(read("part").header.wakeDelivery).toBe("undelivered");
   });
 
   it("a later wake's record is kept: an earlier wake's stamp never overwrites it", async () => {

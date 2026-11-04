@@ -171,7 +171,7 @@ function cases(rootOf: () => string, prepare: (root: string) => void = () => {})
     await forwardAsk(root, UP, "x1", { to: "app:deploy", by: "app:writer" });
     await expect(withdrawAsk(root, { seat: UP, id: "x1" }, { by: "domain:stranger", reason: "moot", push })).rejects.toThrow("is none of them");
     const told: string[] = [];
-    const r = await withdrawAsk(root, { seat: UP, id: "x1" }, { by: LOW, reason: "moot", push: async (s: string) => (told.push(s), { status: "delivered" as const }) });
+    const r = await withdrawAsk(root, { seat: UP, id: "x1" }, { by: LOW, reason: "moot", push, notice: async (s: string) => (told.push(s), { status: "queued" as const, id: "t", record: "t", merged: false }) });
     expect(read(root, UP, "x1").header.status).toBe("withdrawn");
     expect(read(root, UP, "x1").header["withdrawn-actor"]).toBe(LOW);
     // The holder and the forwarder hear it once each; the asker, under either spelling, does not.

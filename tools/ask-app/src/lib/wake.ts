@@ -23,6 +23,22 @@
  *   wakeDelivery: pending | delivered | undelivered   (wakeDeliveryNote: <why>, when undelivered)
  * Only the latest wake is kept. A wake never moves `revision`: the ask's question and answer did not
  * change, so an answer form opened before the wake is not made stale by it.
+ *
+ * The contract's edges (NOTIFYQ, from meta:utils' notes on the button):
+ *  - A cooldown ending is NOT an event. Nothing writes when `wakeAfter` passes, so the server-sent
+ *    change stream says nothing then, and no timer is added to make it (the operator ruled against
+ *    timers: "push is fine; timers aren't"). The client holds `wakeAfter` and re-enables the button
+ *    when its own clock passes it (meta:utils' WakeButton counts down from it); a client that does not
+ *    must reload /api/asks at `wakeAfter`. The listing is recomputed from the file on every read, so a
+ *    reload after `wakeAfter` never shows `wakeBlocked: cooldown` for that wake.
+ *  - `wakeDelivery: pending` holds a cooldown only for WAKE_PENDING_HOLD_MS. It is written before the
+ *    push so two clicks cannot both push; a push is bounded by the socket timeout (3 s), so a pending
+ *    older than the hold is a wake whose outcome stamp failed (the push itself may well have landed).
+ *    It reads as no cooldown, rather than blocking the button for five minutes.
+ *  - A wake has exactly one target, so `partial` is not a wake outcome. pushToSeat never returns it;
+ *    if a push seam ever did, wakeAsk records it as `undelivered`, which starts no cooldown.
+ *  - `wokenBy` is always `operator` today: only the server's wake route calls wakeAsk, and it stamps
+ *    the server's answerer. The field is kept so a second caller, if one is ever allowed, says who.
  */
 import fs from "node:fs";
 import { lookupSeat, pushToSeat, type DeliverOptions, type DeliveryResult, type SeatLookup } from "./deliver.ts";
@@ -34,6 +50,9 @@ import { atomicWrite, resolveAskPath, SeatRenamedError, withFileLock } from "./s
  * was not undelivered. A forward moves the ask to a seat nobody woke, so the new holder is not held.
  */
 export const WAKE_COOLDOWN_MS = 5 * 60_000;
+
+/** How long a `wakeDelivery: pending` (written before the push) holds the cooldown; see the module header. */
+export const WAKE_PENDING_HOLD_MS = 30_000;
 
 /**
  * Why a wake is refused, as a stable code a client can switch on:
@@ -75,6 +94,8 @@ function cooldownUntil(ask: ParsedAsk, now: number, target: string): string | un
   const at = Date.parse(ask.header.wokenAt ?? "");
   if (!Number.isFinite(at) || ask.header.wakeDelivery === "undelivered") return undefined;
   if (!seatEq(ask.header.wokenSeat, target)) return undefined;
+  // A pending past the push bound is an outcome stamp that failed, not a wake still in flight.
+  if (ask.header.wakeDelivery === "pending" && now >= at + WAKE_PENDING_HOLD_MS) return undefined;
   const until = at + WAKE_COOLDOWN_MS;
   return now < until ? new Date(until).toISOString() : undefined;
 }
@@ -171,7 +192,8 @@ export type WakeResult = {
   target: string;
   wokenAt: string;
   wokenBy: string;
-  delivery: DeliveryResult;
+  /** One target, so never `partial`. */
+  delivery: { status: "delivered" | "undelivered"; reason?: string };
   /** When this ask may be woken again; absent when the push failed, since a failed wake starts no cooldown. */
   wakeAfter?: string;
 };
@@ -216,6 +238,8 @@ export async function wakeAsk(
   } catch (e) {
     delivery = { status: "undelivered", reason: String(e) };
   }
+  // One target: a `partial` from a push seam is not a wake that landed (see the module header).
+  if (delivery.status === "partial") delivery = { status: "undelivered", reason: `a wake has one target; the push reported partial${delivery.reason ? ` (${delivery.reason})` : ""}` };
   const stamp = (f: string) =>
     withFileLock(f, () => {
       const text = fs.readFileSync(f, "utf8");
@@ -238,7 +262,8 @@ export async function wakeAsk(
       }
     }
   }
-  const result: WakeResult = { ref, target: claimed.target, wokenAt, wokenBy: o.by, delivery: { status: delivery.status, ...(delivery.reason ? { reason: delivery.reason } : {}) } };
+  const status = delivery.status === "delivered" ? "delivered" : "undelivered";
+  const result: WakeResult = { ref, target: claimed.target, wokenAt, wokenBy: o.by, delivery: { status, ...(delivery.reason ? { reason: delivery.reason } : {}) } };
   if (delivery.status !== "undelivered") result.wakeAfter = new Date(now + WAKE_COOLDOWN_MS).toISOString();
   return result;
 }
