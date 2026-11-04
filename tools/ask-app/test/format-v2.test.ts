@@ -296,12 +296,14 @@ describe("authoring warnings", () => {
     const bad = parseAskFile(head("lean: F1 ALL; F2 DEGR\n") + "## ¶ASK_A: Choose one: A?\n- [ ] [X] x\n- [ ] y\n\n## ¶ASK_B: Choose one: B?\n- [ ] [P] p\n");
     expect(authorWarnings(bad)).toEqual([
       "the header lean fills the first fork's card only; write a Lean: line under every fork",
+      '"A?": no concrete example. If this fork is about syntax, a file, a command or a value, show it: the line as it is today and as each option would write it, in backticks or a fenced block in the fork\'s paragraph',
       '"A?": 1 option(s) have no [CODE]; the answer will store the whole label',
       '"A?": 2 of 2 options have no Cost: line (what the operator gives up); 2 of 2 have no Elegance: line (how cleanly it fits)',
+      '"B?": no concrete example. If this fork is about syntax, a file, a command or a value, show it: the line as it is today and as each option would write it, in backticks or a fenced block in the fork\'s paragraph',
       '"B?": no Lean: line',
       '"B?": 1 of 1 options have no Cost: line (what the operator gives up); 1 of 1 have no Elegance: line (how cleanly it fits)',
     ]);
-    const good = parseAskFile(head() + "## ¶ASK_A: Choose one: A?\nLean: X — because\n- [ ] [X] x\n  Cost: c\n  Elegance: e\n\n## ¶ASK_B: Text: Name?\n");
+    const good = parseAskFile(head() + "## ¶ASK_A: Choose one: A?\nLean: X — because\n- [ ] [X] x\n  Writes `x`.\n  Cost: c\n  Elegance: e\n\n## ¶ASK_B: Text: Name?\nThe name the new file is saved under, which every later link to it uses as its address.\n");
     expect(authorWarnings(good)).toEqual([]);
   });
 });

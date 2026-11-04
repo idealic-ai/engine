@@ -243,7 +243,7 @@ describe("FLOOR: a fork with no context of its own is refused", () => {
 
 describe("FLOOR: warnings for a missing Cost or Elegance", () => {
   it("a fork whose options lack Cost or Elegance says how many, in one line per fork (S5)", () => {
-    const b = "## ¶ASK_GO: Choose one: Ship?\nContext: c\n- [ ] [A] a\n  Does a.\n- [ ] [B] b\n  Does b.\n  Cost: x\n  Elegance: e\n- [ ] [C] c\n  Does c.\n  Elegance: e\n";
+    const b = "## ¶ASK_GO: Choose one: Ship?\nContext: `c`\n- [ ] [A] a\n  Does a.\n- [ ] [B] b\n  Does b.\n  Cost: x\n  Elegance: e\n- [ ] [C] c\n  Does c.\n  Elegance: e\n";
     const w = authorWarnings(parse(b));
     expect(w).toEqual(['"Ship?": 2 of 3 options have no Cost: line (what the operator gives up); 1 of 3 have no Elegance: line (how cleanly it fits)']);
   });

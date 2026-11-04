@@ -1718,6 +1718,109 @@ export function floorProblems(ask: ParsedAsk): string[] {
   return out;
 }
 
+/**
+ * ASKFLOOR: the fewest words a fork's own paragraph may have. Measured over the 37 forks of the 15
+ * open asks on 2026-10-31: own paragraphs were 0 words (27 forks), 3, 6 and 7 (two Text follow-ups
+ * and a one-line "post this ticket?"), then 14 and up. Twelve sits in that gap. It is a tripwire for
+ * a fork with nothing under it, not a quality bar: nothing stops a determined filler.
+ */
+export const FORK_PARAGRAPH_MIN_WORDS = 12;
+/** Kinds that put a decision to the operator: each owes a paragraph of its own. */
+const isDecision = (q: AskQuestion) => isChoice(q) || q.kind === "yesno";
+/**
+ * Words of explanation in a text: fenced blocks, URLs and bare paths (`a/b/c.md`, `~/x`) are taken
+ * out first, so a code sample or a path cannot supply the twelve words on its own.
+ */
+export function wordCount(s: string): number {
+  const prose = s
+    .replace(/^\s*(```|~~~)[^\n]*\n[\s\S]*?^\s*\1\s*$/gm, " ")
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/(?:^|\s)[`(]?(?:~|\.{1,2})?\/?[\w.@:-]+(?:\/[\w.@:-]*)+[`)]?(?=[\s.,;:]|$)/g, " ");
+  return (prose.match(/[\p{L}\p{N}`'’_-]+/gu) ?? []).length;
+}
+/**
+ * A fork's own paragraph: what its card shows that explains it. The prose under its heading before
+ * the options, with the card's Context, Stake, Counter and Evidence. For the FIRST fork only, the
+ * ask's opening paragraph and the header's `why` count too, because card 0 shows them (App.tsx
+ * QuestionCard, cardFor). For every later fork they do not: that card shows the opening text only
+ * collapsed, and letting it stand in for every fork is how COLONBAN's forks 2 and 3 passed with a
+ * title and a Lean: line. A Lean: line never counts (a pick, not an explanation), nor does prose
+ * after the options.
+ */
+export function forkParagraph(ask: ParsedAsk, index: number): string {
+  const q = ask.questions[index];
+  const card = cardFor(ask, index);
+  const first = index === 0 ? [ask.preamble, ask.header.why ?? ""] : [];
+  return [...first, q.prose ?? "", card.context ?? "", card.stake ?? "", card.counter ?? "", ...card.evidence].map((s) => s.trim()).filter(Boolean).join("\n");
+}
+/** Does the fork show something concrete: a backtick span or a fence, in its text or any option's? */
+function hasExample(ask: ParsedAsk, index: number): boolean {
+  const q = ask.questions[index];
+  const opts: string[] = [];
+  walkOptions(q.options, (o) => opts.push(o.label, o.description ?? ""));
+  const text = [q.prose ?? "", ...Object.values(q.meta), q.proseAfter ?? "", ...(index === 0 ? [ask.preamble] : []), ...opts].join("\n");
+  return /`[^`\n]+`/.test(text) || /^\s*(```|~~~)/m.test(text);
+}
+/** A leaf option that says what picking it changes: a description, a Then: line, or a Cost: line (S1). */
+function optionSaysWhatChanges(o: AskOption): boolean {
+  // An Elegance: or Unblocks: line does not say it. Any field echoed into the description
+  // (ECHOED_IN_DESCRIPTION, empty today) is taken out first.
+  let own = o.description ?? "";
+  for (const f of ["elegance", "unblocks", "then"] as const) {
+    const v = o[f]?.trim();
+    if (v) own = own.split(new RegExp(String.raw`\b${f}:\s*`, "i")).map((part) => (part.trimStart().startsWith(v) ? part.trimStart().slice(v.length) : part)).join(" ");
+  }
+  return !!own.trim() || !!o.then?.trim() || !!o.cost?.trim();
+}
+
+/**
+ * ASKFLOOR: the floor an AUTHOR's ask clears — `engine ask new` and a body `revise` apply it
+ * (store floor: "author"). REFUSED, one line per problem, each saying what to add:
+ * - every Choose one, Choose, Rank and Yes or no fork has a paragraph of its own of at least
+ *   FORK_PARAGRAPH_MIN_WORDS words (forkParagraph, wordCount);
+ * - a bare option (nothing under its label), as the structural floor already refuses.
+ * STAGED, warned this landing and refused in a later one, once /ticket, /ask-council and /coordinate
+ * compose options with costs (authorOptionWarnings, and authorWarnings' Cost count): every leaf
+ * option of a Choose one or Choose fork says what picking it changes and carries a Cost: line.
+ * Text, Number and Date forks are inputs, usually follow-ups to a choice fork, so they only warn.
+ * A concrete example also only warns: most forks have nothing to put in backticks.
+ */
+export function authorFloorProblems(ask: ParsedAsk): string[] {
+  const out: string[] = [];
+  ask.questions.forEach((q, index) => {
+    if (!isDecision(q)) return;
+    const n = wordCount(forkParagraph(ask, index));
+    if (n < FORK_PARAGRAPH_MIN_WORDS) {
+      const after = q.proseAfter?.trim() ? " Prose after the options does not count: move it above them." : "";
+      const why = index === 0
+        ? "The opening paragraph above the first fork counts for it."
+        : "This card shows the ask's opening paragraph only collapsed, so it does not count here, and a Lean: line never does.";
+      out.push(`"${q.title}": this fork has no paragraph of its own (it has ${n} word${n === 1 ? "" : "s"}; it needs at least ${FORK_PARAGRAPH_MIN_WORDS}; code blocks and paths are not counted). Under the heading, before the options, write two or three sentences: what is being decided, and why it matters to the person answering. Show the thing itself where you can (the line as it is today and as it would be). ${why}${after}`);
+    }
+    if (q.kind !== "choose-one" && q.kind !== "choose") return;
+    walkOptions(q.options, (o) => {
+      if (o.children?.length) return;
+      if (!optionSaysWhatChanges(o) && !OPTION_FIELDS.some((f) => o[f]?.trim())) {
+        out.push(`"${q.title}" ${optName(o)}: a bare option: indent a line under it (two spaces) saying what picking it changes, then a Cost: line, e.g. "  <what changes if this is picked>" then "  Cost: <what the person answering gives up>"`);
+      }
+    });
+  });
+  return out;
+}
+
+/** ASKFLOOR, staged: an option that does not say what picking it changes (a refusal in a later landing). */
+export function authorOptionWarnings(ask: ParsedAsk): string[] {
+  const out: string[] = [];
+  for (const q of ask.questions) {
+    if (q.kind !== "choose-one" && q.kind !== "choose") continue;
+    walkOptions(q.options, (o) => {
+      if (o.children?.length || optionSaysWhatChanges(o) || !OPTION_FIELDS.some((f) => o[f]?.trim())) return;
+      out.push(`"${q.title}" ${optName(o)}: nothing says what picking it changes; indent a line under the label, "  <what changes if this is picked>" (refused in a later landing)`);
+    });
+  }
+  return out;
+}
+
 /** A body `new` or `revise` refuses because a fork's name comes after its kind word. */
 export class ForkNameOrderError extends AskFormatError {
   readonly forks: { wrote: string; write: string }[];
@@ -1731,8 +1834,11 @@ export class ForkNameOrderError extends AskFormatError {
 /** A body `new` or `revise` refuses because it is under the per-answer floor (floorProblems). */
 export class AskFloorError extends AskFormatError {
   readonly problems: string[];
-  constructor(problems: string[], hint = "") {
-    super(`under the ask floor (every option says what it does, every fork says why it is asked):\n${problems.map((p) => `  ${p}`).join("\n")}${hint}`);
+  constructor(problems: string[], hint = "", floor: "structural" | "author" = "structural") {
+    const rule = floor === "author"
+      ? "each fork says in a paragraph of its own what is being decided and why it matters"
+      : "every option says what it does, every fork says why it is asked";
+    super(`under the ask floor (${rule}):\n${problems.map((p) => `  ${p}`).join("\n")}${hint}`);
     this.name = "AskFloorError";
     this.problems = problems;
   }
@@ -1751,6 +1857,14 @@ export function authorWarnings(ask: ParsedAsk): string[] {
   ask.questions.forEach((q, i) => {
     const codeless = q.options.filter((o) => !o.code).length;
     if (q.unclosedFence) out.push(`"${q.title}": a code fence is never closed, so everything after it, later forks included, is read as code`);
+    // ASKFLOOR: an input fork is not refused for a thin paragraph (it is usually a follow-up), but says so.
+    if (!isDecision(q) && wordCount(forkParagraph(ask, i)) < FORK_PARAGRAPH_MIN_WORDS) {
+      out.push(`"${q.title}": no paragraph of its own; unless the fork it follows makes it obvious, say under the heading what to write here and what it is used for`);
+    }
+    // ASKFLOOR: an example is asked for, not required (authorFloorProblems says why).
+    if ((q.kind === "choose-one" || q.kind === "choose") && !hasExample(ask, i)) {
+      out.push(`"${q.title}": no concrete example. If this fork is about syntax, a file, a command or a value, show it: the line as it is today and as each option would write it, in backticks or a fenced block in the fork's paragraph`);
+    }
     if (choice(q) && codeless) out.push(`"${q.title}": ${codeless} option(s) have no [CODE]; the answer will store the whole label`);
     if (choice(q) && ask.questions.length > 1 && !q.meta.lean && !(i === 0 && ask.header.lean?.trim())) out.push(`"${q.title}": no Lean: line`);
     if (q.councilNotRef !== undefined) out.push(`"${q.title}": Council: "${q.councilNotRef}" names no report path or URL, so it stays in the fork's text; write \`Council: <path-or-url>\` for a report`);
@@ -1796,6 +1910,7 @@ export function authorWarnings(ask: ParsedAsk): string[] {
   for (const o of ask.panelOrphans ?? []) {
     out.push(`${o.entry.by}'s attached panel (${o.entry.council || "no report"}) is no longer shown: ${o.reason}. Ask them to attach it again if it still applies`);
   }
+  out.push(...authorOptionWarnings(ask));
   const askText = [ask.preamble, ...ASK_TEXT_FIELDS.map((k) => ask.header[k] ?? "")];
   if (ask.questions.length && !ask.questions.some((q) => q.panel.length) && askText.some(mentionsPanelReport)) {
     out.push(`the header or the text above the first fork names a council or panel report, but no fork carries a Panel: line. ${PANEL_LINES_HINT}`);

@@ -225,7 +225,8 @@ async function main() {
     for (const k of HEADER_FIELDS) if (opt[k] !== undefined && !["status", "revision", "created"].includes(k)) fields[k] = opt[k];
     let file: string;
     try {
-      file = newAsk(root, fields as { from: string; to: string; id: string }, body);
+      // ASKFLOOR: an author's filing clears the author floor (every fork explains itself, every option is costed).
+      file = newAsk(root, fields as { from: string; to: string; id: string }, body, { floor: "author" });
     } catch (e) {
       process.stderr.write(`${guideLine()}\n`);
       die((e as Error).message, e instanceof UntaggedFenceError ? 2 : 1);
@@ -249,7 +250,7 @@ async function main() {
     const fields: Record<string, string> = {};
     for (const k of HEADER_FIELDS) if (opt[k] !== undefined && !["id", "from", "to", "status", "revision", "created"].includes(k)) fields[k] = opt[k];
     try {
-      const r = await reviseAsk(root, seat, id, fields, body !== undefined && body.trim() ? body : undefined, { by, ...(answersFollowup ? { answersFollowup } : {}) });
+      const r = await reviseAsk(root, seat, id, fields, body !== undefined && body.trim() ? body : undefined, { by, floor: "author", ...(answersFollowup ? { answersFollowup } : {}) });
       warnAuthoring(r.file);
       console.log(`revised\t${seat}/${id}\trevision ${r.revision}\tchanged: ${r.changed.join(", ")}`);
       for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);

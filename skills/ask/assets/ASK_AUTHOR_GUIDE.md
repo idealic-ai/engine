@@ -1,6 +1,6 @@
 # Writing an ask the operator can decide from
 
-This guide is for an agent about to run `engine ask new`. The ask skill (`skills/ask/SKILL.md`) is the format reference: the header fields, the heading grammar, the CLI. This guide is the craft: how to turn a messy situation into a short decision tree the operator can answer in one pass, without asking you anything back.
+This guide is for an agent writing an ask through `/ask` (`Skill(ask, "<the question you need answered> --to <seat> [--reserved-for operator]")`), which composes the ask and files it with `engine ask new`; agents do not call `engine ask new` by hand. The ask skill (`skills/ask/SKILL.md`) is the format reference and the step-by-step walk-through: the header fields, the heading grammar, the CLI. This guide is the craft: how to turn a messy situation into a short decision tree the operator can answer in one pass, without asking you anything back.
 
 The operator's complaint about today's asks is "this is not enough info". Most of the time the facts existed, but they were in the asker's head, in a dropped paragraph, or in a one-line header lean that covered five forks at once. The aim is an ask where every fork carries its own options, costs, lean and counter-argument.
 
@@ -11,16 +11,20 @@ Two house formats set the vocabulary, and this guide follows them rather than re
 Status as of 2026-10-30. Write only what the parser reads, or the operator never sees it.
 
 - **Read today, per fork** (flush-left lines under the heading): `Stake:`, `Unblocks:`, `Related:`, `Lean:`, `Counter:`, `Confidence:`, `Reversible:`, `Verify:`, `Falsifier:`, `IfUnanswered:`, `NeededBy:`, `Blocks:`, `Context:` (one line; a second `Context:` replaces the first), repeatable `Evidence:` and `Panel:`, and `DependsOn:`.
-- **Read today, per option** (indented under the option): a description, and `Cost:`, `Effort:`, `Blast:`, `Unblocks:`, `Then:`, `Elegance:` (see *Give every answer its own context*). The operator's app does not show `Unblocks:`, `Then:` or `Elegance:` as fields yet, so each of those lines also stays in the description text, where the card shows it. An indented `- ` line that does not start with `[` is a bullet in the description, never an option. `- [ ]`, `- [CODE]` and anything else in brackets nests an option, so a bad code there is refused. Every other indented line is joined onto the description as plain text, except a fenced code block indented under the option: it stays part of that option, kept line for line (dedented to the fence's indent) as its own block in the description, and an indented line after it starts a new paragraph. Blank lines around the fence are fine. A fence that is not indented under an option is the fork's prose. An indented line belongs to the nearest option above it that is indented less, so a fence at a child option's own indent is its parent's. After a blank line, an indented line (a note, a fence, even a `- [ ]` line) still belongs to the last option; start a note at column 0 to keep it out of the options. `engine ask new` warns when a fence is never closed, because everything after it, later forks included, is then read as code.
+- **Read today, per option** (indented under the option): a description, and `Cost:`, `Effort:`, `Blast:`, `Unblocks:`, `Then:`, `Elegance:`, `Reversible:` (see *Give every answer its own context*). The card draws each of these as its own line under the option, and none is repeated in the description text. An indented `- ` line that does not start with `[` is a bullet in the description, never an option. `- [ ]`, `- [CODE]` and anything else in brackets nests an option, so a bad code there is refused. Every other indented line is joined onto the description as plain text, except a fenced code block indented under the option: it stays part of that option, kept line for line (dedented to the fence's indent) as its own block in the description, and an indented line after it starts a new paragraph. Blank lines around the fence are fine. A fence that is not indented under an option is the fork's prose. An indented line belongs to the nearest option above it that is indented less, so a fence at a child option's own indent is its parent's. After a blank line, an indented line (a note, a fence, even a `- [ ]` line) still belongs to the last option; start a note at column 0 to keep it out of the options. `engine ask new` warns when a fence is never closed, because everything after it, later forks included, is then read as code.
 - **Every fence carries a language.** Open each fenced block with its language (```` ```ts ````, ```` ```sh ````, ```` ```json ````), so the browser can highlight it; write ```` ```text ```` when nothing fits. `engine ask new` and `engine ask revise` refuse (exit 2) a fence with no language, at the top level or indented under an option, naming each line of the body: `line 14: fenced block has no language; write ```text if nothing fits`. The store's own record fences (`json answer`, `json history`) already carry a tag. An ask already on disk is never refused for this: reading, answering and listing it work as before, and a revise that keeps the body (`--keep-body`) passes.
-- **Coming with ASK v2 H4, not read yet:** per-option `Pro:`, `Con:`, `Risk:`, `Complexity:`, `Confidence:`, `Reversible:`; a do-nothing marker; per-fork `Parent:`; `CouncilAsOf:`; header `project:` and `group:`. Until H4 lands, carry the same facts as plain sentences in the option's description. An indented `Risk: med` line is not lost today, but it runs into the description as one line of text, so a sentence reads better.
+- **Coming with ASK v2 H4, not read yet:** per-option `Pro:`, `Con:`, `Risk:`, `Complexity:`, `Confidence:`; a do-nothing marker; per-fork `Parent:`; `CouncilAsOf:`; header `project:` and `group:`. Until H4 lands, carry the same facts as plain sentences in the option's description. An indented `Risk: med` line is not lost today, but it runs into the description as one line of text, so a sentence reads better.
 - **Prose under a fork heading.** The v2 parser keeps it: the reasons before the options are shown at the top of the fork's card, and an unindented note after the options between that card and the next. A fenced example inside a fork stays in its prose. The options are the fork's last list (its coded list, when it has one), so a `- [ ]` checklist line in your reasons is shown as prose, never offered as an option. An indented line under an option stays that option's description. (The v1 parser dropped it, which is how IDE-264's reason for existing was lost; the operator's running app stays v1 until v2 is deployed, so for an ask it must answer before then, also put the key fact in a `Context:` line.)
 - **What `new` and `revise` refuse, and what they warn about.** They refuse, naming each fork or option and saying where the fix goes:
   - a fork named after its kind word (`## Choose one: ¶ASK_X: …`; write `## ¶ASK_X: Choose one: …`). Fixing it changes the fork's answer key from `q0` to its name; a revise already makes any draft stale, so nothing is lost.
   - a **bare option**: one with nothing indented under its label (no description, no field, no nested option) in a `Choose one` or `Choose` fork. Rank options are names to order and are exempt. A `Choose one` of bare `[YES]` and `[NO]` is pointed at `## ¶ASK_X: Yes or no: …`.
-  - a `Choose one`, `Choose` or `Rank` **fork with no context**: none of `Context:`, `Stake:`, `Lean:`, `Counter:`, `Evidence:` or prose under its heading, and no preamble or header `why`, `context` or `stakes` (those count for every fork). `Panel:` and `Council:` lines are a council's read, not context. `Yes or no`, `Number`, `Date` and `Text` forks need none.
+  - a `Choose one`, `Choose`, `Rank` or `Yes or no` **fork with no paragraph of its own**: fewer than 12 words in what its card shows to explain it — the prose under its heading before the options, its `Context:`, `Stake:`, `Counter:` and `Evidence:` lines and, for the first fork only, the ask's opening paragraph and the header's `why`, `context` and `stakes`. The paragraph says what is being decided and why it matters to the person answering. For a later fork the opening paragraph does not count: its card shows that text only collapsed, and the operator answering the third fork does not have it in front of them. A `Lean:` line never counts, nor does prose after the options, and code blocks and paths are not counted as words. Twelve words is a tripwire for a fork with nothing under it, not a quality bar. `Panel:` and `Council:` lines are a council's read, not context.
+  - a **bare option** in a `Choose one` or `Choose` fork, as before.
 
-  A refused `revise` names `--keep-body`: that revises the card fields and reads no body, so an ask already on disk can always be revised. They warn, one line per fork, on options with no `Cost:` or no `Elegance:` (not on Rank options), on a nested option with no `[CODE]`, and, in a fork with no codes at all, on indented bullets that are now read as description. Files already on disk are never refused; a refusal applies to what you file or revise.
+  **Staged**: an option with **no line saying what picking it changes** (a description, a `Then:` line, or a `Cost:` line that says it; an `Elegance:` or `Unblocks:` line alone does not) or **no `Cost:` line** is warned in this landing and becomes a refusal in a later one, once `/ticket`, `/ask-council` and `/coordinate` compose options with costs. Write both now. An option with sub-options needs neither; Rank options are exempt.
+
+  Every problem is listed in one refusal, the misordered headings with them, each saying which line to add. A refused `revise` names `--keep-body`: that revises the card fields and reads no body, so an ask already on disk can always be revised. They warn, without refusing: a `Choose one` or `Choose` fork that shows nothing concrete (no backtick span, no fenced block); a `Text`, `Number` or `Date` fork with no paragraph of its own; options with no `Elegance:` (not on Rank options); a nested option with no `[CODE]`; and, in a fork with no codes at all, indented bullets that are now read as description. Files already on disk are never refused; a refusal applies to what you file or revise.
+- **Why an example is asked for and not required.** When a fork is about syntax, a file layout, a command or a value, the thing itself answers questions a description cannot: the operator answering COLONBAN's second fork could not tell where `, word:` came from, because no line showed it. So write the line as it is today and as each option would write it, in backticks or a fenced block, in the project's real syntax. But most forks (which ticket a checkpoint goes on, which disposition a loom takes) have nothing to quote: of the 37 forks open on 2026-10-31, 28 had no backtick or fence and most of those were of that kind. Requiring one would refuse them or invite a decorative one, so `new` warns instead.
 - **Header lean on a multi-fork ask.** A header `lean:` (and every header card field) fills the first fork's card only. `lean: F1 ALL; F2 DEGR` gives F2 onward no lean at all. Write a `Lean:` line under every fork.
 
 ## Is this an ask at all?
@@ -77,11 +81,11 @@ The operator decides one option at a time. For each option they need to know wha
   Blast: who or what it touches   (only when options differ)
 ```
 
-- **What changes** (the description) and **`Cost:`** are the floor. An option with neither is refused as bare; one without a `Cost:` is warned about. A cost that restates the label is missing. Risk and complexity go in the description until H4 brings their own fields.
+- **What changes** (the description) and **`Cost:`** are the floor. An option missing either is warned about now and will be refused in a later landing; a bare option is refused already. A cost that restates the label is missing. Risk and complexity go in the description until H4 brings their own fields.
 - **`Elegance:` is a driving factor, not a tie-breaker.** The operator weighs it beside cost and often ahead of effort. Say how cleanly the option fits: does it remove a special case or add one, reuse a shape that exists or invent a parallel one, leave one way to do the thing or two. Start with `high`, `med` or `low`, then the reason. A cheap option that leaves two ways to do one thing is rarely the right pick, and its Elegance line is where the operator sees that. `new` warns when an option has none.
 - **`Unblocks:`** under an option names what picking it frees (tickets, lanes, a later fork). Under the heading, flush-left, `Unblocks:` stays the fork's own line. Write the option's only where the options unblock different things.
 - **`Then:`** is your next concrete step if this option is picked: the command, the lane, the ticket. It shows the operator what they are committing you to. Write it on the lean's option at least.
-- **Reversibility** has no per-option field yet. Say "one-way" in the option's `Cost:` when it cannot be undone.
+- **`Reversible:`** under an option says whether picking it can be undone (`no — refused rows stay refused`). The parser reads it as that option's own line; the fork's flush-left `Reversible:` stays the fork's. Say "one-way" in the `Cost:` as well where the cost is the irreversibility.
 - **Bullets are fine under an option.** An indented `- ` line that does not start with `[` is a list item in the description, never an answerable option. To nest an option, write `- [CODE] …`.
 - **The do-nothing option has a consequence too.** Its Cost says what stays broken and who hits it next, and its Elegance says what the standing shape costs.
 
@@ -123,6 +127,7 @@ Under the `Panel:` lines, add one `Council: <path-or-url>` line naming the repor
 
 ```
 ## ¶ASK_FUND: Choose one: What does a world fund its contracts out of?
+A world signs contracts with its seats, and each contract has to draw from a budget root. This decides which root, which sets what a contract holder can pass on and how many roots there are to audit.
 Lean: B
 Panel: Security → B — a separate root keeps the blast small
 Panel: Economist → A — one root is simpler to audit
@@ -168,7 +173,8 @@ The v1 parser read only 2 to 4 capitals. In the IDE-264 ask, `[RESCOPE]`, `[KEEP
 - [ ] This is not a re-filing of an open ask: to change one, `engine ask revise` it; if it must be a new ask, `engine ask supersede` the old one right after filing (SKILL.md, *Replacing an ask*).
 - [ ] This does not ask anyone to confirm a withdrawal: to take a question back, `engine ask withdraw <seat>/<id> --reason "<why>"` it; the withdrawal is the record and nobody acknowledges it (SKILL.md, *Taking a question back*).
 - [ ] Each fork is one decision; there are at most five; each is named `## ¶ASK_<NAME>: <Kind>: …`, the name before the kind word.
-- [ ] Each fork has its own `Context:`, `Stake:` or prose saying what the decider must know.
+- [ ] Each fork has a paragraph of its own under its heading, before the options (12 words at least, in practice two or three sentences): what is being decided and why it matters. Read alone, without the opening paragraph or the other forks, it can be answered.
+- [ ] Where the fork is about syntax, a file, a command or a value, its paragraph shows the thing: the line today and as each option would write it, in the project's real syntax.
 - [ ] Each follow-up hangs off the answer that raises it (`DependsOn: ASK_X=CODE`), is titled with that answer, and offers only the options valid under it.
 - [ ] Each fork has two to four options in neutral order, plus an honest do-nothing when one exists.
 - [ ] Every option has a description saying what changes, a `Cost:` and an `Elegance:`. None is a bare label.
@@ -177,7 +183,7 @@ The v1 parser read only 2 to 4 capitals. In the IDE-264 ask, `[RESCOPE]`, `[KEEP
 - [ ] Risk and complexity are in the description where they differ.
 - [ ] Every proof, board or test an option rests on is a link or a file:line on that option.
 - [ ] Every fork has its own `Stake:`, `Lean: CODE — because …`, `Counter:` and `Confidence:`, plus `Verify:` or `Falsifier:`.
-- [ ] No fact the operator needs sits only in a paragraph under a heading; it is in `Context:` or a description.
+- [ ] No fact a fork needs sits only in the ask's opening paragraph; the fork's own paragraph carries it.
 - [ ] No "(lean)" in a label, no header-only lean on a multi-fork ask, no markdown ticket list, no bare URL.
 - [ ] Codes are a capital then capitals or digits, 12 characters at most (4 or fewer while the operator's app is still v1).
 - [ ] `tickets:` and `topic:` are set, and `reserved-for: operator` when the call is the operator's.
@@ -195,7 +201,7 @@ Its acceptance says `<project>/agents/agents` is refused. But that is a row unde
 - [ ] [DEFER] Defer
 ```
 
-After. The bundled option is split into two forks: which reading D8 takes, and when the build runs. The second fork waits on the first. Every option carries its cost and its elegance, and the facts that were dropped now sit in `Context:` and the descriptions. Every line is one the parser reads. The card shows `Cost:`, `Effort:` and `Blast:` as fields; `Elegance:` and `Then:` are read as fields too, but until the app renders them they show inside the description text.
+After. The bundled option is split into two forks: which reading D8 takes, and when the build runs. The second fork waits on the first. Every option carries its cost and its elegance, and the facts that were dropped now sit in `Context:` and the descriptions. Every line is one the parser reads. The card shows `Cost:`, `Elegance:`, `Effort:`, `Unblocks:` and `Then:` as lines of their own under each option.
 
 ```markdown
 ---
@@ -238,23 +244,25 @@ Lean: AFTER — because MOUNTBIND is already in flight and the wait is one landi
 Counter: if MOUNTBIND slips, IDE-264 waits on it with no date
 Confidence: high — both tickets name the write path
 - [ ] [NOW] Dispatch now in its own worktree
+  IDE-264 builds beside MOUNTBIND, each lane in its own tree.
   Cost: a merge against MOUNTBIND on the write path, settled by whichever lands second
   Elegance: low — two lanes edit one file at once
 - [ ] [AFTER] Dispatch once IDE-285 lands
+  IDE-264 starts on top of MOUNTBIND's landed change.
   Cost: IDE-264 waits for one landing
   Elegance: high — one lane on the write path at a time
   Then: queue IDE-264 behind IDE-285 in the loom
 - [ ] [HOLD] Do not schedule it yet
+  Nothing is dispatched until you say so.
   Cost: the re-scoped ticket sits with nothing building it
   Elegance: med — nothing collides, and nothing moves
 ```
 
-Coming with ASK v2 H4, the same options would carry their facts as fields instead of sentences, for example under `[BROAD]`:
+Coming with ASK v2 H4, the same options would carry more of their facts as fields instead of sentences, for example under `[BROAD]` (a per-option `Reversible:` line is read already):
 
 ```markdown
   Risk: med — the existing rows that share a mounted name are uncounted
   Complexity: low — the refusal check changes; nothing new is added
-  Reversible: no — refused rows stay refused
   Con: hire-attack.test.ts:270 flips
 ```
 

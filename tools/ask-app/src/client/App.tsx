@@ -1746,7 +1746,10 @@ function QuestionCard(p: {
   const tickets = forkTickets(q);
   const high = ask.header.importance?.trim().toLowerCase() === "high";
   const choice = q.kind === "choose-one" || q.kind === "choose" || q.kind === "yesno";
-  const preamble = index === 0 ? dialogueOf(ask).preamble : "";
+  // ASKFLOOR: the ask's opening text shows on the first card; every later card carries it collapsed,
+  // so a fork answered on its own card is never read without what the ask is about.
+  const opening = dialogueOf(ask).preamble.trim();
+  const preamble = index === 0 ? opening : "";
   const anyOpens = anyAnswerOpens(ask.questions, q);
   const tree = { questions: ask.questions, ask, elegance: forkGivesElegance(q) };
   return (
@@ -1769,7 +1772,13 @@ function QuestionCard(p: {
       </div>
 
       <h3 className="fork-q"><Inline text={displayTitle(q.title)} /></h3>
-      {index === 0 && preamble.trim() && <Rich text={preamble.trim()} className="rich preamble" />}
+      {index === 0 && preamble && <Rich text={preamble} className="rich preamble" />}
+      {index > 0 && opening && (
+        <details className="evidence ask-about">
+          <summary>What this ask is about</summary>
+          <Rich text={opening} className="rich preamble" />
+        </details>
+      )}
       {card.context && <Rich text={card.context} className="rich context" />}
       <ForkProse text={q.prose} />
 

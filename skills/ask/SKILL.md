@@ -3,10 +3,24 @@ name: ask
 description: "Ask a question without stopping: write it to a file instead of calling AskUserQuestion, keep working on everything that does not depend on the answer, and let a manager or the operator answer it — directly in the file, or through a small local web app that renders the decision tree and pushes the answer back to your seat. Re-ping after 10 minutes, pass it up one level after another 10. Triggers: \"ask the manager\", \"ask without blocking\", \"write this question down\", \"/ask\", \"put this to the operator\", \"open the asks app\"."
 version: 2.1
 tier: lightweight
-args: "[serve [dir] | list | the question you need answered]"
+args: "[serve [dir] | list | <the question you need answered> --to <seat> [--reserved-for operator]]"
 ---
 
 Ask a question as a file, keep working, and pick the answer up when it lands.
+
+## How to call it
+
+```
+Skill(ask, "<the question you need answered> --to <seat> [--reserved-for operator]")
+```
+
+*   **The question** is what you need decided, in plain words, with whatever you already know about it. The skill turns it into a well-formed ask; you do not hand it a finished body.
+*   **`--to <seat>`** is who answers: a manager seat (`manager:domain`), another seat, or `operator`. Left out, the ask goes to your live parent.
+*   **`--reserved-for operator`** marks an ask only the operator may answer: anything on a hard escalation floor, or a grant class a manager may not rule on. A manager can forward it and never answer it.
+*   **It returns** the ask's app URL exactly as `engine ask new` printed it (`http://127.0.0.1:<port>/a/<seat>/<id>`), the `<seat>/<id>` the other `engine ask` commands take, and any warnings the filing printed. When the ask could not be filed, it returns the refusal and what it could not fix.
+*   `Skill(ask, "serve")` starts the app and `Skill(ask, "list")` lists your asks; neither files anything.
+
+**Agents do not call `engine ask new` by hand.** Invoke this skill instead. It walks you through composing the ask (§ Writing one) and makes the `engine ask new` call itself, as the last step of that walk-through, so every ask is written to the same standard. The same holds for a body `engine ask revise`.
 
 # /ask Protocol (The Question That Does Not Block)
 
@@ -22,7 +36,44 @@ Ask a question as a file, keep working, and pick the answer up when it lands.
 
 ## Writing one
 
-**Before `engine ask new`, read the author guide: `skills/ask/assets/ASK_AUTHOR_GUIDE.md`** — what makes a fork answerable (its own stake, lean, counter and costed options), the fields the parser reads today, codes, and a worked before/after.
+The person answering reads each fork on its own card in the app, often with no memory of your work. Every fork therefore explains itself, and every option says what it changes and what it costs. `engine ask new` refuses a fork that does not explain itself, and warns about options with no change line or no `Cost:` line, which become refusals in a later landing (§ The format, *The floor*). Compose it in this order and the filing goes through the first time. The author guide, `skills/ask/assets/ASK_AUTHOR_GUIDE.md`, has the longer reasoning and a worked before/after.
+
+1.  **Settle who and what.** Name the seat that answers (`--to`), whether only the operator may answer (`--reserved-for operator`), what the answer unblocks, and what you will do meanwhile. Pick a short `--id`.
+2.  **Fill the header.** `--why` (what is blocked), `--importance`, `--stakes` (what a wrong answer costs), `--lean` (your pick) and `--falsifier` (what would prove the lean wrong). These fill the first fork's card. A header left empty is how an ask reaches the operator with nothing on it.
+3.  **Write the opening paragraph** above the first fork: the situation in a few sentences, with any plan or report as a path. The app shows it on the first card and collapsed, as *What this ask is about*, on every later one. So it counts as the first fork's paragraph, and as no other fork's: an ask with one fork can carry its explanation here.
+4.  **Write each fork.** The heading carries the name before the kind word: `## ¶ASK_TITLEEND: Choose one: Where does a title end?`. Under it, before the options, write a paragraph of at least two sentences that says **what is being decided and why it matters** to the person answering. Show the thing itself where it has a form: the line as it is today and as each option would write it, in backticks or a fenced block, written in the project's real syntax. Then a `Lean:` line, and a `Counter:` line with the strongest case against your lean.
+5.  **Write each option.** The label, then indented under it a line saying **what picking it changes**, then **`Cost:`**, what the person answering gives up by picking it. Add `Elegance:` and `Then:` where they help. An honest do-nothing option is welcome when it is real.
+6.  **Read each fork alone before filing.** Cover the opening paragraph and the other forks and ask whether someone could answer this fork from its card. If a word in it (`, word:`) only makes sense from your own context, explain it or show it.
+7.  **File it** with `engine ask new` (the form below). If it is refused, the message names each fork and option and the line to add: add that line and file again. Never shorten the ask to get under a rule.
+8.  **Return the URL** `engine ask new` printed, as a clickable link, to whoever asked you to file it, and row it where your skill rows asks.
+
+A fork the floor refuses (from a real ask, whose answerer could not tell what it was asking), and the same fork written to clear it. The second shows the line in both forms, so the choice can be made from the card alone:
+
+````md
+## Choose one: ¶ASK_COLONBANEND — where does a title end?
+Lean: WORD.
+- [ ] [WORD] At the first unquoted `word: `; a title that really contains one is written quoted (Recommended)
+  One simple rule. Only titles containing a colon need quotes.
+- [ ] [QUOTE] Every title before entries must be quoted
+  Never ambiguous, but every rewritten line gains quotes.
+````
+
+````md
+## ¶ASK_TITLEEND: Choose one: Where does a title end?
+Titles move in front of the entries, so `price num agent: plan Price` becomes `price num Price agent: plan`. The parser then has to know where a title stops and the first entry starts, and this choice decides it for the 67 rewritten lines and every line written after them. The same line under each option:
+```text
+WORD:   price num Price agent: plan
+QUOTE:  price num "Price" agent: plan
+```
+Lean: WORD
+Counter: quoting every title is never ambiguous, whatever a title contains.
+- [ ] [WORD] The title ends at the first unquoted `word:`
+  Titles stay bare; only a title that itself contains `word:` is quoted.
+  Cost: a reader has to know the rule to see where a title stops.
+- [ ] [QUOTE] Every title before the entries is quoted
+  Where a title stops is always visible.
+  Cost: every one of the 67 rewritten lines gains quotes.
+````
 
 ```bash
 engine ask new --id <short-id> \
@@ -32,15 +83,17 @@ engine ask new --id <short-id> \
 Optional prose the answerer should read first.
 
 ## ¶ASK_LAYOUT: Choose one: Where do the files live?
-Context: asks move up the chain, so each move rewrites wherever an ask lives.
+This decides how asks are stored on disk. Asks move up the chain, so every move rewrites wherever an ask lives, and the layout decides how much each move touches: today it would be `<root>/<seat>/<id>.md` or one `<root>/<seat>.md` per seat.
 - [ ] [ONE] One file per ask
   Moves up the chain by editing one field.
   Cost: many small files per seat
   Elegance: high — one ask, one file, one record
   Then: write the store against <root>/<seat>/<id>.md
   - [ ] [FLT] Flat under the seat
+    Every ask sits directly in the seat's folder.
     Cost: a long folder listing
   - [ ] [DAT] Bucketed by date
+    Asks sit in a folder per day.
     Cost: a path that changes with the day
 - [ ] [SEA] One file per seat
   Every ask of a seat is a section of one file.
@@ -49,7 +102,7 @@ Context: asks move up the chain, so each move rewrites wherever an ask lives.
 
 ## ¶ASK_NAMING: Choose: Which id parts?
 DependsOn: ASK_LAYOUT=ONE
-Context: given one file per ask, the id is the file name.
+Context: given one file per ask, the id is the file name, so it is what a person sees in every listing and link.
 - [ ] [TS] Timestamp
   Ids sort by when they were asked.
   Cost: unreadable at a glance
@@ -67,10 +120,10 @@ It prints the file path: `<fleet data dir>/asks/<your seat>/<id>.md`, and on the
 
 *   **Header** — a `---` block of one-line `key: value` fields: `id`, `to`, `from`, `why`, `importance`, `stakes`, `context`, `alternatives`, `lean`, `falsifier`, `status` (`open` | `answered` | `declined` | `superseded` | `withdrawn` | `ruled`), `revision`, `dependsOn`, `created`. Answering adds `delivery`, `deliveryNote` and, while a push is in flight, `deliveryWriter`; the life of the answer adds `readAt`/`readBy` (the asker's read), `reads` (every recipient's own read) and `acted`/`actedAt`/`actedBy`; a saved draft adds `draft`; a move up the chain adds `forwards`; a revise adds `revisions`; an ask ruled outside the file adds `ruledInChat`; a supersede adds `superseded-by`, `superseded-at` and `superseded-actor` to the old ask and `supersedes` to the new one; a withdraw adds `withdrawn-at`, `withdrawn-actor`, `withdrawn-reason` and, when it set a draft aside, `withdrawn-draft-of` (the draft itself is kept in a ```json withdrawn-draft``` record). These are the store's fields: `engine ask new` refuses them, and refuses a body that holds a ```json answer```, ```json draft``` or other store record block (`history`, `followup`, `panels`, `withdrawn-draft`). **Fill `lean` and `falsifier`**: an ask with a lean is answered with a yes; one without is answered with a meeting.
 *   **Card fields (v2, all optional — a v1 file reads exactly as before)**. Each one is a section on the question's card, shown only when filled, and each means what `§FMT_DECISION_CARD` means by it: `stake` (At stake), `unblocks` (Deciding this unblocks), `related` (Related, not asked here — collapsed), `lean` (start it with an option code, `B — because …`, and that option gets the **LEAN** badge), `counter` (Strongest counter), `evidence` (pieces separated by ` ; ` — the count chip), `rank` (`6 of 7`), `topic` (the card's short slug), `tickets` (`IDE-253, IDE-234`), `confidence` (high/med/low, with a reason), `reversible` (one-way door or not), `verify` (the cheap check that confirms or sizes the lean), `falsifier`, `ifUnanswered` (what you do by default, and from when), `neededBy`, `askedBy` (seat · thread · log), `blocks`, `reserved-for` (`operator`: only the operator may answer, directly or by relay; the holder may still forward), `provenance`, `sourceRef`. Every field is also a flag on `engine ask new` (`--stake …`). The header's card fields fill the **first** question's card; a later question carries its own as lines under its heading (below).
-*   **Body** — the engine's decision-tree syntax, the same grammar `§CMD_DECISION_TREE` uses: a heading `## [¶ASK_NAME:] Choose one: …` (single) or `## [¶ASK_NAME:] Choose: …` (multi), options `- [ ] [CODE] Label` with codes of **at most 12 characters: a capital, then capitals or digits** (`A`, `L2`, `RESCOPE`, `KEEPBROAD`) — `new` and `revise` refuse anything else in the code brackets (`[THIRTEENCHARS]`, `[wt]`), naming it, and never fold it into the label (the codes are local to the file, so the Standard Label Vocabulary that binds engine trees does not apply), an indented plain line as the option's description, deeper indent for nested options (`- [ ]`, `- [CODE]` or any line starting `- [`; an indented `- ` that does not start with `[` is a bullet in the description). Nesting is unlimited and there is no cap on the number of questions. **The name goes before the kind word**: `## Choose one: ¶ASK_X: …` reads no name, and `new` and `revise` refuse it, naming the heading to write. **The floor**, refused at `new` and on a body `revise` (a refused revise names `--keep-body`, which revises the card only): every option of a `Choose one` or `Choose` fork has something indented under its label (a description, a field or a nested option); Rank options are exempt. Every `Choose one`, `Choose` or `Rank` fork has context: a `Context:`, `Stake:`, `Lean:`, `Counter:` or `Evidence:` line or prose of its own, or a preamble or header `why`, `context` or `stakes`, which count for every fork. They warn, one line per fork, on options with no `Cost:` or no `Elegance:`.
+*   **Body** — the engine's decision-tree syntax, the same grammar `§CMD_DECISION_TREE` uses: a heading `## [¶ASK_NAME:] Choose one: …` (single) or `## [¶ASK_NAME:] Choose: …` (multi), options `- [ ] [CODE] Label` with codes of **at most 12 characters: a capital, then capitals or digits** (`A`, `L2`, `RESCOPE`, `KEEPBROAD`) — `new` and `revise` refuse anything else in the code brackets (`[THIRTEENCHARS]`, `[wt]`), naming it, and never fold it into the label (the codes are local to the file, so the Standard Label Vocabulary that binds engine trees does not apply), an indented plain line as the option's description, deeper indent for nested options (`- [ ]`, `- [CODE]` or any line starting `- [`; an indented `- ` that does not start with `[` is a bullet in the description). Nesting is unlimited and there is no cap on the number of questions. **The name goes before the kind word**: `## Choose one: ¶ASK_X: …` reads no name, and `new` and `revise` refuse it, naming the heading to write. **The floor**, refused at `engine ask new` and on a body `engine ask revise` (a refused revise names `--keep-body`, which revises the card only), with every problem listed in one refusal: every `Choose one`, `Choose`, `Rank` and `Yes or no` fork has **a paragraph of its own** of at least 12 words saying what is being decided and why it matters. It is what the fork's card shows: the prose under its heading before the options, with its `Context:`, `Stake:`, `Counter:` and `Evidence:` lines, and, for the first fork only, the ask's opening paragraph and the header's `why`, `context` and `stakes`. A later fork's card shows the opening paragraph only collapsed, so there it does not count; a `Lean:` line never counts, nor does prose after the options; code blocks and paths are not counted as words. Twelve words is a tripwire for a fork with nothing under it, not a measure of quality. A bare option (nothing under its label) is refused, as before. **Staged, warned now and refused in a later landing** (once `/ticket`, `/ask-council` and `/coordinate` compose costed options): every option of a `Choose one` or `Choose` fork that has no sub-options carries **a line saying what picking it changes** (a description, a `Then:` line, or a `Cost:` line that says it) and **a `Cost:` line**; Rank options are exempt. Also warned: a fork with no concrete example (nothing in backticks or a fence; most forks have nothing to quote), a `Text`, `Number` or `Date` fork with no paragraph of its own, and options with no `Elegance:`.
 *   **Question kinds** — the heading word picks the kind. `Choose one` and `Choose` as above; `Rank` (answer: every top-level code once, in order); `Text` (a non-blank string); `Number` (a number; optional `Range: 1..30` and `Unit: days` lines under the heading); `Date` (`YYYY-MM-DD`, a real date); `Yes or no` (options `YES`/`NO` are supplied when you write none; write them yourself to nest follow-ups under one). Option codes are 1–12 capitals or digits, starting with a capital (`A`, `L2`, `KEEPBROAD`).
 *   **Prose under a heading** — lines under a `## ¶ASK_X` heading that are neither card lines nor options are kept: the reasons before the options are shown at the top of the fork's card, and an unindented note after the options is shown **between that card and the next**. A fenced block (```` ``` ````) inside a fork is part of its prose and never ends the fork. **The options are the last list in the fork**: a `- [ ]` line in the reasons above it (a checklist, an example) is prose, never an answerable option; an earlier list joins the options only when nothing but blank lines separates them and it agrees with them on having codes. Indented lines under an option stay that option's description. `- [X] Label` is option code `X`; a checked box is `[x]`, or `[X]` followed by a `[CODE]`.
-*   **Per-question card lines** — under a heading, before its options, one per line: `Stake:`, `Unblocks:`, `Related:`, `Lean:`, `Counter:`, `Rank:`, `Topic:`, `Confidence:`, `Reversible:`, `Verify:`, `Falsifier:`, `IfUnanswered:`, `NeededBy:`, `Blocks:`, `Context:`, repeatable `Evidence:` lines, and repeatable `Panel: <lens> → <CODE> — <one-line why>` lines (an optional council read: the card shows each lens beside the option it picks, and the full read in a collapsed section), then one `Council: <path-or-url>` line naming the report the reads came from. **Per-option lines**, indented under the option: `Cost:`, `Effort:`, `Blast:`, `Unblocks:` (what picking it frees; the flush-left `Unblocks:` stays the fork's), `Then:` (the asker's next step if it is picked) and `Elegance:` (how cleanly it fits, `high | med | low — why`; a driving factor the asker states on every option). The app does not render `Unblocks:`, `Then:` or `Elegance:` as fields yet, so those lines also stay in the description text. Further indented prose continues the description.
+*   **Per-question card lines** — under a heading, before its options, one per line: `Stake:`, `Unblocks:`, `Related:`, `Lean:`, `Counter:`, `Rank:`, `Topic:`, `Confidence:`, `Reversible:`, `Verify:`, `Falsifier:`, `IfUnanswered:`, `NeededBy:`, `Blocks:`, `Context:`, repeatable `Evidence:` lines, and repeatable `Panel: <lens> → <CODE> — <one-line why>` lines (an optional council read: the card shows each lens beside the option it picks, and the full read in a collapsed section), then one `Council: <path-or-url>` line naming the report the reads came from. **Per-option lines**, indented under the option: `Cost:`, `Effort:`, `Blast:`, `Unblocks:` (what picking it frees; the flush-left `Unblocks:` stays the fork's), `Then:` (the asker's next step if it is picked), `Reversible:` (whether picking it can be undone; the flush-left `Reversible:` stays the fork's) and `Elegance:` (how cleanly it fits, `high | med | low — why`; a driving factor the asker states on every option). The card draws each of these as its own line under the option, and they are not repeated in the description. Further indented prose continues the description.
 *   **Dependencies** — inside the body, a `DependsOn: ASK_OTHER` or `DependsOn: ASK_OTHER=CODE` line under a heading hides that question until the other one is answered (with that code). `new` and `revise` refuse a `DependsOn` that names a question the ask lacks, a code that breaks the code rule, or a code that question has no option for (it would hide the dependent for good). In the header, `dependsOn: <ask id>` hides the whole ask until that ask is answered; if that ask is **declined**, the dependent is shown, marked "depends on <id>, which was declined", rather than hidden forever.
 *   **Ticket keys** — every key in the `tickets:` header and anywhere in the body (`IDE-253`) renders as a link with its status; hovering shows title, status and since-when, assignee and a one-line summary. The **local server** fetches these from Linear with the key in the env file named by `ASK_LINEAR_ENV`; `engine ask serve` defaults it to the working project's `.env.local`, then `.env` (resolved as `scripts/env-lib.sh` resolves every credential), and starts the server with any exported `LINEAR_API_KEY` removed from its environment. The key never reaches the browser, the page, argv or an ask file.
 *   **The answer** — written into the same file as one fenced block, `status` flips to `answered` and `revision` goes up by one:
@@ -103,6 +156,7 @@ engine ask new --id who-funds --rank "6 of 7" --topic "who funds a world's seat 
 A world's spend root is "never transferable" (roles.ts:455), so nothing can fund its seats' contracts.
 
 ## ¶ASK_FUND: Choose one: What does a world's document fund its seat contracts out of?
+A seat's contract has to be funded from a root the world can hand on. This decides which root that is, and so what a contract holder may pass on and how many roots there are to audit.
 Verify: read roles.ts:306-316 and :455 side by side
 Panel: Security → B — placed at set-up, so no signer can mint it
 Panel: Economist → A — one root keeps the room in one place
@@ -112,6 +166,7 @@ Panel: Economist → A — one root keeps the room in one place
   Effort: M
   Blast: every world with seats
 - [ ] [B] A separate transferable root at the world's budgets
+  A new root, placed at set-up, funds the contracts.
   Cost: it is a root again
   Effort: S
 EOF
@@ -121,7 +176,7 @@ EOF
 
 ```markdown
 ## ¶ASK_ORDER: Rank: Which seats move to /ask first?
-Context: each seat that moves stops asking in chat.
+Context: each seat that moves stops asking in chat and starts writing ask files, so the order decides who changes habits first.
 - [ ] [MGR] Managers
   They ask the most.
 - [ ] [LAN] Loom lanes
@@ -141,7 +196,7 @@ Unit: days
 Context: v1 keeps running until this date.
 
 ## ¶ASK_PUSH: Yes or no: Push answers to every forwarder?
-Context: YES wakes every seat that held the ask.
+Context: YES wakes every seat that held the ask on its way up, not only the seat that asked it.
 - [ ] [YES] Yes
   - [ ] [ALL] Every forwarder
   - [ ] [LST] Only the last holder

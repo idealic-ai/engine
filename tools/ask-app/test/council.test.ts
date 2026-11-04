@@ -159,7 +159,7 @@ describe("engine ask new: the warning reaches stderr and filing still succeeds",
     const asks = path.join(root, "asks");
     fs.mkdirSync(asks);
     const body = path.join(root, "body.md");
-    fs.writeFileSync(body, "## ¶ASK_VOICE: Choose one: Land draft 2?\nLean: LAND\nContext: the council's verdict is folded in.\n- [ ] [LAND] Land it\n  Picks LAND.\n- [ ] [HOLD] Hold it\n  Picks HOLD.\n");
+    fs.writeFileSync(body, "## ¶ASK_VOICE: Choose one: Land draft 2?\nLean: LAND\nContext: the council's verdict is folded in, so draft 2 is ready to land unless you want another pass first.\n- [ ] [LAND] Land it\n  Picks LAND.\n  Cost: no further review.\n- [ ] [HOLD] Hold it\n  Picks HOLD.\n  Cost: the draft waits.\n");
     const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
     const env: NodeJS.ProcessEnv = { ...process.env, ASK_SESSIONS_DIR: path.join(root, "sessions") };
     for (const k of ["TMUX_PANE", "FLEET_PANE", "FLEET_PARENT", "FLEET_MANAGES"]) delete env[k];

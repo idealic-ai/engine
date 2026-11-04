@@ -27,6 +27,7 @@ import {
   forkNameAfterKind,
   floorProblems,
   ForkNameOrderError,
+  authorFloorProblems,
   AskFloorError,
   parseAskFile,
   draftAuthor,
@@ -91,7 +92,15 @@ export function atomicWrite(file: string, text: string) {
 
 export type NewAskFields = { from: string; to: string; id: string } & Record<string, string | undefined>;
 
-export function newAsk(root: string, fields: NewAskFields, body: string): string {
+/**
+ * ASKFLOOR: which floor a filing clears. "author" is what `engine ask new` and `revise` pass (the CLI
+ * is the only way an author files an ask): every fork explains itself and every option is costed
+ * (authorFloorProblems). Left out, the structural floor (floorProblems) applies, which callers that
+ * build asks from code — and the tests that drive the store — rely on.
+ */
+export type FloorOptions = { floor?: "author" };
+
+export function newAsk(root: string, fields: NewAskFields, body: string, opts: FloorOptions = {}): string {
   const file = resolveAskPath(root, fields.from, fields.id);
   if (fs.existsSync(file)) throw new AskFormatError(`ask already exists: ${fields.from}/${fields.id}`);
   // M1: answer and draft blocks are records the store writes. A body that carries one — planted or
@@ -126,7 +135,7 @@ export function newAsk(root: string, fields: NewAskFields, body: string): string
     throw new AskFormatError('body holds no question: write at least one "## Choose one: …" or "## Choose: …" heading');
   }
   assertCodes(parsed);
-  assertFloor(parsed);
+  assertFloor(parsed, false, opts.floor);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   atomicWrite(file, text);
   return file;
@@ -174,14 +183,22 @@ function assertCodes(ask: ParsedAsk) {
  * ASKTREE: what `new` and a body `revise` refuse beyond the codes — a fork named after its kind
  * word, then the per-answer floor. Only a filing is checked: files already on disk still read.
  */
-function assertFloor(ask: ParsedAsk, onRevise = false) {
+function assertFloor(ask: ParsedAsk, onRevise = false, floor?: "author") {
   // S4: a revise names the way out. Renaming a fork changes its answer key, which a revise already
   // makes stale for any draft.
   const hint = onRevise ? "\n  To revise only the card fields, pass --keep-body; otherwise fix each line above in the body." : "";
   const order = forkNameAfterKind(ask);
+  if (floor === "author") {
+    // ASKFLOOR: an author is told everything at once, so a misordered heading rides with the rest.
+    const problems = authorFloorProblems(ask);
+    if (problems.length) {
+      const named = order.map((f) => `"${f.wrote}": the fork's name comes after the kind word, so nothing can depend on it: write "${f.write}"`);
+      throw new AskFloorError([...named, ...problems], hint, "author");
+    }
+  }
   if (order.length) throw new ForkNameOrderError(order, hint);
-  const floor = floorProblems(ask);
-  if (floor.length) throw new AskFloorError(floor, hint);
+  const structural = floorProblems(ask);
+  if (structural.length) throw new AskFloorError(structural, hint);
 }
 
 /**
@@ -1136,7 +1153,7 @@ export async function reviseAsk(
   id: string,
   fields: Record<string, string | undefined>,
   body: string | undefined,
-  o: DeliverOptions & { by: string; push?: typeof pushToSeat; now?: string; /** ASKFOLLOWUP: the follow-ups this revision answers. */ answersFollowup?: number[] },
+  o: DeliverOptions & FloorOptions & { by: string; push?: typeof pushToSeat; now?: string; /** ASKFOLLOWUP: the follow-ups this revision answers. */ answersFollowup?: number[] },
 ): Promise<ReviseResult> {
   const file = resolveAskPath(root, seat, id);
   if (!o?.by) throw new AskFormatError("revise must name who is revising");
@@ -1171,7 +1188,7 @@ export async function reviseAsk(
       const reparsed = parseAskFile(after);
       if (reparsed.questions.length === 0) throw new AskFormatError('body holds no question: write at least one "## Choose one: …" heading');
       assertCodes(reparsed);
-      assertFloor(reparsed, true);
+      assertFloor(reparsed, true, o.floor);
       if (bodyDigest(after) !== oldBody) changed.push("body");
     }
     const answers = [...new Set(o.answersFollowup ?? [])];
