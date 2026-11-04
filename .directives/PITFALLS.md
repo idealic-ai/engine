@@ -30,6 +30,10 @@ inferred.
     *   **Trap — `source X 2>/dev/null || true` does NOT guard**: it reads as defensive but is the opposite under bash 3.2. A failed `source`/`.` of a missing file is a special builtin whose failure exits the shell under `set -e` BEFORE the `|| true` short-circuit runs — the script dies with exit 1 and **no output** (`2>/dev/null` ate the "No such file" message). Invisible three ways: the redirect hides the error, exit 1 prints nothing, and `bash -x script` invokes Homebrew bash 5 from PATH and passes cleanly (bash 5 fixed this — there the `||` exempts it, verified empirically). Real incident: a consumer's `pre-tool-use-overflow-v2.sh` died at line 41 (`source config.sh`) on **every tool call** because config.sh was absent (see `¶PTF_ENGINE_ROOT_CONFIG_NOT_LINKED`).
     *   **Mitigation — test before sourcing, don't catch after**: `if [ -f "$f" ]; then source "$f"; fi` (or `[ -f "$f" ] && source "$f"`) — a missing file never reaches the special builtin. Grep the tree for `source .* || true` and `\. .* || true`; every instance misfires identically the moment its target goes missing. (The durable alternative — `#!/usr/bin/env bash` to run under bash 5 — has a broader blast radius; the per-line guard is the safe move.)
 
+*   **¶PTF_ENGINE_ROOT_CONFIG_NOT_LINKED**: an engine root file that setup does not link, such as `config.sh`, is silently absent on a consumer install, and the hooks run on built-in defaults
+    *   **Trap**: hooks read the fixed path `$HOME/.claude/engine/config.sh`. On a consumer install whose `~/.claude/engine` is not the checkout, an unlinked `config.sh` is absent. Every source site is now guarded with `[ -f ]` (`hooks/session-start-chunk.sh`, `hooks/pre-tool-use-preload-gate.sh`, `hooks/pre-tool-use-overflow-v2.sh`, `scripts/lib.sh`, `tools/statusline.sh`), so nothing fails: the settings are quietly ignored. Before those guards it killed every hook with no output (`¶PTF_BASH32_COMPATIBILITY`; commit `01be38d`, where `pre-tool-use-overflow-v2.sh` failed on every tool call).
+    *   **Mitigation**: `setup_engine_symlinks` links both files when `$engine_dir` is not `~/.claude/engine` (`scripts/setup-lib.sh`, the root-files block). `engine.db` and `.migrations` stay per machine and are not linked. A change to the root files' set changes that loop too.
+
 *   **¶PTF_LOADING_ESCAPE_HATCH**: `loading=true` bypasses all hook enforcement during bootstrap
     *   **Context**: `engine session activate` sets `loading=true` in `.state.json`
     *   **Trap**: Both heartbeat and directive-gate hooks skip ALL enforcement when this flag is set. Skills MUST activate before reading standards/templates, or the reads get counted toward heartbeat/directive thresholds.
@@ -310,6 +314,8 @@ inferred.
 
 ## [2026-09-16 21:06:00] ¶PTF_A_BACKGROUNDED_COMMAND_LOSES_ITS_PIPE
 
+**A background job whose output nobody reads stalls silently: it stays alive, writes nothing and raises no error, so it looks like a slow run.**
+
 *   **A background job started in one turn stalls when that turn ends**, because its stdout pipe goes away and nothing reads it. The process stays alive, the output file stays empty, and nothing errors.
 *   **It is indistinguishable from a slow run by every obvious signal** — alive, no error, zero output — which is why the instinct is to wait longer, and waiting is exactly wrong.
 *   **The tell is CPU time — OF THE PROCESS TREE, never of the one process you grep for.** A job whose
@@ -400,10 +406,12 @@ inferred.
 
 ## [2026-09-17 02:12:00] ¶PTF_THE_INDEX_IS_SHARED_AND_INVISIBLE_AT_COMMIT_TIME
 
+**Whatever any lane has staged rides the next bare `git commit`, and nothing at commit time shows it.** A pathspec commit scopes the paths, and commits a rename only when it names both sides.
+
 *   **`git mv` is a staging write, and it LOOKS FINISHED TO ITS AUTHOR.** The rename lands in the index and nothing remains in the working tree to remind anyone. `git status` shows staged changes that read as somebody else's business, and no gate complains. One sat unclaimed across an entire evening on a branch five lanes were committing to.
 *   **⛔ A bare `git commit` writes the WHOLE index**, so the next lane to run one publishes that rename under a message describing something else. Measured precedent in this repo: 540 lines of another lane's rename landing under a message written for a fourteen-line fix. **Neither lane ran a forbidden command.**
 *   **⭐ THE PATHSPEC FORM IS A MARGIN, NOT A MECHANISM.** Six commits went past one such rename in an evening — every one scoped by pathspec, which is the only reason it survived. The ones I placed were scoped **because I already knew the rename was there.** An arrival without that knowledge takes it.
-*   **⛔⛔ AND THE PATHSPEC FORM CANNOT EXPRESS A RENAME.** It takes the WORKING TREE for the paths it names and silently drops index-only state — and a rename's deletion side *is* index-only state. Naming only the paths that exist on disk publishes **two copies**. ⭐ **The bare commit is the correct instrument for exactly this case**, and it is safe only when `git diff --cached --name-status -M` is read **immediately before** and holds exactly your set.
+*   **⛔⛔ AND THE PATHSPEC FORM COMMITS A RENAME ONLY WHEN IT NAMES BOTH SIDES.** It takes the WORKING TREE for the paths it names and silently drops index-only state — and a rename's deletion side *is* index-only state. Naming only the new path publishes **two copies**; naming both, `git commit -- <old> <new>`, commits the rename (measured 2026-11-04 in a throwaway repo: `A new` with `old` still tracked, against `R100 old new`). ⭐ **Otherwise the bare commit is the instrument**, and it is safe only when `git diff --cached --name-status -M` is read **immediately before** and holds exactly your set.
 *   **⚠️ `--stat` HIDES A RENAME THAT CHANGES THE FILENAME.** It compresses a move into `{old => new}/path` only when the BASENAME is stable; a rename changing both directory and filename prints as a bare path with `| 0` beside it — **indistinguishable from an empty unchanged file.** Use `--name-status -M`.
 *   **⛔ A `git add` naming a rename's deletion side ABORTS THE WHOLE COMMAND**: `fatal: pathspec '…' did not match any files`, because the file does not exist on disk. **Nothing is staged and the exit is non-zero** — read it, or you proceed believing you staged a migration you did not.
 *   **⚠️ A failed `git commit` in a busy repo is a LOCK RACE before it is anything else.** Twice in one night, exit 1 with another lane's commit landing in the same instant; both succeeded on retry with no change.
@@ -829,11 +837,12 @@ the main clone, so the bytes you can see are not the whole of what you break.
 
 ## [2026-10-29 01:51:32] ¶PTF_A_CANDIDATE_TREE_TESTED_AGAINST_THE_LIVE_ENGINE_IS_NOT_TESTED
 
-**A commit candidate's suites run on an archive of the candidate tree with `ENGINE_SCRIPTS=<tree>/scripts`, or they have not tested the candidate.** Unpinned, the resolver falls back to `$HOME/.claude/engine/scripts`, reads the live checkout's dirty manifests, and goes green for content the commit does not carry.
+**A commit candidate's suites run on an archive of the candidate tree with `ENGINE_DIR=<tree>` and `ENGINE_SCRIPTS=<tree>/scripts`, or they have not tested the candidate.** Unpinned, the resolver falls back to `$HOME/.claude/engine/scripts`, reads the live checkout's dirty manifests, and goes green for content the commit does not carry.
 
 *   ✅ **Measured 2026-10-29 (IDE129COMMIT)**: the same 17 blobs gave **5/5** suites green unpinned and **1/5** pinned, and swapping in the single dirty manifest file restored 5/5. *Source: that lane's `IDE129COMMIT_REPORT.md`; relayed, not re-run here.*
 *   **Distinct from `§PTF_THE_DEFAULT_CHECKOUT_IS_THE_STALE_ONE_AND_EVERY_CASUAL_READ_LANDS_THERE`**: there the unnamed read lands on old committed history; here it lands on uncommitted edits that are newer than the commit, so the green is borrowed from work the candidate does not contain.
 *   ⛔ **A suite that sources another suite's harness inherits its default paths, and when those point at the live install the new suite tests the live install.** Do not source a harness without defaulting every path it supplies to the tree under test, in the sourcing suite itself. ✅ *Measured (TELL, `sessions/2026_10_29_META_ENGINE/builds/TELL_REPORT.md`, Harness)*: `scripts/tests/test-tell.sh` sources `test-broadcast.sh`'s fixtures and ran against `~/.claude/engine/scripts/lib.sh` until it defaulted `BROADCAST_LIB` and `HOP_SH` to its own tree.
+*   ⛔ **Pin `ENGINE_DIR` as well as `ENGINE_SCRIPTS`.** Five suites read skill files from `${ENGINE_DIR:-$HOME/.claude/engine}` (`test-loom-manager-chain.sh:37`, `test-loom-asks.sh`, `test-loom-proof-rule.sh`, `test-loom-handover-register.sh`, `test-envision-skill.sh`; counted with `grep -l` on origin/main 0e17763), so with only `ENGINE_SCRIPTS` set they test the live skills. One lane reported a candidate green on `test-loom-manager-chain.sh` this way and then corrected the claim.
 *   ⚠️ **Stated, not enforced.** Nothing reddens when a candidate's suite resolves the live engine. Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
 
 ## [2026-10-29 22:31:48] ¶PTF_A_SUBAGENT_FROM_A_PREVIOUS_CONVERSATION_IS_RESUMABLE_BY_COPYING_ITS_TRANSCRIPT
