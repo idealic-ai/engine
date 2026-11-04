@@ -154,7 +154,9 @@ describe("indexSources", () => {
     const r2 = await indexSources(db, [bucket, proofFileSource([pdir])], e);
     expect(r2.deleted).toBe(1);
     expect(r2.added + r2.changed).toBe(1);
-    const again = await search(db, e, { q: "merge converge", kinds: ["proof"] });
+    // SEARCHFIX: an unpublished copy is the opt-in `local` kind, not part of `proof`.
+    expect(await search(db, e, { q: "merge converge", kinds: ["proof"] })).toHaveLength(0);
+    const again = await search(db, e, { q: "merge converge", kinds: ["local"] });
     expect(again).toHaveLength(1);
     expect(again[0]).toMatchObject({ status: "local", url: null, id: "S1/otlayer_PROOF.html" });
   });

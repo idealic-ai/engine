@@ -10,13 +10,18 @@
  *   GET  /api/proofs   (token required) published proof pages in the local proof store, newest first
  *                      (?fresh skips the cache, and joins a listing already running rather than starting one)
  *   GET  /api/broadcasts  (token required) broadcasts newest first, with acks; read-only, BROADCAST_DIR overrides the dir
- *   GET  /api/search   (token required) ?q=<text>&limit=<1-100, default 20>&kind=<ask|proof|broadcast[,…]> → 200
- *                      [{kind, seat, id, title, status, score, excerpt, url, appPath, section}], best first, one per
- *                      item (IDE-334). Semantic: the query is embedded by the local model and compared with the index
- *                      of asks (all statuses, cut by fork), broadcasts and proof pages (src/search/). Headers
- *                      x-search-indexed-at (the last full pass) and x-search-refreshing (1 when a pass runs).
- *                      → 400 bad q, limit or kind · 503 {error, reason, code?} when it cannot answer: reason
- *                      index-missing | index-empty | index-error | embedder-unavailable. Never an empty 200 for a failure.
+ *   GET  /api/search   (token required) ?q=<text>&limit=<1-100, default 20>&kind=<ask|proof|broadcast|local[,…]>
+ *                      &minScore=<0-1.1> → 200 [{kind, seat, id, title, status, score, excerpt, url, appPath, section}],
+ *                      best first, one per item, none under the floor (IDE-334, SEARCHFIX). Semantic: the query is
+ *                      embedded by the local model and compared with the index of asks (all statuses, cut by fork),
+ *                      broadcasts and proof pages (src/search/; query.ts says what score means and where the default
+ *                      floor comes from). `local` (unpublished builds/ proof copies) is left out unless named.
+ *                      Headers on every answer once the index is open: x-search-refreshing (1 while a pass runs) and
+ *                      x-search-indexed-at (the last full pass; absent before the first); on a 200 also
+ *                      x-search-min-score (the floor applied). → 400 bad q, limit, kind or minScore
+ *                      · 503 {error, reason, code?, indexing} when it cannot answer: reason index-error |
+ *                      embedder-unavailable | index-empty, the cause before the symptom; indexing is true while a
+ *                      pass runs. Never an empty 200 for a failure.
  *                      A search finding the index older than ASK_SEARCH_STALE_MS starts a pass behind its answer.
  *   GET  /api/search/status  (token required) {indexedAt, items, chunks, running, lastReport}
  *   GET  /api/events   server-sent events: "change" whenever a file under the root changes
@@ -81,8 +86,8 @@ import { listBroadcasts } from "./lib/broadcasts.ts";
 import { createLocalEmbeddingClient, INDEXER_EMBED_RETRY, resolveEmbedConfig } from "../../embed-local/src/index.ts";
 import { openSearchDb, searchDbPath, type SearchDb } from "./search/db.ts";
 import { createRefresher, type Refresher } from "./search/refresher.ts";
-import { askSource, defaultSources, KINDS, type Kind } from "./search/sources.ts";
-import { indexState, search, SearchUnavailable } from "./search/query.ts";
+import { askSource, defaultSources } from "./search/sources.ts";
+import { defaultMinScore, indexState, search, SEARCH_KINDS, SearchUnavailable, type SearchKind } from "./search/query.ts";
 import { memoLookup, wakeAsk, WakeRefused, wakeView } from "./lib/wake.ts";
 import { withSettlement } from "./lib/settle.ts";
 
@@ -229,6 +234,12 @@ const server = http.createServer(async (req, res) => {
       if (req.headers["x-ask-token"] !== token) return send(res, 403, { error: "missing or wrong ask token" });
       if (!searchDb || !refresher) return send(res, 503, { error: `the search index cannot be opened: ${searchDbError}`, reason: "index-error" });
       if (url.pathname === "/api/search/status") return send(res, 200, { ...indexState(searchDb), running: refresher.state().running, lastAttemptAt: refresher.state().lastAttemptAt });
+      const searchHeaders = () => {
+        const s = refresher!.state();
+        if (s.indexedAt) res.setHeader("x-search-indexed-at", s.indexedAt);
+        res.setHeader("x-search-refreshing", s.running ? "1" : "0");
+      };
+      searchHeaders();
       const q = (url.searchParams.get("q") ?? "").trim();
       if (!q) return send(res, 400, { error: "q is required" });
       if (q.length > 500) return send(res, 400, { error: "q is longer than 500 characters" });
@@ -236,17 +247,20 @@ const server = http.createServer(async (req, res) => {
       const limit = rawLimit === null || rawLimit === "" ? 20 : Number(rawLimit);
       if (!Number.isInteger(limit) || limit < 1 || limit > 100) return send(res, 400, { error: "limit must be a whole number from 1 to 100" });
       const kinds = (url.searchParams.get("kind") ?? "").split(",").map((k) => k.trim()).filter(Boolean);
-      const bad = kinds.filter((k) => !KINDS.includes(k as Kind));
-      if (bad.length) return send(res, 400, { error: `unknown kind ${bad.join(", ")}: one of ${KINDS.join(", ")}` });
+      const bad = kinds.filter((k) => !SEARCH_KINDS.includes(k as SearchKind));
+      if (bad.length) return send(res, 400, { error: `unknown kind ${bad.join(", ")}: one of ${SEARCH_KINDS.join(", ")}` });
+      const rawMin = url.searchParams.get("minScore");
+      const minScore = rawMin === null || rawMin === "" ? defaultMinScore(queryEmbedder.model) : Number(rawMin);
+      if (!Number.isFinite(minScore) || minScore < 0 || minScore > 1.1) return send(res, 400, { error: "minScore must be a number from 0 to 1.1" });
       refresher.ensureFresh();
-      const st = refresher.state();
       try {
-        const hits = await search(searchDb, queryEmbedder, { q, limit, kinds: kinds as Kind[] });
-        res.setHeader("x-search-indexed-at", st.indexedAt ?? "");
-        res.setHeader("x-search-refreshing", refresher.state().running ? "1" : "0");
+        const hits = await search(searchDb, queryEmbedder, { q, limit, kinds: kinds as SearchKind[], minScore });
+        searchHeaders();
+        res.setHeader("x-search-min-score", String(minScore));
         return send(res, 200, hits);
       } catch (e) {
         if (e instanceof SearchUnavailable) {
+          searchHeaders();
           return send(res, 503, { error: e.message, reason: e.reason, ...(e.code ? { code: e.code } : {}), indexing: refresher.state().running !== null });
         }
         throw e;

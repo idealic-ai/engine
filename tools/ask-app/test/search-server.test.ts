@@ -137,6 +137,8 @@ beforeAll(async () => {
     newAsk(root, { from: "meta:engine", to: "manager:meta", id: "warm-cache", why: "the warmer cache decides cold start latency" }, ASK("Ship the warmer cache tonight?"));
     fs.writeFileSync(path.join(bdir, "freeze.md"), "id: freeze\nfrom: director\nat: 2026-10-30T10:00:00Z\naudience: all\nsticky: yes\n\n## Text\nCode freeze on the kernel until the migration lands.\n");
     fs.writeFileSync(path.join(pdir, "S1", "builds", "ledger_PROOF.html"), PAGE("Ledger reconciliation", "the ledger reconciles every payout against the bank statement"));
+    // SEARCHFIX: a builds/ page with no published twin, so it indexes as a local proof with no url.
+    fs.writeFileSync(path.join(pdir, "S1", "builds", "canary_PROOF.html"), PAGE("Canary rollout draft", "the canary rollout of the warmer cache held latency flat"));
   });
   await until(async () => {
     const s = JSON.parse((await main.get("/api/search/status")).body);
@@ -234,5 +236,65 @@ describe("GET /api/search", () => {
     const r = await empty.get("/api/search?q=anything");
     expect(r.status).toBe(503);
     expect(JSON.parse(r.body)).toMatchObject({ reason: "index-empty" });
+    expect(typeof JSON.parse(r.body).indexing).toBe("boolean");
+    // SEARCHFIX gap 2: both headers ride the 503. The search itself starts a pass on a never-indexed index (an
+    // empty one here, so it finishes at once), which is why indexed-at may already be known.
+    expect(r.headers["x-search-refreshing"]).toMatch(/^[01]$/);
+    if (r.headers["x-search-indexed-at"] !== undefined) expect(r.headers["x-search-indexed-at"]).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // SEARCHFIX gap 3: with the embedder down too, the cause is named, not the empty index it causes.
+    embedDown = true;
+    try {
+      const both = await empty.get("/api/search?q=anything");
+      expect(both.status).toBe(503);
+      expect(JSON.parse(both.body)).toMatchObject({ reason: "embedder-unavailable", code: "MODEL_ABSENT" });
+    } finally {
+      embedDown = false;
+    }
+  });
+});
+
+describe("SEARCHFIX: headers, the floor and local proofs on GET /api/search", () => {
+  it("a 503 carries x-search-indexed-at and x-search-refreshing, and documents indexing", async () => {
+    embedDown = true;
+    try {
+      const r = await main.get("/api/search?q=cache");
+      expect(r.status).toBe(503);
+      expect(r.headers["x-search-indexed-at"]).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(r.headers["x-search-refreshing"]).toMatch(/^[01]$/);
+      expect(typeof JSON.parse(r.body).indexing).toBe("boolean");
+    } finally {
+      embedDown = false;
+    }
+  });
+
+  it("a 400 carries the headers too, since the index is open", async () => {
+    const r = await main.get("/api/search?q=x&limit=0");
+    expect(r.status).toBe(400);
+    expect(r.headers["x-search-indexed-at"]).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(r.headers["x-search-refreshing"]).toMatch(/^[01]$/);
+  });
+
+  it("minScore: 400 when it is not a number from 0 to 1.1; [] (a real 200) when nothing reaches it; echoed in x-search-min-score", async () => {
+    for (const bad of ["abc", "-0.1", "2"]) expect((await main.get(`/api/search?q=cache&minScore=${bad}`)).status).toBe(400);
+    const all = await main.get("/api/search?q=warmer%20cache%20latency&minScore=0");
+    expect(all.status).toBe(200);
+    expect(all.headers["x-search-min-score"]).toBe("0");
+    const hits = JSON.parse(all.body) as { score: number }[];
+    expect(hits.length).toBeGreaterThan(0);
+    const none = await main.get(`/api/search?q=warmer%20cache%20latency&minScore=${Math.min(1.1, hits[0].score + 0.01)}`);
+    expect(none.status).toBe(200);
+    expect(JSON.parse(none.body)).toEqual([]);
+    // The fake model was never measured, so its default floor is 0.
+    expect((await main.get("/api/search?q=warmer%20cache%20latency")).headers["x-search-min-score"]).toBe("0");
+  });
+
+  it("leaves an unpublished builds/ copy out unless kind=local is named", async () => {
+    const def = JSON.parse((await main.get("/api/search?q=canary%20rollout%20warmer%20cache&limit=50")).body) as { status: string; id: string }[];
+    expect(def.find((h) => h.status === "local")).toBeUndefined();
+    const proof = JSON.parse((await main.get("/api/search?q=canary%20rollout&kind=proof&limit=50")).body) as { status: string }[];
+    expect(proof.find((h) => h.status === "local")).toBeUndefined();
+    const local = JSON.parse((await main.get("/api/search?q=canary%20rollout&kind=local")).body);
+    expect(local).toHaveLength(1);
+    expect(local[0]).toMatchObject({ kind: "proof", status: "local", id: "S1/canary_PROOF.html", url: null, appPath: null, seat: "" });
   });
 });

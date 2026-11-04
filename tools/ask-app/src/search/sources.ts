@@ -52,6 +52,12 @@ const plain = (s: string) => s.replace(/[*_`#>]+/g, "").replace(/\[([^\]]*)\]\([
 
 // ── asks ──────────────────────────────────────────────────────────────
 
+/** The option fields indexed under each option, as the ask file writes their labels. */
+const OPTION_FIELD_LABELS = [
+  ["reversible", "Reversible"], ["unblocks", "Unblocks"], ["then", "Then"], ["elegance", "Elegance"],
+  ["cost", "Cost"], ["effort", "Effort"], ["blastRadius", "Blast radius"],
+] as const;
+
 /** One ask file as an item body, or null when it does not parse. */
 export function askBody(root: string, seat: string, file: string, text: string): ItemBody | null {
   let a;
@@ -82,7 +88,13 @@ export function askBody(root: string, seat: string, file: string, text: string):
     const opts: string[] = [];
     const walk = (os: typeof q.options, depth: number) => {
       for (const o of os) {
-        opts.push(`${"  ".repeat(depth)}- ${o.code ? `[${o.code}] ` : ""}${o.label}${o.description ? `: ${o.description}` : ""}`);
+        const pad = "  ".repeat(depth);
+        opts.push(`${pad}- ${o.code ? `[${o.code}] ` : ""}${o.label}${o.description ? `: ${o.description}` : ""}`);
+        // SEARCHFIX: every per-option field, so text that left the description (Reversible, since f936d49)
+        // stays searchable. A field the description still echoes is not repeated.
+        for (const [name, v] of OPTION_FIELD_LABELS.map(([k, n]) => [n, o[k]] as const)) {
+          if (v && !(o.description ?? "").includes(v)) opts.push(`${pad}  ${name}: ${v}`);
+        }
         walk(o.children ?? [], depth + 1);
       }
     };

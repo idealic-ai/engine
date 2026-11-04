@@ -10,7 +10,21 @@
  * change), so a server answers repeated queries without re-reading the database.
  *
  * Failures are `SearchUnavailable`, with a `reason` a caller can show: the index is missing or empty, or the
- * embedder could not embed the query. A failure is never an empty result.
+ * embedder could not embed the query. A failure is never an empty result. When more than one holds, the cause
+ * is named before the symptom: an index that cannot be read (index-error) first, then an embedder that cannot
+ * embed (embedder-unavailable), and only then an empty index (index-empty), since a dead embedder is what
+ * leaves an index empty.
+ *
+ * SEARCHFIX: what `score` means, and the floor. A hit's score is the cosine between the query and its best
+ * chunk (both unit vectors, so at most 1), plus 0.1 times the share of the query's words found literally in
+ * the hit's title, id or best section. Nothing is normalised against the other hits, so a score does not
+ * depend on what else matched and a threshold means the same thing on every query at one model. Hits under
+ * `minScore` are dropped; the default is `defaultMinScore(model)`: 0.40 for embeddinggemma, where it was
+ * measured (builds/SEARCHFIX_REPORT.md: queries nothing in the corpus is about topped out at 0.22-0.38, hits
+ * judged relevant scored 0.43 and up), and 0 (no floor) for any model nobody has measured.
+ *
+ * Unpublished builds/ proof copies (status "local", no url, no appPath) are left out unless the caller asks
+ * for the `local` kind: such a hit cannot be opened from the app.
  */
 import { isEmbedLocalError, type EmbeddingClient } from "../../../embed-local/src/index.ts";
 import { bytesToFloat32, getMeta, type SearchDb } from "./db.ts";
@@ -28,6 +42,18 @@ export type SearchHit = {
   appPath: string | null;
   section: string;
 };
+
+/** The kinds a caller may ask for: the indexed kinds, plus `local` for unpublished builds/ proof copies. */
+export type SearchKind = Kind | "local";
+export const SEARCH_KINDS: readonly SearchKind[] = [...KINDS, "local"];
+
+/** The floor measured for embeddinggemma (768-d) on 2026-11-04; see the header. */
+export const DEFAULT_MIN_SCORE = 0.4;
+
+/** The default floor for a model: the measured one for embeddinggemma, none for a model nobody measured. */
+export function defaultMinScore(model: string): number {
+  return /^embeddinggemma(:|$)/.test(model) ? DEFAULT_MIN_SCORE : 0;
+}
 
 export type UnavailableReason = "index-missing" | "index-empty" | "index-error" | "embedder-unavailable";
 
@@ -48,7 +74,7 @@ export class SearchUnavailable extends Error {
  * separate Float32Arrays ranked in 300-800 ms per query; the matrix is what keeps a query near the cost
  * of embedding it.
  */
-type Matrix = { n: number; d: number; mat: Float32Array; chunkIds: Int32Array; itemKeys: string[]; kinds: Kind[] };
+type Matrix = { n: number; d: number; mat: Float32Array; chunkIds: Int32Array; itemKeys: string[]; kinds: SearchKind[] };
 const cache = new WeakMap<SearchDb, { generation: string; model: string; m: Matrix }>();
 
 function vectors(db: SearchDb, e: EmbeddingClient): Matrix {
@@ -58,18 +84,19 @@ function vectors(db: SearchDb, e: EmbeddingClient): Matrix {
   if (hit && hit.generation === generation && hit.model === model) return hit.m;
   const rows = db
     .prepare(
-      `SELECT c.id AS id, c.item_key AS item_key, i.kind AS kind, e.embedding AS embedding
+      `SELECT c.id AS id, c.item_key AS item_key, i.kind AS kind, i.status AS status, e.embedding AS embedding
        FROM chunks c JOIN items i ON i.key = c.item_key JOIN embeddings e ON e.content_hash = c.content_hash
        WHERE i.dup_of IS NULL AND e.model = ? AND e.dimensions = ?`,
     )
-    .all(e.model, e.dimensions) as { id: number; item_key: string; kind: Kind; embedding: Uint8Array }[];
+    .all(e.model, e.dimensions) as { id: number; item_key: string; kind: Kind; status: string; embedding: Uint8Array }[];
   const d = e.dimensions;
   const m: Matrix = { n: rows.length, d, mat: new Float32Array(rows.length * d), chunkIds: new Int32Array(rows.length), itemKeys: [], kinds: [] };
   rows.forEach((r, i) => {
     m.mat.set(normalise(bytesToFloat32(r.embedding)), i * d);
     m.chunkIds[i] = r.id;
     m.itemKeys.push(r.item_key);
-    m.kinds.push(r.kind);
+    // An unpublished builds/ copy is its own search kind, so the ranking loop filters it like any other.
+    m.kinds.push(r.kind === "proof" && r.status === "local" ? "local" : r.kind);
   });
   cache.set(db, { generation, model, m });
   return m;
@@ -98,18 +125,20 @@ export function excerptOf(body: string, words: string[], width = 240): string {
   return `${start > 0 ? "…" : ""}${flat.slice(start, end).trim()}${end < flat.length ? "…" : ""}`;
 }
 
-export type SearchOptions = { q: string; limit?: number; kinds?: Kind[] };
+export type SearchOptions = { q: string; limit?: number; kinds?: SearchKind[]; minScore?: number };
 
 export async function search(db: SearchDb, embedder: EmbeddingClient, opts: SearchOptions): Promise<SearchHit[]> {
   const limit = Math.max(1, Math.min(100, opts.limit ?? 20));
-  const kinds = new Set(opts.kinds?.length ? opts.kinds : KINDS);
+  const kinds = new Set<SearchKind>(opts.kinds?.length ? opts.kinds : KINDS);
+  const minScore = opts.minScore ?? defaultMinScore(embedder.model);
   let items: number;
   try {
     items = (db.prepare("SELECT count(*) AS n FROM items WHERE dup_of IS NULL").get() as { n: number }).n;
   } catch (e) {
     throw new SearchUnavailable("index-error", `the search index could not be read: ${(e as Error).message}`);
   }
-  if (items === 0) throw new SearchUnavailable("index-empty", "the search index is empty: it has not finished its first pass");
+  // Embed before judging the index empty: an index is empty because nothing could embed, so a dead embedder
+  // is the reason to report (SEARCHFIX gap 3).
   let qv: Float32Array;
   try {
     qv = normalise(await embedder.embedSingle(opts.q));
@@ -117,6 +146,7 @@ export async function search(db: SearchDb, embedder: EmbeddingClient, opts: Sear
     if (isEmbedLocalError(e)) throw new SearchUnavailable("embedder-unavailable", `the query could not be embedded: ${e.code}`, e.code);
     throw new SearchUnavailable("embedder-unavailable", `the query could not be embedded: ${(e as Error).message}`);
   }
+  if (items === 0) throw new SearchUnavailable("index-empty", "the search index is empty: it has not finished its first pass");
   const best = new Map<string, { score: number; chunkId: number }>();
   const m = vectors(db, embedder);
   for (let i = 0; i < m.n; i++) {
@@ -150,7 +180,7 @@ export async function search(db: SearchDb, embedder: EmbeddingClient, opts: Sear
       section: ch.section,
     };
   });
-  return hits.sort((a, b) => b.score - a.score).slice(0, limit);
+  return hits.filter((h) => h.score >= minScore).sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
 /** When the last completed pass ran (ISO), and how many items are searchable. */

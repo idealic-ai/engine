@@ -2,7 +2,9 @@
  * IDE-334 (RAGPROOFS): `engine ask search`, the command-line side of the ask app's search index.
  *
  *   engine ask search index [--full] [--json]     one incremental pass over asks, broadcasts and proofs
- *   engine ask search query "<q>" [--kind ask|proof|broadcast[,…]] [--limit N] [--json]
+ *   engine ask search query "<q>" [--kind ask|proof|broadcast|local[,…]] [--limit N] [--min-score S] [--json]
+ *                                                 local: unpublished builds/ proof copies, left out unless named;
+ *                                                 --min-score: the floor (default: the model's, query.ts)
  *   engine ask search status [--json]             when the index last ran, its size, the last pass's report
  *
  * The index is `<asks root>/.ask-app.search.db` (ASK_SEARCH_DB overrides), the same file `engine ask serve`
@@ -13,8 +15,8 @@ import { createLocalEmbeddingClient, INDEXER_EMBED_RETRY, resolveEmbedConfig } f
 import { defaultAskRoot } from "../lib/store.ts";
 import { openSearchDb, searchDbPath } from "./db.ts";
 import { indexSources, tryIndexLock } from "./indexer.ts";
-import { indexState, search, SearchUnavailable } from "./query.ts";
-import { defaultSources, KINDS, type Kind } from "./sources.ts";
+import { indexState, search, SEARCH_KINDS, SearchUnavailable, type SearchKind } from "./query.ts";
+import { defaultSources } from "./sources.ts";
 
 const argv = process.argv.slice(2);
 const sub = argv.shift();
@@ -67,12 +69,15 @@ if (sub === "index") {
   }
 } else if (sub === "query") {
   const kinds = (flag("kind") ?? "").split(",").filter(Boolean);
-  const bad = kinds.filter((k) => !KINDS.includes(k as Kind));
-  if (bad.length) die(`unknown kind ${bad.join(", ")}: one of ${KINDS.join(", ")}`, 2);
+  const bad = kinds.filter((k) => !SEARCH_KINDS.includes(k as SearchKind));
+  if (bad.length) die(`unknown kind ${bad.join(", ")}: one of ${SEARCH_KINDS.join(", ")}`, 2);
+  const rawMin = flag("min-score");
+  const minScore = rawMin === undefined ? undefined : Number(rawMin);
+  if (minScore !== undefined && !(Number.isFinite(minScore) && minScore >= 0 && minScore <= 1.1)) die("--min-score is a number from 0 to 1.1", 2);
   const limit = Number(flag("limit") ?? 10);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) die("--limit is a whole number from 1 to 100", 2);
   const q = argv.join(" ").trim();
-  if (!q) die('usage: engine ask search query "<q>" [--kind ask|proof|broadcast] [--limit N] [--json]', 2);
+  if (!q) die('usage: engine ask search query "<q>" [--kind ask|proof|broadcast|local] [--limit N] [--min-score S] [--json]', 2);
   let db;
   try {
     db = openSearchDb(file, { create: false });
@@ -81,7 +86,7 @@ if (sub === "index") {
   }
   try {
     const embedder = createLocalEmbeddingClient({ config: { ...resolveEmbedConfig(), timeoutMs: 30_000 } });
-    const hits = await search(db!, embedder, { q, limit, kinds: kinds as Kind[] });
+    const hits = await search(db!, embedder, { q, limit, kinds: kinds as SearchKind[], minScore });
     if (json) process.stdout.write(`${JSON.stringify(hits)}\n`);
     else
       for (const h of hits) {
@@ -105,5 +110,5 @@ if (sub === "index") {
   if (json) process.stdout.write(`${JSON.stringify({ file, ...s })}\n`);
   else process.stdout.write(`index: ${file}\nlast full pass: ${s.indexedAt ?? "never"}\nitems: ${s.items}, chunks: ${s.chunks}\nlast report: ${JSON.stringify(s.lastReport)}\n`);
 } else {
-  die('usage: engine ask search index [--full] | query "<q>" [--kind ask|proof|broadcast] [--limit N] | status   (each takes --json)', 2);
+  die('usage: engine ask search index [--full] | query "<q>" [--kind ask|proof|broadcast|local] [--limit N] [--min-score S] | status   (each takes --json)', 2);
 }

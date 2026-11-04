@@ -1,12 +1,13 @@
 /**
  * Broadcasts, read-only: the director's notices to seats, as the ask app shows them. Each is
  * `<dir>/<id>.md` (a `key: value` header, then `## Text` and `## Delivery`), with acks as one file
- * per seat in `<dir>/<id>.acks.d/`. The directory is BROADCAST_DIR, else ~/.claude/data/yarik/broadcasts.
+ * per seat in `<dir>/<id>.acks.d/`. The directory is BROADCAST_DIR, else `broadcasts` beside the asks root
+ * (ASK_ROOT, which `engine ask path` prints, else the store's default), the layout `engine broadcast` writes.
  * Nothing here writes.
  */
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { defaultAskRoot } from "./store.ts";
 
 export type Broadcast = {
   id: string;
@@ -21,7 +22,7 @@ export type Broadcast = {
   inForce: boolean;
 };
 
-export const defaultBroadcastDir = () => process.env.BROADCAST_DIR || path.join(os.homedir(), ".claude", "data", "yarik", "broadcasts");
+export const defaultBroadcastDir = (askRoot = defaultAskRoot()) => process.env.BROADCAST_DIR || path.join(path.dirname(askRoot), "broadcasts");
 
 /** One broadcast file's fields; `## Text` runs to the next `## ` heading. The delivery log is not read. */
 export function parseBroadcast(id: string, text: string, acks: string[], now = Date.now()): Broadcast {
