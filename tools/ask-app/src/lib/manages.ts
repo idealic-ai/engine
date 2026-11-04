@@ -9,10 +9,10 @@
  *
  * The rule:
  * - The tree is read: the live edge alone decides. The caller is the tree row whose pane id is
- *   TMUX_PANE (never FLEET_PANE); with no such row, or one naming a different seat from the identity
- *   the command acts as, nothing is granted. The seat's parent must be the caller. A seat absent from
- *   the tree, or named by more than one row, has no live manager. Seats match case-folded (`seatEq`).
- *   A disagreement with FLEET_MANAGES is warned about.
+ *   TMUX_PANE (never FLEET_PANE); with no such row, a row whose seat more than one row carries, or one
+ *   naming a different seat from the identity the command acts as, nothing is granted. The seat's
+ *   parent must be the caller. A seat absent from the tree, or named by more than one row, has no
+ *   live manager. Seats match case-folded (`seatEq`). A disagreement with FLEET_MANAGES is warned about.
  * - The tree is unreadable (no TMUX_PANE, tmux failed or returned nothing): FLEET_MANAGES decides,
  *   with a warning. An unset or empty FLEET_MANAGES grants nothing, so with neither source it refuses.
  * - The ASK_LIVE_PANES seam is set but unreadable or empty: refused, as hop.sh's live_tree exits 4.
@@ -111,6 +111,9 @@ function selfIn(rows: LiveRow[], tmuxPane: string): { seat: string } | { why: st
   const mine = rows.filter(([, p]) => !!tmuxPane && p === tmuxPane);
   if (mine.length !== 1) return { why: `this pane (${tmuxPane || "no TMUX_PANE"}) ${mine.length ? "has more than one row" : "is not in the live tree"}` };
   if (!isSeatName(mine[0][0])) return { why: `this pane (${tmuxPane}) carries no seat label` };
+  // A seat two panes carry is ambiguous as a caller too (S6): a @pane_parent naming it cannot say which pane it means.
+  const same = rows.filter(([s]) => seatEq(s, mine[0][0])).length;
+  if (same > 1) return { why: `this pane (${tmuxPane}) carries '${mine[0][0]}', which ${same} panes carry in the live tree` };
   return { seat: mine[0][0] };
 }
 

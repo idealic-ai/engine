@@ -238,6 +238,19 @@ describe("liveManages (unit)", () => {
     expect(warnings.join("\n")).toMatch(/acts as 'manager:app'/);
   });
 
+  it("NIT-1: a caller whose seat name two panes carry is not vouched, matched case-folded", () => {
+    // manager:core on %7 and on %70 (as Manager:Core): the @pane_parent string cannot say which one it names.
+    const doubled: LiveTree = { state: "read", rows: [...rows, ["Manager:Core", "%70", "-"]] };
+    const { f, warnings } = check({ tmuxPane: "%70", actingAs: "manager:core", env: ["database"], tree: doubled });
+    expect(f("core:database")).toBe(false);
+    expect(warnings.join("\n")).toMatch(/this pane \(%70\) carries 'Manager:Core', which 2 panes carry in the live tree/);
+    // The rename rule asks the same vouching question, so it refuses too.
+    const r = check({ tmuxPane: "%70", actingAs: "manager:core", env: ["exchange"], tree: { state: "read", rows: [...doubled.rows, ["core:exchange2", "%11", "manager:core"]] } });
+    expect(r.f.renamed!("core:exchange", "core:exchange2")).toBe(false);
+    // Control: the same tree without the second pane vouches the caller.
+    expect(check({ tmuxPane: "%7", actingAs: "manager:core", env: [], tree: read }).f("core:database")).toBe(true);
+  });
+
   it("a seat with no live parent has no manager, and a seat never manages itself", () => {
     expect(check({ tmuxPane: "%7", env: ["core"], tree: read }).f("manager:core")).toBe(false);
   });
