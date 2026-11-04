@@ -617,7 +617,7 @@ assert_file_not_exists "$DIR/core_world@kit@main.lease" "L49 and leaves no lease
 # reach, so this line is their guard.
 assert_eq 0 "$(grep -c -i 'land anyway' "$LEASE")" "L49 lease.sh tells nobody to land anyway, on any path"
 # Every take failure after the store check names the no-push tail: lock timeout, write failure, read-back failure.
-assert_eq 5 "$(grep -c 'NO_TAKE"' "$LEASE")" "L49 all five take failure messages end in the no-push tail"
+assert_eq 6 "$(grep -c 'NO_TAKE"' "$LEASE")" "L49 all six take failure messages end in the no-push tail (the sixth: a queue's trunk lock held for over a minute)"
 
 # L50-L61 — the FIFO waiting list (LEASEQ). A seat joins with `wait` (or `take --queue`); on release or expiry the
 # next command hands the turn to the head by writing a reservation, an ordinary lease file for the seat
@@ -631,7 +631,9 @@ age_lease() { # age_lease <file> <secs-ago-expired>: rewrite a lease so it expir
 }
 age_queue() { # age_queue <secs-ago>: every waiter joined that many seconds ago (while the aged lease was still live)
   local n; n=$(date -u +%s)
-  awk -F'\t' -v OFS='\t' -v j="$(iso_at $((n - $1)))" '$1=="entry"{$2=j} {print}' "$qfile" > "$qfile.tmp" && mv "$qfile.tmp" "$qfile"
+  # seen= (the last moment a command saw a real lease holding the trunk) moves back with them: in real use it is never
+  # later than that lease's expiry.
+  awk -F'\t' -v OFS='\t' -v j="$(iso_at $((n - $1)))" '$1=="entry"{$2=j} /^seen=/{$0="seen=" j} {print}' "$qfile" > "$qfile.tmp" && mv "$qfile.tmp" "$qfile"
 }
 
 # L50 — FIFO order, and `show` lists the queue in order.
@@ -779,7 +781,8 @@ out="$(run take b:two --repo kit --branch main 2>&1)"; rc=$?
 assert_eq 0 "$rc" "L59 and the trunk is free after release, with no reservation"
 assert_eq 0 "$(ls "$DIR" | grep -c '\.queue$')" "L59 no command wrote a queue file"
 OLD="$TMP_DIR/lease-v2.sh"
-if git -C "$(dirname "$0")" show 8d83237:scripts/lease.sh > "$OLD" 2>/dev/null; then
+if git -C "$(dirname "$0")" show 8d83237:scripts/lease.sh > "$OLD" 2>/dev/null \
+   || git -C "${HOME:-/nonexistent}/.claude/engine" show 8d83237:scripts/lease.sh > "$OLD" 2>/dev/null; then
   reset
   run take a:one --repo kit --branch main >/dev/null 2>&1
   run wait b:two --repo kit --branch main >/dev/null 2>&1
@@ -789,7 +792,8 @@ if git -C "$(dirname "$0")" show 8d83237:scripts/lease.sh > "$OLD" 2>/dev/null; 
   out="$(LANDING_LEASE_DIR="$DIR" bash "$OLD" check b:two --repo kit --branch main 2>/dev/null)"; rc=$?
   assert_eq 3 "$rc" "L59 an older engine's check refuses the head's push too (exit 3)"
 else
-  fail "L59 the v2 lease.sh (8d83237) is readable from git" "readable" "missing"
+  # Named skip, not a pass and not a fail: on a git-less archive of the tree the older script cannot be read.
+  echo "  SKIP: L59 older-engine case — lease.sh 8d83237 is not readable from this tree's git or ~/.claude/engine"
 fi
 
 # L60 — queueing needs a trunk, and the reservation name cannot be taken by a seat.
@@ -802,5 +806,109 @@ out="$(run wait b:two --repo kit --branch main 2>&1)"
 assert_contains "take it now" "$out" "L60 a seat that joins an empty queue on a free trunk is told to take it now"
 out="$(run take b:two --repo kit --branch main 2>&1)"; rc=$?
 assert_eq 0 "$rc" "L60 and its take succeeds"
+
+# L61 — critique M1: a head whose turn was WRITTEN (by a release) and lapsed is dropped even while other seats keep
+# running commands; its own expired reservation never re-arms its turn. Real time, with a 2 s grace.
+reset
+rg() { LANDING_LEASE_GRACE=2 run "$@"; }
+rg take a:one --repo kit --branch main >/dev/null 2>&1
+rg wait b:dead --repo kit --branch main >/dev/null 2>&1
+rg wait c:live --repo kit --branch main >/dev/null 2>&1
+rg release a:one >/dev/null 2>&1
+resv_exp="$(sed -n 's/^expires=//p' "$DIR/reserved-for_b_dead@kit@main.lease")"
+for i in 1 2 3 4; do sleep 1; rg wait c:live --repo kit --branch main >/dev/null 2>&1; done
+assert_eq 0 "$(grep -c "	b:dead	" "$qfile")" "L61 a head whose written turn lapsed is dropped while c:live keeps running wait"
+assert_contains "drop	seat=b:dead" "$(cat "$DIR/history.log")" "L61 the drop is in history.log"
+assert_eq 1 "$(grep -c "	turn	seat=b:dead" "$DIR/history.log")" "L61 b:dead got exactly one turn"
+ep() { date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null || date -u -d "$1" +%s; }
+c_until="$(awk -F'\t' '$2=="turn" && $3=="seat=c:live"{sub(/^until=/,"",$6); print $6; exit}' "$DIR/history.log")"
+assert_eq "$(( $(ep "$resv_exp") + 2 ))" "$(ep "${c_until:-1970-01-01T00:00:00Z}")" "L61 c:live's first turn starts where b:dead's ended (its own later turns lapse too: it never takes)"
+out="$(rg wait b:dead --repo kit --branch main 2>&1)"
+assert_contains "was dropped from the kit/main queue at $resv_exp" "$out" "L61 the dropped seat's next wait says it was dropped, and when"
+assert_contains "position 2" "$out" "L61 and it rejoins at the end"
+
+# L62 — critique M1, the chain: three missed heads in a row, one of whose turns was written, put the turn on the
+# fourth waiter; no turn is counted twice.
+reset
+run take a:one --repo kit --branch main >/dev/null 2>&1
+for s in b:two c:three d:four e:five; do run wait "$s" --repo kit --branch main >/dev/null 2>&1; done
+run release a:one >/dev/null 2>&1
+n=$(date -u +%s); age_queue 500
+sed -i.bak "s/^turn=.*/turn=$(iso_at $((n - 400)))/" "$qfile"; rm -f "$qfile.bak"
+rb="$DIR/reserved-for_b_two@kit@main.lease"
+sed -i.bak -e "s/^taken=.*/taken=$(iso_at $((n - 400)))/" -e "s/^expires=.*/expires=$(iso_at $((n - 280)))/" "$rb"; rm -f "$rb.bak"
+out="$(run show 2>&1)"
+assert_contains "queue kit/main: 1. e:five" "$out" "L62 after b, c and d each missed 120 s, the turn is e:five's"
+out="$(run take e:five --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L62 and e:five's take succeeds"
+
+# L63 — critique M2: release stamps turn= under the trunk's lock BEFORE it removes the lease file, so a take that
+# lands between the removal and the hand-off finds the head's turn instead of dropping the queue.
+reset
+run take a:one --repo kit --branch main >/dev/null 2>&1
+run wait b:two --repo kit --branch main >/dev/null 2>&1
+age_queue 300
+mkdir "$DIR/.take.lock@kit@main"
+( run release a:one > "$TMP_DIR/l63.out" 2>&1; echo $? > "$TMP_DIR/l63.rc" ) &
+rpid=$!
+sleep 1.5
+assert_file_exists "$DIR/a_one@kit@main.lease" "L63 while the trunk's lock is held, release has not removed the lease"
+rmdir "$DIR/.take.lock@kit@main"; wait "$rpid"
+assert_eq 0 "$(cat "$TMP_DIR/l63.rc")" "L63 release completes once the lock frees"
+out="$(run take c:three --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 1 "$rc" "L63 a seat outside the queue is refused after the release"
+assert_contains "reserved for b:two" "$out" "L63 because the turn is the long-waiting head's"
+if command -v chflags >/dev/null 2>&1; then
+  reset
+  run take a:one --repo kit --branch main >/dev/null 2>&1
+  run wait b:two --repo kit --branch main >/dev/null 2>&1
+  chflags uchg "$DIR/a_one@kit@main.lease"
+  run release a:one >/dev/null 2>&1
+  chflags nouchg "$DIR/a_one@kit@main.lease"
+  assert_eq 1 "$(grep -c '^turn=20' "$qfile")" "L63 turn= is stamped before the removal is tried (a pinned lease file shows it)"
+else
+  echo "  SKIP: L63 pinned-file case — chflags is not available here"
+fi
+
+# L64 — critique M2, gap 2 capped by seen=: a release that stamps no turn= (an older engine's) costs only the time
+# since a command last saw the lease held, not every waiter older than the grace.
+reset
+run take a:one --repo kit --branch main >/dev/null 2>&1
+run wait b:two --repo kit --branch main >/dev/null 2>&1
+age_queue 300
+run wait c:three --repo kit --branch main >/dev/null 2>&1
+assert_eq 1 "$(grep -c '^seen=20' "$qfile")" "L64 a command that finds a real lease holding the trunk records seen="
+rm -f "$DIR/a_one@kit@main.lease"
+out="$(run take d:four --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 1 "$rc" "L64 after an unstamped release, a seat outside the queue is refused"
+assert_contains "reserved for b:two" "$out" "L64 and b:two, who joined 300 s ago, keeps its turn"
+
+# L65 — S1: an unscoped take settles a trunk's queue under that trunk's own lock, so it waits while the lock is held.
+reset
+run wait b:two --repo kit --branch main >/dev/null 2>&1
+mkdir "$DIR/.take.lock@kit@main"
+( run take x:any > "$TMP_DIR/l65.out" 2>&1; echo $? > "$TMP_DIR/l65.rc" ) &
+tpid=$!
+sleep 1.5
+if kill -0 "$tpid" 2>/dev/null; then m=1; else m=0; fi
+assert_eq 1 "$m" "L65 an unscoped take waits on the kit/main lock before it rewrites kit/main's queue"
+rmdir "$DIR/.take.lock@kit@main"; wait "$tpid"
+assert_eq 1 "$(cat "$TMP_DIR/l65.rc")" "L65 and is then refused by b:two's turn"
+
+# L66 — S4 and N2: show prints a turn as a turn, not as a held lease; and no seat may release a turn.
+reset
+run wait b:two --repo kit --branch main >/dev/null 2>&1
+out="$(run show 2>&1)"
+assert_contains "lease: turn of b:two (reserved, " "$out" "L66 show prints a turn as 'turn of <seat> (reserved, …)'"
+assert_not_contains "held by reserved-for" "$out" "L66 and never as 'held by'"
+out="$(run release reserved-for:b:two 2>&1)"; rc=$?
+assert_eq 2 "$rc" "L66 release of a reserved-for name is refused"
+assert_file_exists "$DIR/reserved-for_b_two@kit@main.lease" "L66 and the turn is still there"
+out="$(run take $'x\nreserved=y' --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 2 "$rc" "L66 a seat name with a control character is refused"
+
+reset
+run take w:one --repo kit --branch main --what $'x\nreserved=w:one' >/dev/null 2>&1
+assert_eq "" "$(sed -n 's/^reserved=//p' "$DIR/w_one@kit@main.lease")" "L66 a --what with a newline cannot make a lease read as a turn (N1)"
 
 exit_with_results

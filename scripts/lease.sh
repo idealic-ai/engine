@@ -73,24 +73,31 @@
 #
 # The waiting list (LEASEQ). Without it the lease went to whoever polled fastest once it freed. A seat joins a trunk's
 # FIFO list with `wait` (or `take --queue`); the list is $LEASE_DIR/<repo>@<branch>.queue (repo=, branch=, turn=
-# lines, then one `entry\t<joined Z>\t<seat>\t<what>` line per waiter, oldest first), written only under that trunk's
-# take lock. Nothing here runs on a timer, a daemon or a poll (operator ruling: "push is fine; timers aren't"): every
+# and an optional seen= line, then one `entry\t<joined Z>\t<seat>\t<what>` line per waiter, oldest first), written
+# only under that trunk's take lock (an unscoped take takes it too, nested inside the global lock). Nothing here runs on a timer, a daemon or a poll (operator ruling: "push is fine; timers aren't"): every
 # hand-off and drop is computed by the next lease command (`queue_settle`), from the stamps on disk.
 #   - The head's TURN is an ordinary lease file: when the trunk is free and the list is not empty, the next take, wait,
 #     leave or release writes reserved-for_<head>@<repo>@<branch>.lease (seat=reserved-for:<head>, reserved=<head>),
-#     taken= when the turn began (the release, the lease's expiry, or the head's joining, whichever is latest) and
-#     expires= GRACE seconds later. During the turn only the head's `take` succeeds (it replaces the reservation with
-#     its own lease and leaves the list); any other take is refused naming the head and when its turn ends.
+#     taken= when the turn began and expires= GRACE seconds later. A turn begins at the latest of: turn= (stamped by
+#     release under the trunk's lock BEFORE it removes the lease file, and rewritten by every settle to the start of
+#     the turn it computed), seen= (the last moment a real lease was seen holding the trunk), the expiry of a real
+#     lease covering it, the end of the previous head's missed turn, and the head's own joining. A reservation's own
+#     expiry never starts a turn, so a missed turn cannot re-arm itself. During the turn only the head's `take` succeeds (it replaces the reservation with
+#     its own lease and leaves the list); any other take is refused naming the head and when its turn ends. `show`
+#     prints a turn as "lease: turn of <head> (reserved, Ns left; …)", never as "held by".
 #   - `check` is unchanged and reads no list: it sees the reservation as a live lease held by a seat that is not the
 #     pusher, so every seat, the head included, gets its existing exit 3 and refusal line, and kit's pre-push hook
 #     refuses with the wording it already knows. Outside a turn the store holds exactly what it held before, so check's
 #     stdout, stderr and exit are what they were in every existing state (L48, L58).
 #   - An older lease.sh fails safe on a turn: it reads the reservation as a live lease and refuses every take and push
 #     until it ends. It does not see the list itself, so after a lease EXPIRES (no release) an older take can win before
-#     any newer command has written the turn, and a release by an older engine writes no turn.
+#     any newer command has written the turn; and a release by an older engine stamps no turn=, so the next command
+#     counts the turn from seen=, dropping each waiter whose turn would have ended since the last command that saw the
+#     lease held. Both live only where an older lease.sh still runs (an old ENGINE_SCRIPTS worktree, a rollout window).
 #   - A head that lets its turn pass is dropped by the next command and the turn moves on; a turn ended that way
-#     needs no command, since the reservation expires on its own. No notice is pushed to the head: release prints the
-#     hand-off ("turn passes to <head> until <Z>") for the releasing seat to relay.
+#     needs no command, since the reservation expires on its own. A dropped seat is not told; its next `wait` says it
+#     was dropped and puts it at the end. No notice is pushed to the head: a waiter re-runs `wait`, which is safe to
+#     repeat and says when the turn is its own; release also prints the hand-off ("turn passes to <head> until <Z>").
 #   - history.log gains wait, leave, turn and drop lines in the same TAB format (seat=, repo=, branch=, and until= or
 #     at=).
 #
@@ -119,8 +126,32 @@ GRACE="${LANDING_LEASE_GRACE:-120}"
 case "$GRACE" in ''|*[!0-9]*) GRACE=120 ;; esac
 [ "$GRACE" -ge 1 ] && [ "$GRACE" -lt 600 ] || GRACE=120
 RESV="reserved-for:"
-TAKE_LOCK=""
+TAKE_LOCK=""; QLOCK=""
 release_take_lock() { [ -n "$TAKE_LOCK" ] && rmdir "$TAKE_LOCK" 2>/dev/null; TAKE_LOCK=""; }
+# A second, nested lock slot: a waiting list's trunk lock taken while TAKE_LOCK is held (an unscoped take settling a
+# trunk's list, S1) or on its own (release's hand-off). Nothing holding a trunk lock ever takes the global lock, so the
+# nesting cannot deadlock.
+release_qlock() { [ -n "$QLOCK" ] && rmdir "$QLOCK" 2>/dev/null; QLOCK=""; }
+release_locks() { release_qlock; release_take_lock; }
+# take_qlock <repo> <branch> — take that trunk's lock unless this process already holds it.
+take_qlock() {
+  local l; l="$LEASE_DIR/.take.lock$(scope_suffix "$1" "$2")"
+  [ "$l" = "$TAKE_LOCK" ] && return 0
+  acquire_lock "$l" || return 1
+  QLOCK="$l"; trap release_locks EXIT
+}
+acquire_lock() {
+  local l="$1" i=0 m
+  while ! mkdir "$l" 2>/dev/null; do
+    i=$((i+1))
+    if [ $((i % 20)) -eq 0 ]; then
+      m="$(stat -f %m "$l" 2>/dev/null || stat -c %Y "$l" 2>/dev/null || echo "")"
+      [ -n "$m" ] && [ $(( $(now_epoch) - m )) -gt 60 ] && rmdir "$l" 2>/dev/null
+    fi
+    [ "$i" -ge 1200 ] && return 1
+    sleep 0.05
+  done
+}
 take_take_lock() {
   local l="$LEASE_DIR/.take.lock${1:-}" i=0 m
   while ! mkdir "$l" 2>/dev/null; do
@@ -132,7 +163,7 @@ take_take_lock() {
     [ "$i" -ge 1200 ] && return 1
     sleep 0.05
   done
-  TAKE_LOCK="$l"; trap release_take_lock EXIT
+  TAKE_LOCK="$l"; trap release_locks EXIT
 }
 
 die() { printf 'lease: %s\n' "$1" >&2; exit 2; }
@@ -234,13 +265,20 @@ describe() {
 }
 
 # ---- the waiting list (see "The waiting list" above) ----
+# check_seat_name <seat> — refuse a name the store cannot hold apart: one starting reserved-for (a turn's seat, and
+# reserved-for_X maps to the same file as reserved-for:X), or one with a control byte (it would break a list's TSV).
+check_seat_name() {
+  case "$1" in reserved-for*) die "a seat name may not start with reserved-for (that name is a queue turn's)" ;; esac
+  case "$1" in *[[:cntrl:]]*) die "a seat name may not hold a control character" ;; esac
+  return 0
+}
 queue_file() { printf '%s/%s@%s.queue' "$LEASE_DIR" "$(safe_name "$1")" "$(safe_name "$2")"; }
 # queue_settle <repo> <branch> <write 0|1> — compute the list's state now, from the stamps on disk. Sets Q_SEATS (the
 # waiters left, oldest first, one per line), Q_HEAD (whose turn it is, or empty) and Q_END (the turn's end, epoch). With
 # write=1 it also persists that state: drops leave the file (history `drop`), expired reservations on this trunk are
 # removed, and a head with no reservation gets one (history `turn`). Call it with write=1 only under the trunk's lock.
 queue_settle() {
-  local repo="$1" branch="$2" write="$3" qf h now F turn e t f seat joined what start kept="" dropped="" line
+  local repo="$1" branch="$2" write="$3" qf h now F v e t f seat joined what start kept="" dropped="" line
   Q_SEATS=""; Q_HEAD=""; Q_END=""; Q_START=""
   qf="$(queue_file "$repo" "$branch")"
   [ -f "$qf" ] || return 0
@@ -252,14 +290,24 @@ queue_settle() {
       Q_HEAD="$(field reserved "$h")"
       t="$(iso_to_epoch "$(field taken "$h")")"; e="$(iso_to_epoch "$(field expires "$h")")"
       [ "$e" -le $((t + CEILING)) ] || e=$((t + CEILING)); Q_END="$e"
+    elif [ "$write" = 1 ]; then
+      # seen= — a real lease held the trunk at this moment, so the lease freed after it. It bounds how far back a turn
+      # can start when the release that freed it stamped no turn= (an older engine's release: gap 2). A reservation
+      # never updates it, or a lapsed turn would re-arm itself.
+      { grep -v '^seen=' "$qf"; } | awk -v s="seen=$(epoch_to_iso "$now")" 'NR==3{print; print s; next} {print}' > "$qf.tmp" \
+        && mv -f "$qf.tmp" "$qf" || die "cannot write $qf"
     fi
     return 0
   fi
-  # Free: the turn starts at the latest of the release (turn=), the expiry of any lease covering the trunk, and the
-  # waiter's own joining.
-  F=0; turn="$(iso_to_epoch "$(field turn "$qf")" 2>/dev/null)" && F="$turn"
+  # Free: the turn starts at the latest of turn= (a release, or the start of the last turn written), seen=, the
+  # expiry of any REAL lease covering the trunk, and the waiter's own joining. A reservation's expiry is left out: it
+  # is the end of a turn already counted, and counting it again would re-arm the head that missed it (critique M1).
+  F=0
+  v="$(iso_to_epoch "$(field turn "$qf")" 2>/dev/null)" && [ "$v" -gt "$F" ] && F="$v"
+  v="$(iso_to_epoch "$(field seen "$qf")" 2>/dev/null)" && [ "$v" -gt "$F" ] && [ "$v" -le "$now" ] && F="$v"
   for f in "$LEASE_DIR"/*.lease; do
     [ -f "$f" ] || continue
+    [ -z "$(field reserved "$f")" ] || continue
     overlaps "$repo" "$branch" "$(row_repo "$f")" "$(row_branch "$f")" || continue
     t="$(iso_to_epoch "$(field taken "$f")")" || continue
     e="$(iso_to_epoch "$(field expires "$f")")" || continue
@@ -284,8 +332,11 @@ queue_settle() {
   for f in "$LEASE_DIR"/reserved-for_*@"$(safe_name "$repo")"@"$(safe_name "$branch")".lease; do
     [ -f "$f" ] && [ -n "$(field reserved "$f")" ] && rm -f "$f"
   done
-  { printf 'repo=%s\nbranch=%s\nturn=%s\n' "$repo" "$branch" "$(field turn "$qf")"; printf '%s' "$kept"; } > "$qf.tmp" \
-    && mv -f "$qf.tmp" "$qf" || die "cannot write $qf"
+  # turn= becomes the anchor of the chain just computed: the head's turn start, or, with nobody left, the time the
+  # last missed turn ended. A later settle then counts from there, never from a turn already spent.
+  v=""; [ "$F" -gt 0 ] && v="$(epoch_to_iso "$F")"; [ -n "$Q_HEAD" ] && v="$(epoch_to_iso "$Q_START")"
+  { printf 'repo=%s\nbranch=%s\nturn=%s\n' "$repo" "$branch" "$v"
+    grep '^seen=' "$qf" | head -1; printf '%s' "$kept"; } > "$qf.tmp" && mv -f "$qf.tmp" "$qf" || die "cannot write $qf"
   while IFS=$'\t' read -r seat e; do
     [ -n "$seat" ] && lease_history drop "seat=$seat" "repo=$repo" "branch=$branch" "at=$(epoch_to_iso "$e")"
   done <<< "$dropped"
@@ -310,12 +361,21 @@ queue_join() {
   local seat="$1" repo="$2" branch="$3" what="$4" qf pos
   qf="$(queue_file "$repo" "$branch")"
   [ -f "$qf" ] || printf 'repo=%s\nbranch=%s\nturn=\n' "$repo" "$branch" > "$qf" || die "cannot write $qf"
+  # Settle first, so a seat whose turn has passed is dropped now and rejoins at the end, and is told so.
+  queue_settle "$repo" "$branch" 1
+  local dropped_at=""
   if ! awk -F'\t' -v s="$seat" '$1=="entry" && $3==s{f=1} END{exit !f}' "$qf"; then
+    # Was this seat dropped since it last joined? Its newest wait or drop line in history.log says.
+    dropped_at="$(awk -F'\t' -v s="seat=$seat" -v r="repo=$repo" -v b="branch=$branch" \
+      '($2=="wait"||$2=="drop") && $3==s && $4==r && $5==b {ev=$2; at=$6} END{if (ev=="drop") {sub(/^at=/,"",at); print at}}' \
+      "$LEASE_DIR/history.log" 2>/dev/null)"
     printf 'entry\t%s\t%s\t%s\n' "$(epoch_to_iso "$(now_epoch)")" "$seat" "$(one_line "$what" | tr '\t' ' ')" >> "$qf" || die "cannot write $qf"
     lease_history wait "seat=$seat" "repo=$repo" "branch=$branch"
   fi
   queue_settle "$repo" "$branch" 1
   pos="$(queue_position "$seat")"
+  [ -z "$dropped_at" ] || printf 'lease: %s was dropped from the %s/%s queue at %s (its turn passed untaken); it rejoined at the end\n' \
+    "$seat" "$repo" "$branch" "$dropped_at"
   if [ "$Q_HEAD" = "$seat" ] && [ -n "$(field reserved "$(holder_file "$repo" "$branch")")" ]; then
     printf 'lease: %s is position %s in the %s/%s queue and it is its turn: take it now, before %s: engine lease take %s --repo %s --branch %s\n' \
       "$seat" "$pos" "$repo" "$branch" "$(epoch_to_iso "$Q_END")" "$seat" "$repo" "$branch"
@@ -335,7 +395,7 @@ queue_trunk_args() {
   done
   parse_scope "$usage" ${rest[@]+"${rest[@]}"}
   [ -n "$SCOPE_REPO" ] && [ -n "$SCOPE_BRANCH" ] || die "a queue is per trunk: --repo and --branch are both needed (usage: $usage)"
-  case "$Q_ARG_SEAT" in "$RESV"*) die "a seat name may not start with $RESV" ;; esac
+  check_seat_name "$Q_ARG_SEAT"
 }
 lease_wait() {
   local usage="engine lease wait <seat> --repo R --branch B [--what TEXT]"
@@ -353,6 +413,9 @@ lease_leave() {
   qf="$(queue_file "$SCOPE_REPO" "$SCOPE_BRANCH")"
   [ -f "$qf" ] || { printf 'lease: %s is not in the %s/%s queue\n' "$Q_ARG_SEAT" "$SCOPE_REPO" "$SCOPE_BRANCH"; return 0; }
   take_take_lock "$(scope_suffix "$SCOPE_REPO" "$SCOPE_BRANCH")" || die "another take has held the take lock for over a minute"
+  # Settle first: a head whose turn is due but not yet written gets its reservation now, so leaving passes the turn
+  # on from this moment rather than from the old start (critique N4).
+  queue_settle "$SCOPE_REPO" "$SCOPE_BRANCH" 1
   if ! awk -F'\t' -v s="$Q_ARG_SEAT" '$1=="entry" && $3==s{f=1} END{exit !f}' "$qf"; then
     printf 'lease: %s is not in the %s/%s queue\n' "$Q_ARG_SEAT" "$SCOPE_REPO" "$SCOPE_BRANCH"; return 0
   fi
@@ -405,7 +468,13 @@ lease_show() {
     [ -n "$f" ] || continue
     if [ -z "$scoped" ] || overlaps "$repo" "$branch" "$(row_repo "$f")" "$(row_branch "$f")"; then
       g="$(holder_file "$(row_repo "$f")" "$(row_branch "$f")")"
-      if [ "$g" = "$f" ]; then
+      if [ "$g" = "$f" ] && [ -n "$(field reserved "$f")" ]; then
+        # A queue turn reads as a turn, not as a held lease (critique S4): nobody holds the lease, and the loom's
+        # dehydration rule reads `held by` here. check, which the hook reads, is untouched and still refuses.
+        printf 'lease: turn of %s (reserved, %ss left; repo=%s branch=%s until=%s): nobody holds the lease, and only %s may take it\n' \
+          "$(field reserved "$f")" "$(( $(iso_to_epoch "$(field expires "$f")") - $(now_epoch) ))" "$(field repo "$f")" \
+          "$(field branch "$f")" "$(field expires "$f")" "$(field reserved "$f")"
+      elif [ "$g" = "$f" ]; then
         printf 'lease: held by %s\n' "$(describe "$f")"
       else
         printf '  later take (yields to %s): %s\n' "$(field seat "$g")" "$(describe "$f")"
@@ -448,12 +517,12 @@ lease_take() {
     case "$1" in
       --repo) repo="$(norm_repo "${2:-}")"; shift 2 ;;
       --branch) branch="$(norm_branch "${2:-}")"; shift 2 ;;
-      --what) what="${2:-}"; shift 2 ;;
+      --what) what="$(one_line "${2:-}")"; shift 2 ;;
       --queue) queue=1; shift ;;
       *) die "unknown argument: $1" ;;
     esac
   done
-  case "$seat" in "$RESV"*) die "a seat name may not start with $RESV" ;; esac
+  check_seat_name "$seat"
   [ -z "$queue" ] || { [ -n "$repo" ] && [ -n "$branch" ]; } || die "--queue needs --repo and --branch: a queue is per trunk"
   # A take that names both repo and branch locks its own scope; one that leaves either empty overlaps many scopes
   # and locks globally (see SETTLE above for how it meets a scoped take of an overlapping trunk).
@@ -472,7 +541,11 @@ lease_take() {
   local qf
   for qf in "$LEASE_DIR"/*.queue; do
     [ -f "$qf" ] || continue
-    overlaps "$repo" "$branch" "$(field repo "$qf")" "$(field branch "$qf")" && queue_settle "$(field repo "$qf")" "$(field branch "$qf")" 1
+    overlaps "$repo" "$branch" "$(field repo "$qf")" "$(field branch "$qf")" || continue
+    # The list is rewritten under its own trunk's lock, also when this take holds the global lock instead (S1): a
+    # wait appending under the trunk lock is then never lost to this rewrite.
+    take_qlock "$(field repo "$qf")" "$(field branch "$qf")" || die "another take has held the $(field repo "$qf")/$(field branch "$qf") take lock for over a minute, $NO_TAKE"
+    queue_settle "$(field repo "$qf")" "$(field branch "$qf")" 1; release_qlock
   done
   h="$(holder_file "$repo" "$branch")"
   local turn=""
@@ -526,7 +599,8 @@ lease_release() {
   local seat="${1:-}"; [ -n "$seat" ] || die "usage: engine lease release <seat> [--repo R] [--branch B]"
   shift
   parse_scope "engine lease release <seat> [--repo R] [--branch B]" "$@"
-  local files f owner r b removed=0 refused=0 released=""
+  local files f owner r b removed=0 refused=0 released="" qf qr qb tag
+  check_seat_name "$seat"
   if [ -n "$SCOPE_REPO$SCOPE_BRANCH" ]; then
     files="$(seat_file "$seat" "$SCOPE_REPO" "$SCOPE_BRANCH")"
   else
@@ -541,25 +615,34 @@ lease_release() {
       refused=1; continue
     fi
     r="$(field repo "$f")"; b="$(field branch "$f")"
+    # Stamp turn= on each waiting list this lease covers, under that trunk's lock, BEFORE the file goes (critique M2):
+    # a take landing between the removal and the hand-off below then counts the turn from now and finds the head's
+    # turn, never a stale turn= that would drop every waiter and hand the lease to whoever polled.
+    for qf in "$LEASE_DIR"/*.queue; do
+      [ -f "$qf" ] || continue
+      qr="$(field repo "$qf")"; qb="$(field branch "$qf")"
+      overlaps "$qr" "$qb" "$(norm_repo "$r")" "$(norm_branch "$b")" || continue
+      take_qlock "$qr" "$qb" || die "could not take the $qr/$qb take lock, so $f was not released; try again"
+      queue_set_turn "$qr" "$qb"; release_qlock
+    done
     rm -f "$f" || die "cannot remove $f"
     lease_history release "seat=$seat"
     printf 'lease: released by %s (repo=%s branch=%s)\n' "$seat" "$r" "$b"
     removed=$((removed + 1))
     released="${released}L"$'\t'"$(norm_repo "$r")"$'\t'"$(norm_branch "$b")"$'\n'
   done <<< "$files"
-  # Hand-off: each waiting list on a trunk a removed lease covered gets its turn now.
-  local qf qr qb tag
+  # Hand-off: each waiting list on a trunk a removed lease covered gets its turn now (turn= was stamped above).
   for qf in "$LEASE_DIR"/*.queue; do
     [ -f "$qf" ] || continue
     qr="$(field repo "$qf")"; qb="$(field branch "$qf")"
     while IFS=$'\t' read -r tag r b; do
       [ "$tag" = L ] || continue
       if overlaps "$qr" "$qb" "$r" "$b"; then
-        take_take_lock "$(scope_suffix "$qr" "$qb")" || { printf 'lease: could not take the %s/%s take lock; its queue moves on at the next command\n' "$qr" "$qb" >&2; break; }
-        queue_set_turn "$qr" "$qb"; queue_settle "$qr" "$qb" 1
+        take_qlock "$qr" "$qb" || { printf 'lease: could not take the %s/%s take lock; its queue moves on at the next command\n' "$qr" "$qb" >&2; break; }
+        queue_settle "$qr" "$qb" 1
         [ -n "$Q_HEAD" ] && [ -n "$Q_START" ] && printf 'lease: turn passes to %s until %s (it takes the lease with: engine lease take %s --repo %s --branch %s)\n' \
           "$Q_HEAD" "$(epoch_to_iso "$Q_END")" "$Q_HEAD" "$qr" "$qb"
-        release_take_lock; break
+        release_qlock; break
       fi
     done <<< "$released"
   done
