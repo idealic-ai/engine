@@ -597,3 +597,12 @@ table.compare tr.same td { opacity: .6; }
 .comm-row .kind { font-size: 11px; color: var(--ink-3); }
 .comms-hint { margin: 0; font-size: 12px; }
 .comms-pinned { margin-top: 16px; padding-top: 8px; border-top: 1px dashed var(--line-strong); }
+
+/* ── IDE-337: the ask's brief, proofs and reading ─────── */
+.ask-brief { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.ask-brief a { color: var(--accent-ink); }
+.ask-refs { display: grid; gap: 6px; margin: 0 0 12px; font-size: 14px; }
+.refgroup { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: baseline; min-width: 0; }
+.refgroup ul { margin: 0; padding-left: 1.1em; overflow-wrap: anywhere; min-width: 0; }
+.ref-path code, .ref-text { color: var(--ink-2); }
+@media (max-width: 520px) { .refgroup { grid-template-columns: 1fr; } }

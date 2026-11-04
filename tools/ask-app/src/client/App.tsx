@@ -64,6 +64,7 @@ import {
 } from "./model.ts";
 import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type Brief, type Trust } from "./related.ts";
 import { Inline, PaneContext, Rich, SmartLink, TicketLink, inlineTokens } from "./rich.tsx";
+import { briefRef, refList, type AskRef } from "./askrefs.ts";
 import { attachedText, councilRef, forkCouncils, isStale, namedReport, optionTally, proposalLabel, tallyText } from "./panel.ts";
 import { CodeBlock } from "./highlight.tsx";
 import { NO_ELEGANCE, forkFocusKey, anyAnswerOpens, cellLabel, compareCols, compareRows, forkGivesElegance, isOneWay, markReached, opensUnder, outlineOf, valueOf, type ForkRef, type OutlinePick } from "./tree.ts";
@@ -1079,6 +1080,7 @@ export function AskDetail({
   const depDeclined = dependsOnDeclined(ask, all);
   const headerTickets = [...(ask.header.tickets ?? "").matchAll(/\b([A-Z][A-Z0-9]{1,9}-\d{1,6})\b/g)].map((m) => m[1]);
   const proofs = proofLinks(ask);
+  const briefEntry = briefRef(ask.header);
   const row = askRow(ask, Date.now(), all);
   const forkId = (i: number) => `fork-${ask.header.id}-${forkLabel(ask.questions[i], i)}`;
 
@@ -1324,6 +1326,12 @@ export function AskDetail({
           {ask.header.overruled?.trim() && <span className="chip quiet overruled">Overruled {ask.header.overruled.trim()}’s ruling</span>}
           <span className="chip quiet">{provisional ? "draft sent" : ask.header.status === "open" ? `${row.left} of ${row.total} left` : ask.header.status}</span>
         </p>
+        {/* IDE-337: the ask's briefing page, first thing under the route, so a complex ask is read from it. */}
+        {briefEntry && (
+          <p className="ask-brief">
+            <span className="lg-label">Brief</span> <RefLink r={briefEntry} />
+          </p>
+        )}
         {/* WAKEUI: one button per ask, since an ask waits on one seat; only while it is open. */}
         {open && wakeFields(ask).wakeTarget !== undefined && <WakeButton w={wakeFields(ask)} seat={ask.seat} id={ask.header.id ?? ""} onChanged={onChanged} variant="card" />}
         {superseded && (
@@ -1705,6 +1713,39 @@ function EarlierRounds({ rounds }: { rounds: RoundView[] }) {
   );
 }
 
+/**
+ * IDE-337: one header link. A web link opens as any link in the card does (a proof page beside the
+ * ask). A path is shown with its path, since the client follows only http(s). Anything else is the
+ * asker's text as written, so a malformed entry is seen rather than dropped.
+ */
+function RefLink({ r }: { r: AskRef }) {
+  if (r.kind === "url") return <SmartLink href={r.href} label={r.label} />;
+  if (r.kind === "path") {
+    return (
+      <span className="ref-path" title="A local path: the app opens web links only, so copy the path to open it">
+        {r.label !== r.href && <>{r.label} </>}<code className="ic">{r.href}</code>
+      </span>
+    );
+  }
+  return <span className="ref-text">{r.label}</span>;
+}
+
+/** IDE-337: the header's `proofs:` and `reading:` lists, under the preamble; nothing when neither is set. */
+function AskRefs({ ask }: { ask: StoredAsk }) {
+  const groups = [["Proofs", refList(ask.header.proofs)], ["Reading", refList(ask.header.reading)]] as const;
+  if (groups.every(([, rs]) => rs.length === 0)) return null;
+  return (
+    <nav className="ask-refs" aria-label="Proofs and reading for this ask">
+      {groups.filter(([, rs]) => rs.length > 0).map(([name, rs]) => (
+        <div key={name} className="refgroup">
+          <span className="lg-label">{name}</span>
+          <ul>{rs.map((r, i) => <li key={i}><RefLink r={r} /></li>)}</ul>
+        </div>
+      ))}
+    </nav>
+  );
+}
+
 function ProofChip({ url, label }: { url: string; label: string }) {
   return (
     <PaneContext.Consumer>
@@ -1791,6 +1832,7 @@ function QuestionCard(p: {
 
       <h3 className="fork-q"><Inline text={displayTitle(q.title)} /></h3>
       {index === 0 && preamble && <Rich text={preamble} className="rich preamble" />}
+      {index === 0 && <AskRefs ask={ask} />}
       {index > 0 && opening && (
         <details className="evidence ask-about">
           <summary>What this ask is about</summary>

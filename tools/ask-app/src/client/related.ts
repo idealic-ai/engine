@@ -4,6 +4,7 @@
  */
 import type { ParsedAsk } from "../lib/format.ts";
 import { linksIn } from "./md.ts";
+import { briefRef } from "./askrefs.ts";
 
 export type Brief = { url: string; source: "brief" | "first proof link" };
 export type ProofLink = { url: string; label: string };
@@ -52,8 +53,9 @@ export function proofLinks(ask: ParsedAsk): ProofLink[] {
 }
 
 export function briefFor(ask: ParsedAsk): Brief | undefined {
-  const b = ask.header.brief?.trim();
-  if (b && /^https?:\/\//i.test(b)) return { url: b, source: "brief" };
+  // IDE-337: `brief:` is a bare URL or `[label](url)`; a path or a malformed value cannot open in the pane.
+  const b = briefRef(ask.header);
+  if (b?.kind === "url") return { url: b.href, source: "brief" };
   const first = proofLinks(ask)[0];
   return first ? { url: first.url, source: "first proof link" } : undefined;
 }
