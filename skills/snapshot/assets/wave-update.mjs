@@ -13,11 +13,18 @@
 // `projectLevel: true` (a --project run) lets the lane carry no ticket: it renders as the project's
 // own section, "### Project · <name>", beside any ticket lanes. `bodyFile: <path>` (--body-file)
 // makes the approved text in that file the whole body: the renderer reads the bytes itself, so no
-// caller retypes them, appends only the wave marker, still derives the health from the lane's
-// signals, and returns the file's sha256 as approvedSha256.
+// caller retypes them, normalises it (a BOM stripped, CRLF turned into LF, trailing whitespace at
+// the end dropped; invalid UTF-8 or more than 64 KiB declines), appends only the wave marker, and
+// still derives the health from the lane's signals. approvedSha256 is the hash of the file bytes
+// as approved; sentBodySha256 is the hash of the body sent. `bodySha256` (--body-sha256) is the
+// approver's hash: a mismatch declines, and an unattended run requires it, plus `allowedRoots`
+// (the session directory and the repository toplevel) that the file's realpath must sit inside.
+// A project-level lane with no signals of its own takes the worst health of this wave's posted
+// lanes (healthSource "lanes"); with a ticket, projectLevel is ignored and the ticket lane renders.
 // Tests: engine/scripts/tests/test-snapshot-update-sh.sh.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync, writeSync } from "node:fs";
+import { sep } from "node:path";
 import { createHash } from "node:crypto";
 
 const HEALTHS = ["onTrack", "atRisk", "offTrack"];
@@ -25,13 +32,25 @@ const RANK = { onTrack: 0, atRisk: 1, offTrack: 2 };
 const GATES = ["green", "red", "unrun", "none"];
 const DIRECTIONS = ["aligned", "rescoped", "drifted"];
 // A local path in a body sent to Linear is unreadable to everyone else and leaks the machine layout.
-const LOCAL_PATH = /(^|[\s(`'"])(\/Users\/|\/home\/|\/private\/|\/tmp\/|~\/)/;
+// Matched after whitespace, an opening bracket or quote (a markdown link target included), or
+// after file:// (file:///Users/...). A URL path that merely contains /Users/ is not local.
+const LOCAL_PATH = /(^|[\s(`'"]|file:\/\/)(\/Users\/|\/home\/|\/private\/|\/tmp\/|~\/)/;
+const BODY_CAP = 64 * 1024; // bytes; an approved body above this declines before the confirm
+const SIGNALS = ["gates", "direction", "blocked", "mustFixOpen"];
 const LAPSE_PREFIX = "**Override lapsed:**";
 const PROJECT_KEY = "Project"; // the section key of a --project run's own section
 const OVERRIDE_RE = /^\*\*Health set to (onTrack|atRisk|offTrack) by the (.+?) manager \(was (onTrack|atRisk|offTrack)\):\*\* /;
 
 const die = (msg) => { process.stderr.write(`wave-update: ${msg}\n`); process.exit(1); };
-const out = (obj) => { process.stdout.write(JSON.stringify(obj, null, 2) + "\n"); process.exit(0); };
+// Written synchronously: process.stdout.write to a pipe is asynchronous, and process.exit() right
+// after it cut a result larger than the pipe buffer (a 64 KiB body arrived as unparseable JSON).
+const out = (obj) => {
+  const buf = Buffer.from(JSON.stringify(obj, null, 2) + "\n", "utf8");
+  for (let off = 0; off < buf.length;) {
+    try { off += writeSync(1, buf, off); } catch (e) { if (e.code !== "EAGAIN") throw e; }
+  }
+  process.exit(0);
+};
 
 // Worst of a set of healths. An empty or invalid set returns null, never an implicit onTrack.
 function worst(hs) {
@@ -169,7 +188,9 @@ function project(input) {
   const { wave, project: proj, lane } = input;
   if (!wave || !proj) die("project mode needs wave and project");
   if (!lane || (!lane.ticket && input.projectLevel !== true)) die("project mode needs lane.ticket (or projectLevel: true)");
-  const laneKey = input.projectLevel === true ? PROJECT_KEY : lane.ticket;
+  // F5: a ticket lane is always the ticket's, even on a --project run for the ticket's own project.
+  const projectLevel = input.projectLevel === true && !lane.ticket;
+  const laneKey = projectLevel ? PROJECT_KEY : lane.ticket;
 
   let health, reason, healthSource;
   if (input.health !== undefined) {
@@ -177,13 +198,19 @@ function project(input) {
     if (!HEALTHS.includes(input.health)) return out({ action: "decline", reason: `chosen health ${JSON.stringify(input.health)} is not one of ${HEALTHS.join("|")}` });
     health = input.health; healthSource = "chosen";
     reason = input.healthReason ?? "set at the confirm";
+  } else if (projectLevel && SIGNALS.every((k) => lane[k] === undefined)) {
+    // F1: no signals of its own; the worst of this wave's lanes already posted for the project.
+    const posted = postedLanesWorst(input);
+    if (!posted) return out({ action: "decline", reason: "health could not be derived: the project-level run carries no signals of its own and no lane has posted for this wave in this project" });
+    health = posted; healthSource = "lanes";
+    reason = "the worst of this wave's lanes posted for the project";
   } else {
     const d = deriveHealth(lane);
     if (d.health === "underivable") return out({ action: "decline", reason: `health could not be derived: ${d.reason}` });
     ({ health, reason } = d); healthSource = "derived";
   }
   if (input.bodyFile !== undefined) return approvedBody(input, { health, reason, healthSource });
-  const laneText = renderLane(lane, health, reason, input.projectLevel === true ? proj : undefined);
+  const laneText = renderLane(lane, health, reason, projectLevel ? proj : undefined);
   if (LOCAL_PATH.test(laneText)) return out({ action: "decline", reason: "the lane text carries a local file path; a project update must read cold, so remove it before posting" });
 
   const { ours, foreign, otherWaves } = partition(input.existing, wave, input.since);
@@ -227,21 +254,55 @@ function project(input) {
   });
 }
 
+// The worst health among the ticket lanes this wave already posted for the project (a previous
+// project section is not a lane, so a manager never inherits from itself). Null when there are none.
+function postedLanesWorst(input) {
+  const { ours } = partition(input.existing, input.wave, input.since);
+  const hs = [];
+  for (const u of ours) {
+    const p = parseBody(u.body);
+    if (p) for (const sec of p.sections) if (sec.key !== PROJECT_KEY) hs.push(sec.health);
+  }
+  return worst(hs);
+}
+
+const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
+const normalise = (text) => text.replace(/\r\n/g, "\n");
+const isInside = (p, root) => p === root || p.startsWith(root.endsWith(sep) ? root : root + sep);
+
 // --body-file: the approved text is the body as written. Only trailing whitespace at the very end
 // is dropped, and the wave marker is appended after a blank line (or kept, when the text already
 // ends with this wave's). The health is the one project() derived, or chosen under a confirm.
 function approvedBody(input, { health, reason, healthSource }) {
   const { wave, project: proj } = input;
+  const file = String(input.bodyFile);
+  let real;
+  try { real = realpathSync(file); } catch (e) { die(`body file ${JSON.stringify(file)} cannot be read: ${e.code ?? e.message}`); }
+  if (input.unattended) {
+    // F2: unattended, the file must sit inside the session or the repository, after symlinks.
+    const roots = Array.isArray(input.allowedRoots) ? input.allowedRoots.filter(Boolean) : [];
+    if (!roots.length) return out({ action: "decline", reason: "an unattended run reads a body file only inside the session directory or the repository, and no roots were given (allowedRoots)" });
+    const realRoots = roots.map((r) => { try { return realpathSync(String(r)); } catch { return null; } }).filter(Boolean);
+    if (!realRoots.some((r) => isInside(real, r))) return out({ action: "decline", reason: `the body file resolves outside the session directory and the repository (${realRoots.length} root(s) checked); an unattended run does not post it` });
+  }
   let raw;
-  try { raw = readFileSync(String(input.bodyFile)); } catch (e) { die(`body file ${JSON.stringify(input.bodyFile)} cannot be read: ${e.code ?? e.message}`); }
-  const approvedSha256 = createHash("sha256").update(raw).digest("hex");
-  let core = raw.toString("utf8").replace(/\s+$/, "");
+  try { raw = readFileSync(real); } catch (e) { die(`body file ${JSON.stringify(file)} cannot be read: ${e.code ?? e.message}`); }
+  const approvedSha256 = sha256(raw);
+  const given = input.bodySha256 == null ? null : String(input.bodySha256).trim().toLowerCase();
+  if (given === null && input.unattended) return out({ action: "decline", reason: "an unattended run posts an approved body only with the approver's hash (--body-sha256 <hex>)", approvedSha256 });
+  if (given !== null && given !== approvedSha256) return out({ action: "decline", reason: `the body file's sha256 ${approvedSha256} does not match the approved ${given}; the file changed since it was approved, or the wrong file was named`, approvedSha256 });
+  if (raw.length > BODY_CAP) return out({ action: "decline", reason: `the approved body is ${raw.length} bytes, over the 64 KiB cap`, approvedSha256 });
+  let text;
+  try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(raw); } catch { return out({ action: "decline", reason: "the approved body is not valid UTF-8", approvedSha256 }); }
+  // TextDecoder strips a leading BOM with ignoreBOM false.
+  let core = normalise(text).replace(/\s+$/, "");
   const carried = waveOf(core);
   if (carried !== null && carried !== wave) return out({ action: "decline", reason: `the approved body ends with the marker of wave ${carried}, not ${wave}; it was approved for another wave`, approvedSha256 });
   if (carried === wave) core = core.split("\n").slice(0, -1).join("\n").replace(/\s+$/, "");
   if (!core) return out({ action: "decline", reason: "the approved body is empty", approvedSha256 });
   if (LOCAL_PATH.test(core)) return out({ action: "decline", reason: "the approved body carries a local file path; a project update must read cold, and an approved body is posted as written, so fix the file and re-approve it", approvedSha256 });
   const body = `${core}\n\n${marker(wave)}`;
+  const sentBodySha256 = sha256(Buffer.from(body, "utf8"));
 
   const { ours, foreign, otherWaves } = partition(input.existing, wave, input.since);
   if (foreign.length && !ours.length) {
@@ -254,7 +315,7 @@ function approvedBody(input, { health, reason, healthSource }) {
   const existing = ours[0] ?? null;
   let replacesText = false;
   if (existing) {
-    const theirs = String(existing.body ?? "").trimEnd().split("\n").slice(0, -1).join("\n").replace(/\s+$/, "");
+    const theirs = normalise(String(existing.body ?? "")).trimEnd().split("\n").slice(0, -1).join("\n").replace(/\s+$/, "");
     if (theirs !== core) {
       if (input.unattended) return out({ action: "decline", reason: `update ${existing.id} already holds this wave's text for project ${proj}; an approved body would replace it, and an unattended run does not replace text nobody confirmed it may`, ids: [existing.id], approvedSha256 });
       replacesText = true;
@@ -263,7 +324,7 @@ function approvedBody(input, { health, reason, healthSource }) {
   return finish(input, {
     action: existing ? "edit" : "create",
     ...(existing ? { id: existing.id } : {}),
-    type: "project", project: proj, health, healthSource, reason, body, bodySource: "file", approvedSha256,
+    type: "project", project: proj, health, healthSource, reason, body, bodySource: "file", approvedSha256, sentBodySha256,
     ...(replacesText ? { replacesText: true } : {}),
     ...(otherWaves.length ? { ignoredOtherWaves: otherWaves.map((u) => u.id) } : {}),
   });
@@ -306,7 +367,9 @@ function rollup(input) {
     const p = parseBody(u.body);
     const lanes = (p ? p.sections : []).map((s) => {
       const [head, ...rest] = s.text.split("\n");
-      const cand = rest[1] ?? ""; // renderLane order: move line, then the TL;DR, then Commit/Health
+      // renderLane order: a ticket section has its move line, then the TL;DR; a project section
+      // (key Project) has no move line, so its TL;DR comes first. Then Commit/Health.
+      const cand = (s.key === PROJECT_KEY ? rest[0] : rest[1]) ?? "";
       const summary = /^(Health|Commit):/.test(cand) ? "" : cand;
       return `- ${head.replace(/^### /, "")}${summary ? ` — ${summary}` : ""}`;
     });
