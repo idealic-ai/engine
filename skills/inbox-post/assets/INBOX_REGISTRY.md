@@ -36,6 +36,7 @@ Each intake project carries its **own complete copy**, attached to the project s
 | Product: Orchestration | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-orchestration-intake-inboxes-work-1ff5597c997b) | `83a9a7d7-fecf-4135-b47b-75514e9f3b6e` · `1ff5597c997b` |
 | Product: Market & Jobs | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-market-and-jobs-intake-inboxes-work-4b8c10a1ebe7) | `163b1b3d-74e0-4f14-a169-ad448c295c60` · `4b8c10a1ebe7` |
 | Collaboration | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-991f32257ace) | `55c09887-d8cb-42ff-b2fa-73ecb75d120f` · `991f32257ace` |
+| Product: UI & Design | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-94fdfc6dab1b) | `ae98e2af-b43b-499b-add0-853b401708cb` · `94fdfc6dab1b` |
 
 **A row's project id alone resolves the project.** A caller that needs only the project (`/snapshot --yes` filing un-ticketed work, for one) takes the **Project id** from the project's section below and needs nothing else here. A project with no handbook document — Product: Realm's case, or any section reading *No inbox handbook yet* — still resolves; the missing handbook only means no handbook rules apply.
 
@@ -106,6 +107,14 @@ A wave can attach a project to an initiative it is given by name — `save_proje
 - Kit's `converge/`, `converge-policies/`, `admit/` and `afford/` are this project's, by the operator's ruling of 2026-11-04 (ask `packages:converge/20261104-013033`, which named the project).
 
 *Four channels rather than the default set. Seat: packages:converge. Created 2026-11-04 on that ruling.*
+
+## Product: UI & Design
+- **Project id**: `ce3671e0-6cbe-4426-8012-3adb4d9d39c8` (`P-IDE-12`) · **Inboxes milestone**: `b06b2b4e-98ee-4f9e-ba25-ef400a3c3ee1`
+- 🟪 Inquiries — [IDE-380](https://linear.app/idealic/issue/IDE-380/inquiries)
+- 🔴 Observed problems — [IDE-381](https://linear.app/idealic/issue/IDE-381/observed-problems)
+- 🟦 Documentation — [IDE-382](https://linear.app/idealic/issue/IDE-382/documentation)
+
+*Three channels rather than the default set, confirmed by manager:docs as a small scaffold. Seat: core:ui.*
 
 ## Product: Idea
 - **Project id**: `1116afcd-4829-4bda-872d-df146b9d5450` · **Inboxes milestone**: `d22ec35a-8b99-44f0-886c-50496a39db08`
