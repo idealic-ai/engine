@@ -16,12 +16,19 @@
  * leaves an index empty.
  *
  * SEARCHFIX: what `score` means, and the floor. A hit's score is the cosine between the query and its best
- * chunk (both unit vectors, so at most 1), plus 0.1 times the share of the query's words found literally in
- * the hit's title, id or best section. Nothing is normalised against the other hits, so a score does not
- * depend on what else matched and a threshold means the same thing on every query at one model. Hits under
- * `minScore` are dropped; the default is `defaultMinScore(model)`: 0.40 for embeddinggemma, where it was
- * measured (builds/SEARCHFIX_REPORT.md: queries nothing in the corpus is about topped out at 0.22-0.38, hits
- * judged relevant scored 0.43 and up), and 0 (no floor) for any model nobody has measured.
+ * chunk (both unit vectors, so at most 1), plus 0.1 times the share of the query's words found as whole words
+ * in the hit's title, id or best section, so the top can reach 1.1. Nothing is normalised against the other
+ * hits, so a score does not depend on what else matched; the bonus per word shrinks as a query grows, so one
+ * threshold means roughly, not exactly, the same on every query. Hits under `minScore` are dropped; the
+ * default is `defaultMinScore(model)`: 0.40 for embeddinggemma and 0 (no floor) for any model nobody measured.
+ * 0.40 is tuned to empty the answer for a query nothing in the corpus is about (measured 2026-11-04: such
+ * queries top out at 0.16-0.41, far-off ones under 0.29, near-domain ones like "balancer" and "kubernetes"
+ * at 0.37-0.41). It is not a separator of relevant from irrelevant: relevant hits also occur at 0.35-0.40
+ * (builds/SEARCHFIX_REPORT.md, SEARCHFIX_CRITIQUE.md S4), so a caller filtering a list should send its own
+ * lower minScore (about 0.30). The floor is keyed on the model name only, not its width.
+ *
+ * An empty index answers index-empty only after the query embed (up to ASK_SEARCH_QUERY_TIMEOUT_MS), the
+ * price of naming a dead embedder as the cause.
  *
  * Unpublished builds/ proof copies (status "local", no url, no appPath) are left out unless the caller asks
  * for the `local` kind: such a hit cannot be opened from the app.
@@ -115,6 +122,12 @@ export function terms(q: string): string[] {
   return q.toLowerCase().split(/\s+/).map((t) => t.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")).filter((t) => t.length > 1);
 }
 
+/** Whether `w` occurs in `hay` as a whole word: not flanked by a letter or digit (Unicode-aware). */
+export function wordIn(hay: string, w: string): boolean {
+  const esc = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\p{L}\\p{N}])${esc}(?![\\p{L}\\p{N}])`, "u").test(hay);
+}
+
 /** About `width` characters of `body` around the first query word found in it, else its start. */
 export function excerptOf(body: string, words: string[], width = 240): string {
   const flat = body.replace(/\s+/g, " ").trim();
@@ -166,7 +179,8 @@ export async function search(db: SearchDb, embedder: EmbeddingClient, opts: Sear
     const it = itemQ.get(key) as { kind: Kind; seat: string; id: string; title: string; status: string; url: string | null; app_path: string | null };
     const ch = chunkQ.get(b.chunkId) as { section: string; body: string };
     const hay = `${it.title} ${it.id} ${ch.section} ${ch.body}`.toLowerCase();
-    const found = words.length ? words.filter((w) => hay.includes(w)).length / words.length : 0;
+    // A word counts only as a whole word: "lease" must not earn the bonus from "release" (SEARCHFIX S3).
+    const found = words.length ? words.filter((w) => wordIn(hay, w)).length / words.length : 0;
     return {
       kind: it.kind,
       seat: it.seat,

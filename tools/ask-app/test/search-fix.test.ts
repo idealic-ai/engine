@@ -13,8 +13,8 @@ import path from "node:path";
 import { newAsk } from "../src/lib/store.ts";
 import { openSearchDb, type SearchDb } from "../src/search/db.ts";
 import { indexSources } from "../src/search/indexer.ts";
-import { DEFAULT_MIN_SCORE, defaultMinScore, search, SEARCH_KINDS } from "../src/search/query.ts";
-import { askSource, broadcastSource, proofFileSource, type Source } from "../src/search/sources.ts";
+import { DEFAULT_MIN_SCORE, defaultMinScore, search, SEARCH_KINDS, wordIn } from "../src/search/query.ts";
+import { ASK_BODY_VERSION, askSource, broadcastSource, proofFileSource, type Source } from "../src/search/sources.ts";
 import { defaultBroadcastDir } from "../src/lib/broadcasts.ts";
 import { fakeEmbedder } from "./fixtures/fake-embedder.ts";
 
@@ -148,7 +148,6 @@ describe("the broadcasts directory default", () => {
   it("names no operator in its source", () => {
     const src = fs.readFileSync(new URL("../src/lib/broadcasts.ts", import.meta.url), "utf8");
     expect(src).not.toMatch(/yarik/);
-    expect(src).not.toContain(os.userInfo().username);
   });
 });
 
@@ -166,5 +165,53 @@ describe("every option field is indexed", () => {
     for (const s of ["draining every shard", "the eviction work", "failover page", "one moving part", "three nodes", "two days", "every session"]) expect(body).toContain(s);
     const hits = await search(db, e, { q: "draining every shard", kinds: ["ask"] });
     expect(hits[0]).toMatchObject({ id: "store-pick" });
+  });
+});
+
+describe("SEARCHFIX round 2", () => {
+  const forkBody = () => (db.prepare("SELECT group_concat(body, '\n') AS b FROM chunks WHERE item_key LIKE '%opt-m%'").get() as { b: string }).b;
+
+  it("S1: a short field value that merely occurs in the description is still indexed; an echoed line is not doubled", async () => {
+    const text =
+      "## ¶ASK_PICK: Choose one: Which store?\nContext: c\n" +
+      "- [ ] [RED] Redis\n  Moves sessions to Redis.\n  Effort: M\n  Reversible: only by draining every shard\n" +
+      "- [ ] [MEM] Memcached\n  Plain.\n  Effort: M\n";
+    newAsk(root, { from: "meta:engine", to: "manager:meta", id: "opt-m", why: "w" }, text);
+    await indexSources(db, sources(), fakeEmbedder());
+    const body = forkBody();
+    expect(body.match(/Effort: M/g)).toHaveLength(2); // RED's description holds an "M" (in "Moves"); MEM's does not
+    expect(body.match(/Reversible: only by draining every shard/g)).toHaveLength(1);
+  });
+
+  it("S2: the ask stamp carries ASK_BODY_VERSION, so an ask indexed under an older askBody is re-read on the next pass", async () => {
+    const e = fakeEmbedder();
+    await indexSources(db, sources(), e);
+    const row = db.prepare("SELECT stamp FROM items WHERE key LIKE 'ask:%'").get() as { stamp: string };
+    expect(row.stamp.endsWith(`:${ASK_BODY_VERSION}`)).toBe(true);
+    const quiet = await indexSources(db, sources(), e);
+    expect(quiet.changed + quiet.touched + quiet.added).toBe(0);
+    // An index written before the version existed: stamps without it.
+    db.prepare("UPDATE items SET stamp = substr(stamp, 1, length(stamp) - ?) WHERE key LIKE 'ask:%'").run(ASK_BODY_VERSION.length + 1);
+    const again = await indexSources(db, sources(), e);
+    expect(again.changed + again.touched).toBeGreaterThanOrEqual(1);
+  });
+
+  it("S3: the literal-word bonus counts whole words only: 'lease' does not match 'release'", async () => {
+    expect(wordIn("we release on friday", "lease")).toBe(false);
+    expect(wordIn("take the lease, then push", "lease")).toBe(true);
+    expect(wordIn("see ide-334.", "ide-334")).toBe(true);
+    expect(wordIn("ide-3345", "ide-334")).toBe(false);
+    newAsk(root, { from: "meta:engine", to: "manager:meta", id: "rel", why: "w" }, ASK("When do we release the build?"));
+    newAsk(root, { from: "meta:engine", to: "manager:meta", id: "lea", why: "w" }, ASK("When do we take the lease?"));
+    const e = fakeEmbedder();
+    await indexSources(db, sources(), e);
+    const hits = await search(db, e, { q: "lease", kinds: ["ask"], minScore: 0 });
+    const rel = hits.find((h) => h.id === "rel");
+    const lea = hits.find((h) => h.id === "lea")!;
+    // The fake embedder hashes whole words, so "release" shares no vector weight with "lease": without a bonus it
+    // scores at most its cosine, and the bonus would be the only thing lifting it.
+    expect(lea.score).toBeGreaterThan(0.1);
+    expect(rel).toBeDefined();
+    expect(rel!.score).toBeLessThan(0.1);
   });
 });

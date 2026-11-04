@@ -43,7 +43,7 @@
 #                  The operator (--by operator) or <old>'s own manager only. Re-run until a pass reports
 #                  "moved 0 asks and changed 0 fields"; a run that stops partway is finished by running it again
 #   engine ask serve [dir] [--port N] [--stop]   start (or reuse) the local app on 127.0.0.1
-#   engine ask search index [--full] | query "<q>" [--kind ask|proof|broadcast] [--limit N] | status  [--json]
+#   engine ask search index [--full] | query "<q>" [--kind ask|proof|broadcast|local] [--limit N] [--min-score S] | status  [--json]
 #                  semantic search over asks (all statuses, cut by fork), broadcasts and proof pages (the
 #                  proof store and sessions' builds/*_PROOF.html, deduped): the same index the app's
 #                  /api/search reads, <root>/.ask-app.search.db. Needs Ollama with embeddinggemma.

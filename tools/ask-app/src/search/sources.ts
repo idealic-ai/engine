@@ -52,6 +52,13 @@ const plain = (s: string) => s.replace(/[*_`#>]+/g, "").replace(/\[([^\]]*)\]\([
 
 // ── asks ──────────────────────────────────────────────────────────────
 
+/**
+ * The version of what `askBody` puts in the index. Bump it whenever askBody's output changes, so every ask is
+ * re-read on the next pass (an asks-only pass over the live asks measured 40 s, 234 MB, 2026-11-04).
+ * b2: the per-option fields (SEARCHFIX).
+ */
+export const ASK_BODY_VERSION = "b2";
+
 /** The option fields indexed under each option, as the ask file writes their labels. */
 const OPTION_FIELD_LABELS = [
   ["reversible", "Reversible"], ["unblocks", "Unblocks"], ["then", "Then"], ["elegance", "Elegance"],
@@ -91,9 +98,12 @@ export function askBody(root: string, seat: string, file: string, text: string):
         const pad = "  ".repeat(depth);
         opts.push(`${pad}- ${o.code ? `[${o.code}] ` : ""}${o.label}${o.description ? `: ${o.description}` : ""}`);
         // SEARCHFIX: every per-option field, so text that left the description (Reversible, since f936d49)
-        // stays searchable. A field the description still echoes is not repeated.
+        // stays searchable. A field is skipped only when the description already holds its whole `Label: value`
+        // text (the parser echoes Reversible that way, joined onto the prose); a value that merely occurs in
+        // the prose ("M" in "Moves") is kept.
+        const desc = (o.description ?? "").toLowerCase();
         for (const [name, v] of OPTION_FIELD_LABELS.map(([k, n]) => [n, o[k]] as const)) {
-          if (v && !(o.description ?? "").includes(v)) opts.push(`${pad}  ${name}: ${v}`);
+          if (v && !desc.includes(`${name}: ${v}`.toLowerCase())) opts.push(`${pad}  ${name}: ${v}`);
         }
         walk(o.children ?? [], depth + 1);
       }
@@ -159,7 +169,9 @@ export function askSource(root: string): Source {
           }
           items.push({
             key: `ask:${seat}/${f.slice(0, -3)}`,
-            stamp: `${st.mtimeMs}:${st.size}`,
+            // ASK_BODY_VERSION rides the stamp, so changing what askBody indexes re-reads every ask on the next
+            // pass by itself, with no manual --full.
+            stamp: `${st.mtimeMs}:${st.size}:${ASK_BODY_VERSION}`,
             read: async () => {
               try {
                 return askBody(root, seat, file, fs.readFileSync(file, "utf8"));
