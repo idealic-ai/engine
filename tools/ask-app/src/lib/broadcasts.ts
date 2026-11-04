@@ -8,6 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { defaultAskRoot } from "./store.ts";
+import { isAskNotice } from "./notice-queue.ts";
 
 export type Broadcast = {
   id: string;
@@ -69,7 +70,7 @@ export function listBroadcasts(dir = defaultBroadcastDir(), now = Date.now()): B
       /* no acks yet */
     }
     // NOTIFYQ: an ask-app no-action digest is a seat's queued notice, not the director's guidance.
-    if (/^kind: ask-notice$/m.test(text.split("\n## Text\n")[0])) continue;
+    if (isAskNotice(text)) continue;
     out.push(parseBroadcast(id, text, acks, now));
   }
   return out.sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0));

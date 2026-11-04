@@ -15,6 +15,12 @@ ENGINE_SH="$ENGINE_DIR/scripts/engine.sh"
 
 # The served client is built ONCE into a throwaway dir: no test ever builds into (or serves) the
 # app's own dist/, which a live server may be reading.
+# NOTIFYQ: revise, supersede, withdraw and attach-panel queue a notice in the broadcast queue. Every test
+# points BROADCAST_DIR at its own scratch dir (setup); the fleet's live queue is counted here and again
+# by the last test, which fails if this run left a digest in it.
+LIVE_BCAST_DIR="$HOME/.claude/data/yarik/broadcasts"
+live_notice_count() { find "$LIVE_BCAST_DIR" -name 'ask-notice-*' 2>/dev/null | wc -l | tr -d ' '; }
+LIVE_NOTICES_BEFORE=$(live_notice_count)
 ASK_TEST_DIST_DIR=$(mktemp -d /tmp/askdist-XXXXXX)
 trap 'rm -rf "$ASK_TEST_DIST_DIR"' EXIT
 (cd "$ENGINE_DIR/tools/ask-app" && npx vite build --logLevel error --outDir "$ASK_TEST_DIST_DIR/dist" --emptyOutDir) >/dev/null 2>&1 \
@@ -35,6 +41,7 @@ setup() {
   TMP=$(mktemp -d /tmp/askcli-XXXXXX)
   export ASK_ROOT="$TMP/asks"
   export ASK_SESSIONS_DIR="$TMP/sessions"
+  export BROADCAST_DIR="$TMP/broadcasts"
   mkdir -p "$ASK_SESSIONS_DIR"
   # The suite never reads live tmux: with no TMUX_PANE the CLI uses FLEET_PANE/FLEET_PARENT.
   unset FLEET_PARENT FLEET_MANAGES LINEAR_API_KEY TMUX_PANE ASK_LIVE_PANES ASK_TMUX_SOCKET
@@ -1127,6 +1134,31 @@ test_overop_a_seat_cannot_replace_the_operators_answer() {
   assert_eq "$before" "$(cat "$f")" "the refused answer and draft write nothing"
   as_op answer idealic:kernel/op1 --revision 2 --json '{"GO":["YES"]}' >/dev/null
   assert_contains '"YES"' "$(sed -n '/```json answer/,/```$/p' "$f")" "the operator changes its own answer"
+}
+
+# ── NOTIFYQ: no-action notices are queued, never into the fleet's queue from a fixture ──
+
+test_notifyq_withdraw_queues_the_holders_digest_in_broadcast_dir() {
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id nq1 >/dev/null
+  local out; out=$("$ASK_SH" withdraw idealic:kernel/nq1 --reason "moot")
+  assert_contains "notice manager:idealic queued for its next prompt" "$out" "the CLI says the notice waits for the seat's next prompt"
+  local q; q=$(ls "$BROADCAST_DIR/queued/manager:idealic" 2>/dev/null | grep -c '^ask-notice-')
+  assert_eq "1" "$q" "one digest is queued for the holder under BROADCAST_DIR"
+}
+
+test_notifyq_unset_broadcast_dir_refuses_a_fixture_ask_and_writes_nothing() {
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id nq2 >/dev/null
+  local home="$TMP/home" out
+  mkdir -p "$home"
+  out=$(env -u BROADCAST_DIR HOME="$home" "$ASK_SH" withdraw idealic:kernel/nq2 --reason "moot" 2>&1)
+  assert_contains "notice manager:idealic undelivered: refused:" "$out" "a fixture ask's notice is refused when it would reach the live queue"
+  assert_eq "0" "$(find "$home" -name 'ask-notice-*' | wc -l | tr -d ' ')" "nothing is written under the default broadcast dir"
+  assert_contains "status: withdrawn" "$(cat "$ASK_ROOT/idealic:kernel/nq2.md")" "the withdraw itself still lands"
+}
+
+# Named to run last (tests run in name order): this run left no digest in the fleet's live queue.
+test_zz_notifyq_the_live_broadcast_queue_gained_no_digest() {
+  assert_eq "$LIVE_NOTICES_BEFORE" "$(live_notice_count)" "no ask-notice record or entry was added under $LIVE_BCAST_DIR"
 }
 
 run_discovered_tests

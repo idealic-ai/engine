@@ -785,6 +785,9 @@ cmd_resend() {
   local rec by tree s seats=()
   rec=$(record_of "$id") || exit $?
   retracted "$rec" && die 2 "broadcast '$id' was retracted"
+  # NOTIFYQ: an ask-app digest is queued for the seat's next prompt by ask-app and never pushed; a resend
+  # would push it live (or re-queue it with an ack line), which is the interruption it exists to avoid.
+  [ "$(header "$rec" kind)" = ask-notice ] && die 2 "broadcast '$id' is an ask-app no-action digest (kind: ask-notice): it is never resent; the seat sees it at its next prompt"
   by=$(live_self) || exit $?
   tree=$(live_tree) || exit $?
   for s in $(header "$rec" audience); do

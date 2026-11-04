@@ -4,35 +4,43 @@
  * Why: a push to a seat's socket interrupts it (an idle seat is woken, a busy one takes it mid-turn),
  * and the operator ruled that a notice which needs no action must not interrupt at all. A council
  * backfill that attached panels to fourteen forks of one ask sent fourteen "[ask-panel] … No action
- * needed" pushes into one pane. So these notices — `[ask-panel]`, `[ask-revised]`, `[ask-superseded]`,
- * `[ask-withdrawn]` — go into the per-seat broadcast queue IDE-352 built for idle seats, and the seat
- * sees them at its next prompt (or, mid-turn, after a tool call) as one digest per ask.
- * Notices that DO ask for action (an answer, a pass-up, a follow-up, a wake, a new ask) stay live
- * pushes through deliver.ts; nothing here touches them.
+ * needed" pushes into one pane. So these notices — panel, revised, superseded, withdrawn — go into the
+ * per-seat broadcast queue IDE-352 built for idle seats, and the seat sees them at its next prompt (or,
+ * mid-turn, after a tool call) as one digest per ask. Notices that DO ask for action (an answer, a
+ * pass-up, a follow-up, a wake, a new ask) stay live pushes through deliver.ts.
  *
- * The queue is broadcast.sh's (scripts/broadcast.sh, `fan_out` and `cmd_pending`), not a second one:
- *   - `$BROADCAST_DIR/<id>.md` is a broadcast record (header, `## Text`, `## Delivery`);
- *   - `$BROADCAST_DIR/queued/<seat, lowercased>/<id>` is an empty file saying the seat has not seen it;
+ * The queue is broadcast.sh's (scripts/broadcast.sh `fan_out` and `cmd_pending`), not a second one:
+ *   - `<dir>/<id>.md` is a broadcast record (header, `## Text`, `## Delivery`);
+ *   - `<dir>/queued/<seat, lowercased>/<id>` is an empty file saying the seat has not seen it;
  *   - hooks/user-prompt-broadcast-queue.sh runs `engine broadcast pending --queued`, which claims each
  *     entry by rename, prints it once and appends `delivered <seat> at-wake … via=queue`.
- * The record says `kind: ask-notice`, so broadcast.sh prints it without asking for an ack, and
- * `message: tell` + `tier: note` (TELL's note tier: queued for every seat, never pushed), so a reader
- * of tells shows it as what it is.
+ * `<dir>` is resolved exactly as broadcast.sh resolves BDIR — BROADCAST_DIR, else
+ * ~/.claude/data/yarik/broadcasts — and never from ASK_ROOT, so a notice lands where the drain reads.
  *
- * The digest: one record per (seat, ask) while it sits unseen in the queue. A second notice for the
- * same ask before the seat drains it is merged into that record — its first line lists every fork and
- * event — so a backfill over seven forks is one queued item, not seven. Once drained, the next notice
- * starts a new record. Merging rewrites the record by rename; if the drain claimed the entry while we
- * were merging, the event is queued again in a fresh record, so an event can be shown twice but is
- * never lost.
+ * The record: `from: ask-app` (the actors are named in each detail line and in `notice-events:`),
+ * `kind: ask-notice` (broadcast.sh prints it without an ack line and `resend` refuses it), and
+ * `message: tell` + `tier: note`, TELL's note tier: queued for every seat, never pushed. Its state is
+ * read from its `queued`/`delivered` lines; it is never acked. A `done:` line is written at creation,
+ * so `engine broadcast status` reads it as complete.
  *
- * `operator` is never queued (it is not a seat; the app redraws from the file). The operator's own
- * pane is a seat like any other, so its notices queue and show at its next prompt.
+ * The digest: one record per (seat, ask) while it sits unseen. A second notice for the same ask is
+ * merged into it. To merge, this process first takes the queue entry itself (renamed to
+ * `.<id>.hold.<pid>`, the form the drain already recognises and restores if this process dies), so the
+ * drain can neither show nor mark the record while it is rewritten; if the drain got the entry first,
+ * the notice starts a new record and the shown one is left untouched. Nothing is lost or shown twice.
+ *
+ * Refusals (`undelivered`, never a throw): `operator`, which is not a seat; and — the fixture guard — a
+ * notice bound for the fleet's live queue (BROADCAST_DIR unset) about an ask file outside the fleet's
+ * live ask root. A test or a scratch ASK_ROOT that forgets BROADCAST_DIR therefore writes nothing into
+ * real seats' queues.
+ *
+ * Cleanup: when a seat's new digest is written, that seat's earlier digests that were delivered more
+ * than NOTICE_KEEP_MS ago and are no longer queued are deleted.
  */
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { defaultBroadcastDir } from "./broadcasts.ts";
 
 export type NoticeKind = "panel" | "revised" | "superseded" | "withdrawn";
 
@@ -46,7 +54,7 @@ export type NoticeEvent = {
   by: string;
   /** The fork, for a panel. */
   fork?: string;
-  /** One line: what happened, in the words the old push used. */
+  /** One line: what happened, naming who did it. */
   detail: string;
   at?: string;
 };
@@ -59,11 +67,35 @@ export type NoticeOptions = { noticeDir?: string; now?: string };
 const ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 /** Detail lines kept in one digest; the first line still counts every event. */
 export const DIGEST_DETAIL_MAX = 10;
+/** How long a delivered digest is kept after it was shown. */
+export const NOTICE_KEEP_MS = 24 * 60 * 60_000;
 const LOCK_STALE_MS = 10_000;
+
+const fleetData = () => path.join(os.homedir(), ".claude", "data", "yarik");
+/** broadcast.sh's BDIR, exactly: BROADCAST_DIR, else ~/.claude/data/yarik/broadcasts. */
+export const noticeQueueDir = () => process.env.BROADCAST_DIR || path.join(fleetData(), "broadcasts");
+/** True when the queue dir is the fleet's live one (BROADCAST_DIR unset). */
+const isLiveQueue = (dir: string) => !process.env.BROADCAST_DIR && path.resolve(dir) === path.join(fleetData(), "broadcasts");
+
+/** A record's header (before `## Text`) says it is an ask-app digest. Shared by every broadcast reader. */
+export function isAskNotice(text: string): boolean {
+  return /^kind: ask-notice$/m.test(text.split("\n## Text\n")[0]);
+}
 
 const queueDir = (dir: string, seat: string) => path.join(dir, "queued", seat.toLowerCase());
 const keyOf = (seat: string, ref: string) => createHash("sha256").update(`${seat.toLowerCase()}\n${ref}`).digest("hex").slice(0, 10);
 const oneLine = (s: string) => s.replace(/[\r\n]+/g, " ").trim();
+const real = (p: string) => {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+};
+const inside = (file: string, root: string) => {
+  const rel = path.relative(real(root), real(path.dirname(file)));
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+};
 
 function atomic(file: string, text: string) {
   const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.tmp`);
@@ -99,7 +131,7 @@ async function withDirLock<T>(dir: string, fn: () => T): Promise<T> {
   }
 }
 
-/** The digest's first line: the ask, every fork and event it carries, and that nothing is asked. */
+/** The digest's first line: the ask, every fork and event it carries, and what (not) to do. */
 export function digestLine(ref: string, events: NoticeEvent[]): string {
   const parts: string[] = [];
   const panels = events.filter((e) => e.kind === "panel");
@@ -109,7 +141,11 @@ export function digestLine(ref: string, events: NoticeEvent[]): string {
     parts.push(`${panels.length === 1 ? "a panel" : `${panels.length} panels`} attached on fork${forks.length === 1 ? "" : "s"} ${forks.join(", ")} (by ${bys.join(", ")})`);
   }
   for (const e of events) if (e.kind !== "panel") parts.push(e.detail);
-  return `[ask-notices] ${ref}: ${parts.join("; ")}. No action needed: do not answer, acknowledge or ack this.`;
+  // A superseded ask has a replacement the holder still owes an answer to: say so, never "no action".
+  const close = events.some((e) => e.kind === "superseded")
+    ? "Answer the replacement named above; do not reply to or ack this notice."
+    : "No action needed: do not reply to or ack this notice.";
+  return `[ask-notices] ${ref}: ${parts.join("; ")}. ${close}`;
 }
 
 /** The record's `## Text`: the digest line, up to DIGEST_DETAIL_MAX detail lines, and the file. */
@@ -125,7 +161,7 @@ function recordText(id: string, seat: string, at: string, events: NoticeEvent[],
     `# Broadcast ${id}`,
     "",
     `id: ${id}`,
-    `from: ${e0.by}`,
+    "from: ask-app",
     "sent-by: ask-app",
     `at: ${at}`,
     "scope: seat",
@@ -151,9 +187,9 @@ function recordText(id: string, seat: string, at: string, events: NoticeEvent[],
 
 /** The events a record holds (its `notice-events:` header), or undefined when it is not ours or unreadable. */
 export function recordEvents(text: string): NoticeEvent[] | undefined {
-  const head = text.split("\n## Text\n")[0];
-  const m = head.match(/^notice-events: (.*)$/m);
-  if (!m || !/^kind: ask-notice$/m.test(head)) return undefined;
+  if (!isAskNotice(text)) return undefined;
+  const m = text.split("\n## Text\n")[0].match(/^notice-events: (.*)$/m);
+  if (!m) return undefined;
   try {
     const v = JSON.parse(m[1]);
     return Array.isArray(v) ? v : undefined;
@@ -174,14 +210,43 @@ function pendingDigest(dir: string, seat: string, ref: string): string | undefin
   return names.filter((n) => n.startsWith(prefix) && ID_RE.test(n) && fs.existsSync(path.join(dir, `${n}.md`))).sort().at(-1);
 }
 
+/** Delete this seat's digests that are shown, unqueued and older than NOTICE_KEEP_MS. Best effort. */
+function prune(dir: string, seat: string, now: number) {
+  const qd = queueDir(dir, seat);
+  const want = seat.toLowerCase();
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir).filter((n) => n.startsWith("ask-notice-") && n.endsWith(".md"));
+  } catch {
+    return;
+  }
+  for (const n of names) {
+    const id = n.slice(0, -3);
+    try {
+      if (fs.readdirSync(qd).some((q) => q === id || q.startsWith(`.${id}.`))) continue;
+      const rec = path.join(dir, n);
+      const text = fs.readFileSync(rec, "utf8");
+      if (!isAskNotice(text) || text.match(/^audience: (.*)$/m)?.[1].trim().toLowerCase() !== want) continue;
+      const shown = [...text.matchAll(/^delivered \S+ at-(?:wake|ack) (\S+)/gm)].map((m) => Date.parse(m[1])).filter(Number.isFinite);
+      if (shown.length && now - Math.max(...shown) > NOTICE_KEEP_MS) fs.rmSync(rec, { force: true });
+    } catch {
+      // leave it
+    }
+  }
+}
+
 /**
  * Queue one no-action notice for `seat`, merged into the seat's unseen digest for the same ask.
- * Never throws: a queue that cannot be written comes back `undelivered` with the reason, as a failed
- * push did, and the ask file stays the record.
+ * Never throws: a refusal or a queue that cannot be written comes back `undelivered` with the reason,
+ * and the ask file stays the record.
  */
 export async function queueNotice(seat: string, event: NoticeEvent, o: NoticeOptions = {}): Promise<NoticeResult> {
   if (!seat || seat === "operator") return { status: "undelivered", reason: "operator is not a seat; nothing is queued" };
-  const dir = o.noticeDir ?? defaultBroadcastDir();
+  const dir = o.noticeDir ?? noticeQueueDir();
+  const liveAsks = path.join(fleetData(), "asks");
+  if (isLiveQueue(dir) && !inside(event.file, liveAsks)) {
+    return { status: "undelivered", reason: `refused: ${event.file} is outside the fleet's ask root ${liveAsks} and BROADCAST_DIR is unset, so a notice about it would reach real seats' queues; set BROADCAST_DIR` };
+  }
   const at = o.now ?? new Date().toISOString();
   const ev: NoticeEvent = { ...event, detail: oneLine(event.detail), at: event.at ?? at };
   try {
@@ -190,23 +255,39 @@ export async function queueNotice(seat: string, event: NoticeEvent, o: NoticeOpt
     return await withDirLock(qd, () => {
       const existing = pendingDigest(dir, seat, ev.ref);
       if (existing) {
-        const rec = path.join(dir, `${existing}.md`);
-        const text = fs.readFileSync(rec, "utf8");
-        const events = recordEvents(text);
-        if (events) {
-          const delivery = text.slice(text.lastIndexOf("\n## Delivery\n") + "\n## Delivery\n\n".length);
-          const head = text.match(/^at: (.*)$/m)?.[1] ?? at;
-          atomic(rec, recordText(existing, seat, head, [...events, ev], delivery));
-          // The drain may have claimed the entry while we wrote: then this event was not shown.
-          if (fs.existsSync(path.join(qd, existing))) return { status: "queued" as const, id: existing, record: rec, merged: true };
+        // Take the entry first: while it is held the drain neither shows nor marks the record.
+        const hold = path.join(qd, `.${existing}.hold.${process.pid}`);
+        let held = false;
+        try {
+          fs.renameSync(path.join(qd, existing), hold);
+          held = true;
+        } catch {
+          // the drain claimed it first: it is shown as it was, and this notice starts a new digest
+        }
+        if (held) {
+          const rec = path.join(dir, `${existing}.md`);
+          try {
+            const text = fs.readFileSync(rec, "utf8");
+            const events = recordEvents(text);
+            if (events) {
+              const tail = text.indexOf("\n## Delivery\n");
+              const delivery = tail >= 0 ? text.slice(tail + "\n## Delivery\n\n".length) : "";
+              const head = text.match(/^at: (.*)$/m)?.[1] ?? at;
+              atomic(rec, recordText(existing, seat, head, [...events, ev], delivery));
+              return { status: "queued" as const, id: existing, record: rec, merged: true };
+            }
+          } finally {
+            fs.renameSync(hold, path.join(qd, existing));
+          }
         }
       }
       let id = `ask-notice-${keyOf(seat, ev.ref)}-${Date.now().toString(36)}`;
       for (let n = 2; fs.existsSync(path.join(dir, `${id}.md`)); n++) id = `${id.replace(/\.\d+$/, "")}.${n}`;
       const rec = path.join(dir, `${id}.md`);
       // The record before the entry: the drain drops an entry whose record it cannot read.
-      fs.writeFileSync(rec, recordText(id, seat, at, [ev], `queued ${seat} pid=- idle=? via=ask-notice\n`), { flag: "wx" });
+      fs.writeFileSync(rec, recordText(id, seat, at, [ev], `queued ${seat} pid=- idle=? via=ask-notice\ndone: rc=0 delivered=0 undelivered=0 queued=1 at ${at}\n`), { flag: "wx" });
       fs.writeFileSync(path.join(qd, id), "");
+      prune(dir, seat, Date.parse(at) || Date.now());
       return { status: "queued" as const, id, record: rec, merged: false };
     });
   } catch (e) {

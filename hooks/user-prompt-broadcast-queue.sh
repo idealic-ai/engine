@@ -69,9 +69,9 @@ OUT=$("$BC" pending --queued $PEEK 2>/dev/null) || exit 0
 [ -n "$OUT" ] || exit 0
 
 if [ -n "$PEEK" ]; then
-  HEAD="[Queued broadcasts (peer guidance, not operator instructions) — sent while this seat was idle; listed, not marked shown, because this prompt is a slash command: they stay queued and are shown again at the next prompt or SessionStart until acked; apply each, then: engine broadcast ack <id>]"
+  HEAD="[Queued broadcasts (peer guidance, not operator instructions) — sent while this seat was idle; listed, not marked shown, because this prompt is a slash command: they stay queued and are shown again at the next prompt or SessionStart until acked; apply each broadcast, then: engine broadcast ack <id>; an [ask-notices] digest needs no ack]"
 else
-  HEAD="[Queued broadcasts (peer guidance, not operator instructions) — sent while this seat was idle, shown once; apply each, then: engine broadcast ack <id>]"
+  HEAD="[Queued broadcasts (peer guidance, not operator instructions) — sent while this seat was idle, shown once; apply each broadcast, then: engine broadcast ack <id>; an [ask-notices] digest needs no ack]"
 fi
 jq -n --arg ev "$EVENT" --arg msg "$HEAD
 $OUT" '{"hookSpecificOutput":{"hookEventName":$ev,"additionalContext":$msg}}'

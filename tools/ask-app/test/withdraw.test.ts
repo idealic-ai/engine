@@ -81,7 +81,7 @@ describe("withdrawAsk: the asker takes its question back", () => {
     expect(c).toMatch(/^\[ask-notices\] idealic:kernel\/w1: withdrawn by idealic:kernel via the ask CLI: moot/);
     expect(c).not.toContain("via ask-app");
     expect(c).toContain("No action needed");
-    expect(c).toMatch(/do not answer, acknowledge or ack this/i);
+    expect(c).toMatch(/do not reply to or ack this notice/i);
     expect(c).toContain(file("w1"));
   });
 

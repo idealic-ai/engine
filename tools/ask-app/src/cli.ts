@@ -253,7 +253,7 @@ async function main() {
       const r = await reviseAsk(root, seat, id, fields, body !== undefined && body.trim() ? body : undefined, { by, floor: "author", ...(answersFollowup ? { answersFollowup } : {}) });
       warnAuthoring(r.file);
       console.log(`revised\t${seat}/${id}\trevision ${r.revision}\tchanged: ${r.changed.join(", ")}`);
-      for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);
+      for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status === "queued" ? "queued for its next prompt" : p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);
     } catch (e) {
       process.stderr.write(`${guideLine()}\n`);
       die((e as Error).message, e instanceof UntaggedFenceError ? 2 : 1);
@@ -436,7 +436,7 @@ async function main() {
     try {
       const r = await supersedeAsk(root, old, neu, { by: identity("supersede"), manages });
       console.log(`superseded\t${old.seat}/${old.id} → ${neu.seat}/${neu.id}\trevision ${r.revision}`);
-      for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);
+      for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status === "queued" ? "queued for its next prompt" : p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);
     } catch (e) {
       die((e as Error).message);
     }
@@ -453,7 +453,7 @@ async function main() {
       const r = await withdrawAsk(root, ref, { by: identity("withdraw"), reason: opt.reason, manages });
       console.log(`withdrawn\t${ref.seat}/${ref.id}\trevision ${r.revision}\t${opt.reason.replace(/\s+/g, " ").trim()}`);
       if (r.draftOf) console.log(`draft discarded\tsaved by ${r.draftOf}`);
-      for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);
+      for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status === "queued" ? "queued for its next prompt" : p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);
     } catch (e) {
       die((e as Error).message);
     }
@@ -477,7 +477,7 @@ async function main() {
         return;
       }
       console.log(`attached\t${ref.seat}/${ref.id}#${opt.fork}\t${panel.length} reads\t${proposals.length} proposed\t${r.entry.council}`);
-      for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);
+      for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status === "queued" ? "queued for its next prompt" : p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);
     } catch (e) {
       die((e as Error).message);
     }

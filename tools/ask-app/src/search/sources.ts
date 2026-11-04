@@ -20,6 +20,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseAskFile } from "../lib/format.ts";
 import { defaultBroadcastDir, parseBroadcast } from "../lib/broadcasts.ts";
+import { isAskNotice } from "../lib/notice-queue.ts";
 import { listProofs } from "../lib/proofs.ts";
 import { askAppBase } from "../lib/url.ts";
 import { displayTitle } from "../client/md.ts";
@@ -214,6 +215,8 @@ export function broadcastSource(root: string, dir = defaultBroadcastDir()): Sour
         } catch {
           continue;
         }
+        // NOTIFYQ: an ask-app digest is a seat's queued notice, not a broadcast page: /api/broadcasts skips it too.
+        if (isAskNotice(text)) continue;
         const b = parseBroadcast(n.slice(0, -3), text, [], now);
         const status = b.inForce ? "in-force" : "expired";
         items.push({

@@ -8,7 +8,9 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
-import { queueNotice, recordEvents } from "../src/lib/notice-queue.ts";
+import { NOTICE_KEEP_MS, isAskNotice, queueNotice, recordEvents } from "../src/lib/notice-queue.ts";
+import { listBroadcasts } from "../src/lib/broadcasts.ts";
+import { broadcastSource } from "../src/search/sources.ts";
 import { answerAsk, attachPanel, newAsk, reviseAsk, supersedeAsk, withdrawAsk } from "../src/lib/store.ts";
 
 const ENGINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -56,6 +58,10 @@ describe("a council backfill over seven forks of one ask", () => {
     expect(text).toMatch(/^tier: note$/m);
     expect(text).toContain(`[ask-notices] ${ASKER}/outline: 7 panels attached on forks ${FORKS.join(", ")} (by ${RUNNER}). No action needed`);
     expect(text).toMatch(/^queued manager:docs /m);
+    // S1/S4: complete at creation, sent by ask-app, the actor in the body.
+    expect(text).toMatch(/^done: rc=0 delivered=0 undelivered=0 queued=1 at /m);
+    expect(text).toMatch(/^from: ask-app$/m);
+    expect(text).toContain(`panel on fork Q8 from ${RUNNER}`);
   });
 });
 
@@ -74,7 +80,10 @@ describe("no-action notices to a seat", () => {
     const q = queued(HOLDER);
     expect(q).toHaveLength(1);
     const first = record(q[0]).split("## Text\n\n")[1].split("\n")[0];
-    expect(first).toMatch(/revised by manager:docs to revision 2 .*; superseded by manager:docs\/outline2/);
+    expect(first).toMatch(/revised by manager:docs to revision 2 .*; superseded by manager:docs\/outline2 \(manager:docs\): answer manager:docs\/outline2 instead/);
+    // S2: a superseded digest points at the replacement and never says "no action".
+    expect(first).toContain("Answer the replacement named above; do not reply to or ack this notice.");
+    expect(first).not.toContain("No action needed");
   });
   it("never queues for the operator", async () => {
     expect(await queueNotice("operator", { ref: "a/b", file: "/x", kind: "panel", by: RUNNER, fork: "Q1", detail: "d" }, { noticeDir: dir })).toMatchObject({ status: "undelivered" });
@@ -87,6 +96,83 @@ describe("no-action notices to a seat", () => {
     expect(b).toMatchObject({ status: "queued", merged: false });
     expect((b as { id: string }).id).not.toBe((a as { id: string }).id);
     expect(recordEvents(record((b as { id: string }).id))).toHaveLength(1);
+  });
+});
+
+describe("where a notice may land (M1)", () => {
+  it("with BROADCAST_DIR unset, a notice about an ask outside the fleet's ask root is refused and nothing is written", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "notifyq-home-"));
+    const saved = { HOME: process.env.HOME, BROADCAST_DIR: process.env.BROADCAST_DIR };
+    process.env.HOME = home;
+    delete process.env.BROADCAST_DIR;
+    try {
+      const r = await withdrawAsk(root, { seat: ASKER, id: "outline" }, { by: ASKER, reason: "moot", push });
+      expect(r.pushes[0].delivery).toMatchObject({ status: "undelivered" });
+      expect(r.pushes[0].delivery.reason).toMatch(/^refused: .* is outside the fleet's ask root .* BROADCAST_DIR is unset/);
+      expect(fs.existsSync(path.join(home, ".claude"))).toBe(false);
+      // An ask inside the fleet's root is queued at broadcast.sh's default dir, not beside ASK_ROOT.
+      const live = path.join(home, ".claude", "data", "yarik", "asks");
+      newAsk(live, { from: ASKER, to: HOLDER, id: "real" }, BODY);
+      const ok = await withdrawAsk(live, { seat: ASKER, id: "real" }, { by: ASKER, reason: "moot", push });
+      expect(ok.pushes[0].delivery.status).toBe("queued");
+      expect(fs.readdirSync(path.join(home, ".claude", "data", "yarik", "broadcasts", "queued", HOLDER))).toHaveLength(1);
+    } finally {
+      process.env.HOME = saved.HOME;
+      if (saved.BROADCAST_DIR === undefined) delete process.env.BROADCAST_DIR;
+      else process.env.BROADCAST_DIR = saved.BROADCAST_DIR;
+    }
+    expect(pushes).toEqual([]);
+  });
+});
+
+describe("the merge and the drain do not race (N2)", () => {
+  it("a merge holds the entry while it rewrites; a drained digest's delivered line is never overwritten", async () => {
+    const a = (await queueNotice(HOLDER, { ref: "s/i", file: "/f", kind: "revised", by: ASKER, detail: "one" }, { noticeDir: dir })) as { id: string; record: string };
+    // While held, the entry is a dotfile the drain skips; it is back in place after the merge.
+    const b = await queueNotice(HOLDER, { ref: "s/i", file: "/f", kind: "revised", by: ASKER, detail: "two" }, { noticeDir: dir });
+    expect(b).toMatchObject({ status: "queued", merged: true, id: a.id });
+    expect(fs.readdirSync(path.join(dir, "queued", HOLDER))).toEqual([a.id]);
+    // The drain shows it: entry gone, delivered line appended. The next notice must not touch that record.
+    fs.rmSync(path.join(dir, "queued", HOLDER, a.id));
+    fs.appendFileSync(a.record, `delivered ${HOLDER} at-wake 2026-11-04T00:00:00Z via=queue\n`);
+    const before = fs.readFileSync(a.record, "utf8");
+    const c = await queueNotice(HOLDER, { ref: "s/i", file: "/f", kind: "revised", by: ASKER, detail: "three" }, { noticeDir: dir });
+    expect(c).toMatchObject({ status: "queued", merged: false });
+    expect(fs.readFileSync(a.record, "utf8")).toBe(before);
+  });
+  it("a held entry left by a process that died is put back and shown by the drain", async () => {
+    const q = (await queueNotice(ASKER, { ref: `${ASKER}/outline`, file: "/f", kind: "revised", by: HOLDER, detail: "held" }, { noticeDir: dir })) as { id: string };
+    const qd = path.join(dir, "queued", ASKER);
+    fs.renameSync(path.join(qd, q.id), path.join(qd, `.${q.id}.hold.999999`)); // pid 999999: not alive
+    const live = path.join(dir, "live.txt");
+    fs.writeFileSync(live, `manager:director %1 -\n${ASKER} %4 manager:director\n`);
+    const env: Record<string, string | undefined> = { ...process.env, HOP_LIVE_PANES: live, TMUX_PANE: "%4", BROADCAST_DIR: dir, BROADCAST_LIB: path.join(ENGINE, "scripts/lib.sh") };
+    for (const k of ["FLEET_PANE", "FLEET_PARENT", "TMUX", "HOP_TMUX_SOCKET", "FLEET_TMUX_SOCKET", "FLEET_LIVE_PANES"]) delete env[k];
+    // `pending --queued` (the prompt hook) exits at its fast path when only a dotfile is left, so the
+    // restore is the full `pending` that SessionStart runs; broadcast.sh treats its own dead holds the same way.
+    const quick = spawnSync("bash", [path.join(ENGINE, "scripts/broadcast.sh"), "pending", "--queued"], { env, encoding: "utf8" });
+    expect(quick.stdout).toBe("");
+    const out = spawnSync("bash", [path.join(ENGINE, "scripts/broadcast.sh"), "pending"], { env, encoding: "utf8" });
+    expect(out.stdout).toContain(`[ask-notices] ${ASKER}/outline: held`);
+  }, 60_000);
+  it("prunes a seat's digests delivered more than a day ago and no longer queued", async () => {
+    const a = (await queueNotice(HOLDER, { ref: "s/old", file: "/f", kind: "revised", by: ASKER, detail: "old", }, { noticeDir: dir, now: "2026-11-01T00:00:00.000Z" })) as { id: string; record: string };
+    fs.rmSync(path.join(dir, "queued", HOLDER, a.id));
+    fs.appendFileSync(a.record, `delivered ${HOLDER} at-wake 2026-11-01T00:01:00Z via=queue\n`);
+    const later = new Date(Date.parse("2026-11-01T00:01:00Z") + NOTICE_KEEP_MS + 1000).toISOString();
+    await queueNotice(HOLDER, { ref: "s/new", file: "/f", kind: "revised", by: ASKER, detail: "new" }, { noticeDir: dir, now: later });
+    expect(fs.existsSync(a.record)).toBe(false);
+  });
+});
+
+describe("readers that skip digests (S3)", () => {
+  it("/api/broadcasts and the search index both skip ask-notice records", async () => {
+    await queueNotice(HOLDER, { ref: "s/i", file: "/f", kind: "revised", by: ASKER, detail: "one" }, { noticeDir: dir });
+    const rec = fs.readdirSync(dir).find((n) => n.endsWith(".md"))!;
+    expect(isAskNotice(fs.readFileSync(path.join(dir, rec), "utf8"))).toBe(true);
+    expect(listBroadcasts(dir)).toEqual([]);
+    const listed = await broadcastSource(root, dir).list();
+    expect(listed.items).toEqual([]);
   });
 });
 
@@ -121,5 +207,13 @@ describe("the drain (scripts/broadcast.sh pending --queued, as the prompt hook r
     const two = drain();
     expect(two.status).toBe(0);
     expect(two.stdout).toBe("");
+    // S1: status reads it complete, and resend refuses it rather than pushing it live.
+    const bc = (...a: string[]) => spawnSync("bash", [path.join(ENGINE, "scripts/broadcast.sh"), ...a], { env, encoding: "utf8" });
+    const st = bc("status", id);
+    expect(st.stdout).toMatch(/complete: yes \(done: rc=0 /);
+    const rs = bc("resend", id);
+    expect(rs.status).toBe(2);
+    expect(rs.stderr).toContain("is an ask-app no-action digest (kind: ask-notice): it is never resent");
+    expect(record(id)).not.toContain("resend:");
   }, 60_000);
 });

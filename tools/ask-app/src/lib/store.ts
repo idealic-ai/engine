@@ -1314,7 +1314,7 @@ export async function supersedeAsk(
   const seats = [...new Set([res.parsed.header.to ?? "", ...forwardChain(res.parsed.header).flatMap((h) => [h.from, h.to]), res.parsed.header.from ?? ""])].filter(
     (s) => s && s !== o.by && s !== "operator",
   );
-  const ev: NoticeEvent = { ref: oldRef, file: oldFile, kind: "superseded", by: o.by, detail: `superseded by ${newRef} (${o.by}); an answer or draft on ${oldRef} is refused` };
+  const ev: NoticeEvent = { ref: oldRef, file: oldFile, kind: "superseded", by: o.by, detail: `superseded by ${newRef} (${o.by}): answer ${newRef} instead; an answer or draft on ${oldRef} is refused` };
   const pushes: SupersedeResult["pushes"] = [];
   for (const s of seats) pushes.push({ seat: s, delivery: await sendNotice(s, ev, o) });
   return { file: oldFile, revision: res.revision, pushes };
