@@ -36,6 +36,7 @@ Each intake project carries its **own complete copy**, attached to the project s
 | Product: Orchestration | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-orchestration-intake-inboxes-work-1ff5597c997b) | `83a9a7d7-fecf-4135-b47b-75514e9f3b6e` · `1ff5597c997b` |
 | Product: Market & Jobs | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-market-and-jobs-intake-inboxes-work-4b8c10a1ebe7) | `163b1b3d-74e0-4f14-a169-ad448c295c60` · `4b8c10a1ebe7` |
 | Collaboration | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-991f32257ace) | `55c09887-d8cb-42ff-b2fa-73ecb75d120f` · `991f32257ace` |
+| Product: Security | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-74f153040282) | `a48993cc-598a-412d-8be6-028d1fef1adf` · `74f153040282` |
 
 **A row's project id alone resolves the project.** A caller that needs only the project (`/snapshot --yes` filing un-ticketed work, for one) takes the **Project id** from the project's section below and needs nothing else here. A project with no handbook document — Product: Realm's case, or any section reading *No inbox handbook yet* — still resolves; the missing handbook only means no handbook rules apply.
 
@@ -106,6 +107,15 @@ A wave can attach a project to an initiative it is given by name — `save_proje
 - Kit's `converge/`, `converge-policies/`, `admit/` and `afford/` are this project's, by the operator's ruling of 2026-11-04 (ask `packages:converge/20261104-013033`, which named the project).
 
 *Four channels rather than the default set. Seat: packages:converge. Created 2026-11-04 on that ruling.*
+
+## Product: Security
+- **Project id**: `6f1c4dd5-6aef-4960-81e5-85810431df73` (`P-IDE-27`, team Idealic) · **Inboxes milestone**: `845414d7-c215-473e-990a-8274944f0f63`
+- 🟪 Inquiries — [IDE-390](https://linear.app/idealic/issue/IDE-390/inquiries)
+- 🔴 Observed problems — [IDE-391](https://linear.app/idealic/issue/IDE-391/observed-problems)
+- 🔵 Feature requirements — [IDE-392](https://linear.app/idealic/issue/IDE-392/feature-requirements)
+- 🟦 Documentation — [IDE-393](https://linear.app/idealic/issue/IDE-393/documentation)
+
+*Four channels rather than the default set. Seat: domain:security. Created 2026-11-04 on manager:director's 22:04 ruling. No 🛠️ channel; the handbook routes tooling to Product: Idea's IDE-126. Re-core: GRANT (P-IDE-26) stays the separate spec project.*
 
 ## Product: Idea
 - **Project id**: `1116afcd-4829-4bda-872d-df146b9d5450` · **Inboxes milestone**: `d22ec35a-8b99-44f0-886c-50496a39db08`
