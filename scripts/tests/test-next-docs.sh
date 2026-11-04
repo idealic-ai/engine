@@ -11,6 +11,9 @@
 # Fix-round-1 arms: 10 R1 commits only · 11 cap · 12 D1 repo-scoped owners · 13-16 S5 marker ·
 # 17 S1/S2 apply · 18 TypeScript bin and route · 19 owners-from-doc.
 # Fix-round-3 arms: 27 the marker-lost pause across seats · 28 a key with a space · 29 the apply lock.
+# DOCSINCE arm: 31 the range ends at the fetched upstream tip, not a stale checkout's HEAD; an
+# unfetchable upstream is unread (exit 2), never an empty range. Arms that test detection itself
+# pass --head HEAD, since their fixture's origin is not reachable.
 #
 # PLANTED-DEFECT CONTROLS (test_control_*): each plants one defect into a copy of the script and
 # asserts the matching arm reports failures against it. An arm that cannot go red proves nothing.
@@ -69,7 +72,7 @@ arm_new_skill() {
   printf '# documented\n' >"$r/skills/documented/SKILL.md"
   printf '\nSee /documented for more.\n' >>"$r/README.md"
   commit_all "$r" "add shiny"
-  out=$(bash "$ds" detect --repo "$r" --since "$base" 2>/dev/null); rc=$?
+  out=$(bash "$ds" detect --repo "$r" --head HEAD --since "$base" 2>/dev/null); rc=$?
   assert_eq "3" "$rc" "1 new skill, no doc mention: detect exits 3 (signals found)"
   assert_contains "signal${T}undocumented-feature${T}fixture:skills/shiny/SKILL.md" "$out" "1 new skill, no doc mention: undocumented-feature on fixture:skills/shiny/SKILL.md (repo-keyed)"
   assert_not_contains "skills/documented" "$out" "1 a new skill a doc names (/documented) does not fire"
@@ -79,7 +82,7 @@ arm_removed_path() {
   local ds="$1" r="$WORK/removed.$RANDOM" base out rc
   base=$(fixture "$r")
   (cd "$r" && git rm -q skills/old/SKILL.md && git commit -q -m "drop old") >/dev/null 2>&1
-  out=$(bash "$ds" detect --repo "$r" --since "$base" 2>/dev/null); rc=$?
+  out=$(bash "$ds" detect --repo "$r" --head HEAD --since "$base" 2>/dev/null); rc=$?
   assert_eq "3" "$rc" "2 doc names a removed path: detect exits 3"
   assert_contains "signal${T}stale-reference${T}fixture:docs/guide.md${T}names removed path skills/old/SKILL.md" "$out" "2 doc names a removed path: stale-reference on fixture:docs/guide.md"
   # Path tokens: a longer path that merely ends in the old one is not a mention of it; a doc-relative
@@ -93,7 +96,7 @@ arm_removed_path() {
   printf '# c\n\nRead ~/src/fixture/hb/std.idea first.\n' >"$r2/notes/abs.md"
   commit_all "$r2" "pages"; base=$(git -C "$r2" rev-parse HEAD)
   (cd "$r2" && git mv hb/std.idea hb/hb/std.idea && git commit -q -m move) >/dev/null 2>&1
-  out=$(bash "$ds" detect --repo "$r2" --since "$base" 2>/dev/null)
+  out=$(bash "$ds" detect --repo "$r2" --head HEAD --since "$base" 2>/dev/null)
   assert_contains "stale-reference${T}fixture:hb/README.md${T}names hb/std.idea" "$out" "2 a doc-relative ./std.idea link to the moved path fires"
   assert_contains "stale-reference${T}fixture:notes/abs.md${T}names hb/std.idea" "$out" "2 an absolute path ending in the moved path fires"
   assert_not_contains "fixture:notes/gen.md" "$out" "2 hb/hb/std.idea (the NEW path) is not a mention of hb/std.idea"
@@ -110,7 +113,7 @@ arm_unrelated() {
   printf 'key=1\n' >"$r/scripts/new.conf"
   printf '#!/bin/bash\nhelper() { :; }\n' >"$r/scripts/helper.sh"      # mode 100644: sourced
   commit_all "$r" "unrelated"
-  out=$(bash "$ds" detect --repo "$r" --since "$base" 2>/dev/null); rc=$?
+  out=$(bash "$ds" detect --repo "$r" --head HEAD --since "$base" 2>/dev/null); rc=$?
   assert_eq "0" "$rc" "3 unrelated change (reflowed arm, test, conf, sourced helper): detect exits 0"
   assert_empty "$out" "3 unrelated change: detect prints no signal"
 }
@@ -221,7 +224,7 @@ arm_redundancy() {
   printf '# Release\n\n%s\n' "$para" >"$r/docs/release.md"
   printf '\n%s\n' "$para" >>"$r/README.md"
   commit_all "$r" "two docs gain one passage"
-  out=$(bash "$ds" detect --repo "$r" --since "$base" 2>/dev/null); rc=$?
+  out=$(bash "$ds" detect --repo "$r" --head HEAD --since "$base" 2>/dev/null); rc=$?
   assert_eq "3" "$rc" "9 redundancy: detect exits 3"
   assert_eq "1" "$(printf '%s\n' "$out" | grep -c "${T}redundancy${T}")" "9 redundancy: one signal per unordered pair (README.md ↔ docs/release.md)"
   assert_not_contains "redundancy${T}fixture:${T}" "$out" "9 no redundancy row has an empty path (the mawk lvalue-order trap)"
@@ -240,7 +243,7 @@ arm_flags() {
   printf '#!/bin/bash\ncase "$1" in\n  --old) echo old ;;\n  --documented) echo d ;;\n  -h|--help) echo h ;;\nesac\nif [ "$1" = --rename ]; then echo r; fi\nif [ "$1" = --live ]; then echo l; fi\n' >"$r/scripts/tool.sh"
   printf '\nThe --live-foo mode is unrelated. See also --help.\n' >>"$r/docs/guide.md"
   commit_all "$r" "flags"
-  out=$(bash "$ds" detect --repo "$r" --since "$base" 2>/dev/null); rc=$?
+  out=$(bash "$ds" detect --repo "$r" --head HEAD --since "$base" 2>/dev/null); rc=$?
   assert_eq "3" "$rc" "20 flags: detect exits 3"
   assert_contains "fixture:scripts/tool.sh${T}new flag --rename" "$out" "20 a flag tested by [ \"\$1\" = --rename ] fires"
   assert_contains "fixture:scripts/tool.sh${T}new flag --live " "$out" "20 --live fires: a doc naming --live-foo is not a mention of --live (N3)"
@@ -256,7 +259,7 @@ arm_commits_only() {
   rm -f "$r/skills/old/SKILL.md"
   mkdir -p "$r/skills/wip"; printf '# wip\n' >"$r/skills/wip/SKILL.md"
   printf '#!/bin/bash\n' >"$r/scripts/wip.sh"; chmod +x "$r/scripts/wip.sh"
-  out=$(bash "$ds" detect --repo "$r" --since "$base" 2>/dev/null); rc=$?
+  out=$(bash "$ds" detect --repo "$r" --head HEAD --since "$base" 2>/dev/null); rc=$?
   assert_eq "0" "$rc" "10 R1: uncommitted deletes and untracked files do not fire (exit 0)"
   assert_empty "$out" "10 R1: detect prints no signal for work that is not committed"
 }
@@ -321,10 +324,10 @@ arm_marker_unreachable() {
   (cd "$r" && git checkout -q -b side && printf 's\n' >side.txt && git add -A && git commit -q -m side && git checkout -q -) >/dev/null 2>&1
   side=$(git -C "$r" rev-parse side)
   printf 'x\n' >>"$r/notes.txt"; commit_all "$r" "main moves"
-  bash "$ds" detect --repo "$r" --since deadbeefdeadbeefdeadbeefdeadbeefdeadbeef >/dev/null 2>"$WORK/unreach.err"; rc=$?
+  bash "$ds" detect --repo "$r" --head HEAD --since deadbeefdeadbeefdeadbeefdeadbeefdeadbeef >/dev/null 2>"$WORK/unreach.err"; rc=$?
   assert_neq "2" "$rc" "16 S5: an unknown since-sha does not fail detect"
   assert_contains "falling back to the last 24 hours" "$(cat "$WORK/unreach.err")" "16 S5: it warns and falls back"
-  bash "$ds" detect --repo "$r" --since "$side" >/dev/null 2>"$WORK/unreach.err"; rc=$?
+  bash "$ds" detect --repo "$r" --head HEAD --since "$side" >/dev/null 2>"$WORK/unreach.err"; rc=$?
   assert_neq "2" "$rc" "16 S5: a since-sha that is not an ancestor of HEAD does not fail detect"
   assert_contains "not an ancestor of HEAD" "$(cat "$WORK/unreach.err")" "16 S5: it names why it fell back"
 }
@@ -354,7 +357,7 @@ arm_typescript() {
   printf 'app.get("/api/old", h)\napp.post("/api/fresh", h)\n' >"$r/pkg/src/server.ts"
   printf 'app.get("/api/testonly", h)\n' >"$r/pkg/src/server.test.ts"
   commit_all "$r" "ts feature"
-  out=$(bash "$ds" detect --repo "$r" --since "$base" 2>/dev/null); rc=$?
+  out=$(bash "$ds" detect --repo "$r" --head HEAD --since "$base" 2>/dev/null); rc=$?
   assert_eq "3" "$rc" "18 TS: detect exits 3"
   assert_contains "fixture:pkg/package.json${T}new bin newtool" "$out" "18 TS: a new package.json bin fires"
   assert_not_contains "new bin oldtool" "$out" "18 TS: a bin already in the pre-image does not"
@@ -384,7 +387,7 @@ arm_owners_from_doc() {
       - `resource-kernel/docs/WORLD_BASE.md`: Product: Worlds & Branches (inferred).
 - **Next principle.**
 EOF
-  out=$(bash "$ds" owners-from-doc --repo "$r" --repo-id kit "$r/OWN.md" 2>"$WORK/own.err")
+  out=$(bash "$ds" owners-from-doc --repo "$r" --repo-id kit --rev HEAD "$r/OWN.md" 2>"$WORK/own.err")
   assert_contains "kit${T}resource-*${T}Product: Resources & Platform" "$out" "19 owners-from-doc: a lane's glob path maps to its project"
   assert_contains "kit${T}resource-kernel/${T}-" "$out" "19 owners-from-doc: a lane mapping to none claims its path as '-'"
   assert_contains "kit${T}ideas-stats/${T}Product: Stats" "$out" "19 owners-from-doc: a sub-path override wins over the lane"
@@ -423,7 +426,7 @@ arm_owners_project_r6() {
       - `world-runner/src/merge/`: Product: Worlds & Branches (inferred).
 - **Next principle.**
 EOF
-  out=$(bash "$ds" owners-from-doc --repo "$r" --repo-id kit "$r/OWN6.md" 2>"$WORK/own6.err"); rc=$?
+  out=$(bash "$ds" owners-from-doc --repo "$r" --repo-id kit --rev HEAD "$r/OWN6.md" 2>"$WORK/own6.err"); rc=$?
   err=$(cat "$WORK/own6.err")
   assert_eq "0" "$rc" "30 owners-from-doc: a seat-keyed line parses"
   assert_contains "kit${T}world-runner/src/merge/${T}Product: Worlds & Branches" "$out" "30 override header: 'A sub-path inside a seat's area' is read as the override list"
@@ -435,13 +438,13 @@ EOF
   assert_contains "kit${T}kern/${T}Product: Resources & Platform" "$out" "30 N1: the list before it stands"
   assert_not_contains "no key" "$out$err" "30 an empty-key list entry is skipped"
   assert_not_contains "skipped" "$err" "30 skip report: a seat-keyed lane's skips are quiet by default"
-  err=$(bash "$ds" owners-from-doc --repo "$r" --repo-id kit --verbose "$r/OWN6.md" 2>&1 >/dev/null)
+  err=$(bash "$ds" owners-from-doc --repo "$r" --repo-id kit --rev HEAD --verbose "$r/OWN6.md" 2>&1 >/dev/null)
   assert_contains "skipped domain:language: missing6/ (not at HEAD)" "$err" "30 skip report: named with --verbose"
-  out=$(bash "$ds" owners-from-doc --repo "$r" --repo-id kit "$r/OWN6.md" 2>/dev/null)
+  out=$(bash "$ds" owners-from-doc --repo "$r" --repo-id kit --rev HEAD "$r/OWN6.md" 2>/dev/null)
   assert_not_contains "gone6/" "$out" "30 --rev: at HEAD a removed path is not emitted"
   out=$(bash "$ds" owners-from-doc --repo "$r" --repo-id kit --rev "$old" "$r/OWN6.md" 2>/dev/null)
   assert_contains "kit${T}gone6/${T}Product: Old" "$out" "30 --rev: at an older rev its tree is read"
-  out=$(bash "$ds" owners-from-doc --repo "$r" --repo-id kit --emit lane "$r/OWN6.md" 2>/dev/null)
+  out=$(bash "$ds" owners-from-doc --repo "$r" --repo-id kit --rev HEAD --emit lane "$r/OWN6.md" 2>/dev/null)
   assert_contains "kern/${T}core:kernel" "$out" "30 --emit lane: '<path> <seat>' rows"
   assert_contains "sec/${T}unread${T}-${T}domain:security owns" "$out" "30 --emit lane: the sentence's path is a guard naming the lane seats it names (none here: domain:security is no lane) and the sentence"
 }
@@ -574,12 +577,12 @@ arm_owners_unread() {
   local ds="$1" r="$WORK/unread.$RANDOM" rc
   fixture "$r" >/dev/null
   printf -- '- **Ownership is fixed.**\n  - Platform: `docs/`.\n- **Next.**\n' >"$r/NOLIST.md"
-  bash "$ds" owners-from-doc --repo "$r" --repo-id kit "$r/NOLIST.md" >"$WORK/unread.out" 2>"$WORK/unread.err"; rc=$?
+  bash "$ds" owners-from-doc --repo "$r" --repo-id kit --rev HEAD "$r/NOLIST.md" >"$WORK/unread.out" 2>"$WORK/unread.err"; rc=$?
   assert_eq "2" "$rc" "24 S1 the anchor without a lane → project list exits 2"
   assert_empty "$(cat "$WORK/unread.out")" "24 S1 and emits no rows"
   assert_contains "no lane → project list" "$(cat "$WORK/unread.err")" "24 S1 and says why"
   printf '# nothing\n' >"$r/NOANCHOR.md"
-  bash "$ds" owners-from-doc --repo "$r" --repo-id kit "$r/NOANCHOR.md" >/dev/null 2>"$WORK/unread.err2"; rc=$?
+  bash "$ds" owners-from-doc --repo "$r" --repo-id kit --rev HEAD "$r/NOANCHOR.md" >/dev/null 2>"$WORK/unread.err2"; rc=$?
   assert_eq "2" "$rc" "24 S1 a file with no Ownership anchor exits 2"
   assert_contains "no \"- **Ownership is fixed.**\" line" "$(cat "$WORK/unread.err2")" "24 N2 and names the missing anchor"
 }
@@ -590,7 +593,7 @@ arm_docs_from_commit() {
   mkdir -p "$r/skills/shiny"; printf '# shiny\n' >"$r/skills/shiny/SKILL.md"
   commit_all "$r" "add shiny"
   printf '\nHalf-written: see /shiny.\n' >>"$r/README.md"      # uncommitted mention
-  out=$(bash "$ds" detect --repo "$r" --since "$base" 2>/dev/null); rc=$?
+  out=$(bash "$ds" detect --repo "$r" --head HEAD --since "$base" 2>/dev/null); rc=$?
   assert_eq "3" "$rc" "25 g3 an uncommitted doc mention does not suppress the signal (exit 3)"
   assert_contains "fixture:skills/shiny/SKILL.md" "$out" "25 g3 docs are read from the commit, not the disk"
 }
@@ -651,10 +654,112 @@ test_b_28_space_key()        { arm_space_key "$DS"; }
 test_b_29_apply_lock()       { arm_apply_lock "$DS"; }
 test_b_30_owners_project_r6() { arm_owners_project_r6 "$DS"; }
 
+# DOCSINCE: the range ends at the repository's upstream tip, not at the checkout's HEAD. A primary
+# checkout held far behind origin read an empty range and missed every landed commit.
+# stale_fixture <dir> → builds <dir>/fixture.git (the upstream, HEAD → main), a seat clone that
+# pushes, and <dir>/stale, a clone left at the base; prints "<base> <c1> <c2>", where c1 adds
+# skills/shiny and c2 adds skills/bright, both pushed upstream and absent from stale's HEAD.
+stale_fixture() {
+  local d="$1" up="$1/fixture.git" seat="$1/seat" base c1 c2
+  mkdir -p "$d"
+  base=$(fixture "$seat")
+  (
+    git init -q --bare "$up" && git -C "$up" symbolic-ref HEAD refs/heads/main
+    git -C "$seat" remote set-url origin "$up"
+    git -C "$seat" push -q origin HEAD:refs/heads/main
+    git clone -q "$up" "$d/stale"
+  ) >/dev/null 2>&1
+  mkdir -p "$seat/skills/shiny"; printf '# shiny\n' >"$seat/skills/shiny/SKILL.md"; commit_all "$seat" "add shiny"
+  c1=$(git -C "$seat" rev-parse HEAD)
+  mkdir -p "$seat/skills/bright"; printf '# bright\n' >"$seat/skills/bright/SKILL.md"; commit_all "$seat" "add bright"
+  c2=$(git -C "$seat" rev-parse HEAD)
+  git -C "$seat" push -q origin HEAD:refs/heads/main >/dev/null 2>&1
+  echo "$base $c1 $c2"
+}
+
+arm_stale_head() {
+  local ds="$1" d="$WORK/stale.$RANDOM" base c1 c2 r out rc err
+  read -r base c1 c2 < <(stale_fixture "$d")
+  r="$d/stale"
+  assert_eq "$base" "$(git -C "$r" rev-parse HEAD)" "31 fixture: the stale checkout's HEAD is still the base"
+
+  out=$(bash "$ds" detect --repo "$r" --since "$base" 2>"$WORK/stale.err"); rc=$?; err=$(cat "$WORK/stale.err")
+  assert_eq "3" "$rc" "31 stale HEAD: detect reads the upstream tip and exits 3"
+  assert_contains "signal${T}undocumented-feature${T}fixture:skills/shiny/SKILL.md" "$out" "31 stale HEAD: the skill landed upstream fires"
+  assert_contains "detect: range $base..$c2" "$err" "31 stale HEAD: the range ends at the upstream tip (the sha apply records)"
+
+  out=$(bash "$ds" detect --repo "$r" --since "$c1" 2>"$WORK/stale.err"); rc=$?; err=$(cat "$WORK/stale.err")
+  assert_eq "3" "$rc" "31 marker: a marker on the upstream line is read, not replaced"
+  assert_not_contains "falling back" "$err" "31 marker: the marker is a fetched commit and an ancestor of the upstream tip, so no fallback"
+  assert_contains "fixture:skills/bright/SKILL.md" "$out" "31 marker: the commit after the marker fires"
+  assert_not_contains "skills/shiny" "$out" "31 marker: the commit before the marker does not"
+
+  git -C "$r" remote set-head origin -d >/dev/null 2>&1
+  out=$(bash "$ds" detect --repo "$r" --since "$base" 2>"$WORK/stale.err"); rc=$?; err=$(cat "$WORK/stale.err")
+  assert_eq "3" "$rc" "31 base: with no origin/HEAD the base is asked of the remote"
+  assert_contains "detect: range $base..$c2" "$err" "31 base: and the range still ends at the upstream tip"
+
+  out=$(bash "$ds" detect --repo "$r" --since "$base" --head HEAD 2>/dev/null); rc=$?
+  assert_eq "0" "$rc" "31 --head HEAD: naming the local HEAD still reads it (an explicit choice)"
+
+  git -C "$r" remote set-url origin "$d/nowhere.git"
+  out=$(bash "$ds" detect --repo "$r" --since "$base" 2>"$WORK/stale.err"); rc=$?; err=$(cat "$WORK/stale.err")
+  assert_eq "2" "$rc" "31 no base: an upstream whose branch cannot be named exits 2"
+  assert_contains "unread" "$err" "31 no base: and says the range is unread"
+  out=$(bash "$ds" detect --repo "$r" --since "$base" --base main 2>"$WORK/stale.err"); rc=$?; err=$(cat "$WORK/stale.err")
+  assert_eq "2" "$rc" "31 no fetch: an unreachable upstream exits 2"
+  assert_contains "unread — could not fetch origin/main" "$err" "31 no fetch: and says the range is unread, with the reason"
+  assert_not_contains "detect: range" "$err" "31 no fetch: and never reports a range"
+  assert_empty "$out" "31 no fetch: and prints no signal"
+
+  git -C "$r" remote remove origin >/dev/null 2>&1
+  out=$(bash "$ds" detect --repo "$r" --since "$base" 2>"$WORK/stale.err"); rc=$?; err=$(cat "$WORK/stale.err")
+  assert_eq "0" "$rc" "31 no remote: a repository with nothing upstream reads its HEAD"
+  assert_contains "no remote" "$err" "31 no remote: and says so"
+}
+
+test_b_31_stale_head() { arm_stale_head "$DS"; }
+
+# DOCSINCE scope addition: owners-from-doc reads the Ownership line from the upstream tip. The
+# stale checkout holds a line with no lane → project list (the parser refuses it); upstream holds
+# the current one. Read off disk, the map is unread; read from the tip, it parses.
+arm_owners_stale() {
+  local ds="$1" d="$WORK/ownstale.$RANDOM" seat stale out rc err
+  seat="$d/seat" stale="$d/stale"
+  fixture "$seat" >/dev/null
+  mkdir -p "$seat/ui"; printf 'x\n' >"$seat/ui/a"
+  printf -- '- **Ownership is fixed.**\n  - UI: `ui/`.\n' >"$seat/OWN.md"
+  commit_all "$seat" "old line"
+  (
+    git init -q --bare "$d/fixture.git" && git -C "$d/fixture.git" symbolic-ref HEAD refs/heads/main
+    git -C "$seat" remote set-url origin "$d/fixture.git"
+    git -C "$seat" push -q origin HEAD:refs/heads/main
+    git clone -q "$d/fixture.git" "$stale"
+  ) >/dev/null 2>&1
+  printf -- '- **Ownership is fixed.**\n  - UI: `ui/`.\n  - Which Linear project receives a lane'"'"'s documentation signals.\n    - UI: Product: UI & Design.\n' >"$seat/OWN.md"
+  commit_all "$seat" "current line"; git -C "$seat" push -q origin HEAD:refs/heads/main >/dev/null 2>&1
+
+  bash "$ds" owners-from-doc --repo "$stale" --repo-id kit --rev HEAD "$stale/OWN.md" >/dev/null 2>&1; rc=$?
+  assert_eq "2" "$rc" "32 fixture: the stale checkout's own line is unreadable (control)"
+  out=$(bash "$ds" owners-from-doc --repo "$stale" --repo-id kit OWN.md 2>"$WORK/ownstale.err"); rc=$?; err=$(cat "$WORK/ownstale.err")
+  assert_eq "0" "$rc" "32 stale checkout: the line is read from the upstream tip and parses"
+  assert_contains "kit${T}ui/${T}Product: UI & Design" "$out" "32 stale checkout: the tip's project row comes out"
+  assert_contains "head origin/main" "$err" "32 stale checkout: and says which ref it read"
+  out=$(bash "$ds" owners-from-doc --repo "$stale" --repo-id kit "$stale/OWN.md" 2>/dev/null); rc=$?
+  assert_eq "0" "$rc" "32 an absolute path inside the repo is read from the tip too"
+  git -C "$stale" remote set-url origin "$d/nowhere.git"
+  out=$(bash "$ds" owners-from-doc --repo "$stale" --repo-id kit --base main OWN.md 2>"$WORK/ownstale.err"); rc=$?; err=$(cat "$WORK/ownstale.err")
+  assert_eq "2" "$rc" "32 no fetch: refuses rather than read the stale file"
+  assert_contains "owners-from-doc: unread — could not fetch origin/main" "$err" "32 no fetch: with the reason"
+  assert_empty "$out" "32 no fetch: and emits no row"
+}
+
+test_b_32_owners_stale() { arm_owners_stale "$DS"; }
+
 test_b_21_empty_range() {
   local r="$WORK/empty.$RANDOM" out rc
   fixture "$r" >/dev/null
-  out=$(bash "$DS" detect --repo "$r" --since HEAD 2>"$WORK/empty.err"); rc=$?
+  out=$(bash "$DS" detect --repo "$r" --head HEAD --since HEAD 2>"$WORK/empty.err"); rc=$?
   assert_eq "0" "$rc" "21 S6: an empty range (since = HEAD) exits 0"
   assert_empty "$out" "21 S6: and prints nothing"
 }
@@ -720,6 +825,9 @@ PLANT_TRAP='s|^  trap .rm -f "\$tmp"; rmdir "\$lock" 2>/dev/null. EXIT$|  :|;s|^
 PLANT_STALE='s|if \[ -n "\$(find "\$lock" -maxdepth 0 -mmin +5 2>/dev/null)" \]; then|if false; then|'
 PLANT_LANDEDCASE='s|tolower(\$1) == k \&\& tolower(\$2) == f {hit = 1}|$1 == k \&\& $2 == f {hit = 1}|'
 PLANT_NOANCHOR='s|      if (!anchor) {|      if (0) {|'
+PLANT_HEADSTALE='s#^  \[ -n "\$headrev" \] || headrev=\$(upstream_ref "\$repo" "\$base" "\$nofetch") || exit 2#  [ -n "$headrev" ] || headrev=HEAD#'
+PLANT_UNREAD='s#^      return 2$#      echo HEAD; return 0#'
+PLANT_OWNDISK='s#^  if \[ -z "\$rev" \]; then$#  if false; then rev=HEAD#;s#^  \[ -f "\$file" \] || die "\$usage"$#  [ -n "$rev" ] || rev=HEAD; [ -f "$file" ] || die "$usage"#'
 PLANT_FLAGS='s|grep -oE .\\\$\\{?\[0-9A-Za-z_@\]+\\}?"?\[\[:space:\]\]\*==?\[\[:space:\]\]\*"?--\[a-z\]\[a-z0-9-\]\*. 2>/dev/null|true|'
 
 test_control_1_new_skill()       { control "1 (skill branch never matches)"            arm_new_skill          "$PLANT_1"; }
@@ -765,6 +873,9 @@ test_control_s6_trap()           { control "S6 (no EXIT/INT/TERM trap releases t
 test_control_s6_stale()          { control "S6 (a stale lock is never broken)" arm_apply_lock "$PLANT_STALE"; }
 test_control_n1_landed_case()    { control "N1 (landed compares case-sensitively)" arm_readback "$PLANT_LANDEDCASE"; }
 test_control_n2_noanchor()       { control "N2 (the anchor exit removed)" arm_owners_unread "$PLANT_NOANCHOR"; }
+test_control_31_stale_head()     { control "31 (detect reads the checkout's HEAD again)" arm_stale_head  "$PLANT_HEADSTALE"; }
+test_control_31_unread()         { control "31 (a failed fetch falls back to HEAD)"   arm_stale_head         "$PLANT_UNREAD"; }
+test_control_32_owners_disk()    { control "32 (owners-from-doc reads the line off disk)" arm_owners_stale "$PLANT_OWNDISK"; }
 test_control_flags()             { control "flags (test expressions not read)"         arm_flags              "$PLANT_FLAGS"; }
 
 # ---------------------------------------------------------------- text contract
@@ -794,6 +905,8 @@ test_t_skill_wiring() {
   skill_has "Run the guard only when \`/inbox-post\` reports that it created a comment" "S3 a declined or failed post is not read back as marker-lost"
   skill_has "A declined or failed \`/inbox-post\` in the docs step does not end the sequence" "S3 SKILL says which rule wins for the docs step"
   skill_has "every 🟦 channel a row routes to" "N7 open comments come from every channel a row routes to"
+  skill_has "Where it ends: the upstream tip, never the checkout's HEAD" "DOCSINCE SKILL says the range ends at the fetched upstream tip"
+  skill_has "never as an empty range, and do not run \`apply\`" "DOCSINCE SKILL says an unfetchable upstream is unread and moves no marker"
   local bad
   bad=$(grep -F -- "notice --mode all" "$SKILL" | grep -vF -- "--lost" || true)
   if [ -z "$bad" ]; then pass "S2 every notice --mode all invocation passes --lost"

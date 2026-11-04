@@ -1011,7 +1011,8 @@ cmd_pending() {
 # Paths, rows and seats are kept in arrays and never expanded unquoted: an Owner cell, a --rows or
 # a --paths value holding * is that literal string, never file names from the caller's cwd.
 # The owners map. By default it is the "Ownership is fixed" line of docs/LIVE_MARKET_DIRECT.md as
-# the range's tip has it (never a working-tree copy), parsed by doc-signals.sh owners-from-doc
+# the range's tip, its base and the fetched upstream tip have it (never a working-tree copy; a
+# failed fetch refuses), parsed by doc-signals.sh owners-from-doc
 # --emit lane: "<path> <seat>" rows, "<path> shared" for shared ground. --owners FILE or
 # BROADCAST_OWNERS replaces it with a file of the same rows (tests, emergencies).
 OWNERS_MAP="${BROADCAST_OWNERS:-}"
@@ -1021,6 +1022,11 @@ OWNERS_TEXT="" OWNERS_SRC="" LANE_SEATS="" UNCOVERED="" UNCOVERED_GIVES=""
 # A doc-read map has two sides: the tip (the owners the PR lands) and the base (the owners it lands
 # over). Each path is asked of both, so a PR that edits the line cannot choose its own owners.
 TIP_TEXT="" TIP_SRC="" BASE_TEXT="" BASE_SRC="" HAVE_BASE=0 BASE_NOTE=""
+# A third side, the upstream: the line as origin/<base> has it right now, fetched (DOCSINCE). The
+# range's tip and base are the commits the seat cut, and a checkout far behind origin cuts them from
+# a line that no longer stands; the owners the change lands over are the upstream's. A failed fetch
+# refuses; a repository with no origin has no upstream side.
+UP_TEXT="" UP_SRC="" HAVE_UP=0
 # load_owners <repo> <rev> [<side>] — fills OWNERS_TEXT and OWNERS_SRC from the map at that rev
 # (the side, "tip" or "base", names it), plus OWN_BLOCK (the doc's "Ownership is fixed" block) and
 # HB_ROWS (the handbook table's "# hb <dir> <seat>" lines). At the tip a missing doc or an unusable
@@ -1073,9 +1079,10 @@ ASKED="" ASK_SHARED=0 WHY=""
 ask_for() {
   local p="$1" side text src rc seat got="" srcs="" pl
   ASKED="" ASK_SHARED=0 WHY=""
-  for side in tip base; do
+  for side in tip base upstream; do
     if [ "$side" = tip ]; then text=$TIP_TEXT src=$TIP_SRC
-    else [ "$HAVE_BASE" = 1 ] || continue; text=$BASE_TEXT src=$BASE_SRC; fi
+    elif [ "$side" = base ]; then [ "$HAVE_BASE" = 1 ] || continue; text=$BASE_TEXT src=$BASE_SRC
+    else [ "$HAVE_UP" = 1 ] || continue; text=$UP_TEXT src=$UP_SRC; fi
     srcs+="${srcs:+ or }$src"
     OWNERS_TEXT=$text; rc=0; seat=$(seat_of_path "$p") || rc=$?
     case "$rc" in
@@ -1301,9 +1308,24 @@ cmd_go_request() {
     if [ "$base" = - ]; then BASE_NOTE="The range has no base, so the owners are the tip's alone."
     elif load_owners "$repo" "$base" base; then BASE_TEXT=$OWNERS_TEXT BASE_SRC=$OWNERS_SRC HAVE_BASE=1
     else BASE_NOTE="The base $base has no \"Ownership is fixed\" line in $OWNERS_DOC, so the owners are the tip's alone."; fi
+    # load_owners overwrites OWN_BLOCK and HB_ROWS; the edit check below compares the base's.
+    local up_out up_err up_sha up_ref rc_up=0 base_block=$OWN_BLOCK base_hb=$HB_ROWS
+    up_err=$(mktemp "${TMPDIR:-/tmp}/go-up.XXXXXX")
+    up_out=$(bash "$DOC_SIGNALS" upstream --repo "$repo" 2>"$up_err") || rc_up=$?
+    if [ "$rc_up" != 0 ]; then
+      local why; why=$(sed 's/^doc-signals: upstream: //' "$up_err" | tr '\n' ' ' | sed 's/ $//'); rm -f "$up_err"
+      die 2 "go-request: cannot read the owners at the upstream tip ($why); refusing rather than read the line from a checkout that may be behind origin (--owners FILE overrides)"
+    fi
+    rm -f "$up_err"; read -r up_sha up_ref <<<"$up_out"
+    # No origin (nothing upstream), or an upstream that is the range's own tip or base, adds no side.
+    if [ "$up_ref" != HEAD ] && [ "$up_sha" != "$tip" ] && [ "$up_sha" != "$base" ] &&
+       load_owners "$repo" "$up_sha" upstream; then
+      UP_TEXT=$OWNERS_TEXT UP_SRC="$OWNERS_DOC at the upstream ${up_ref#refs/remotes/} $up_sha" HAVE_UP=1
+    fi
+    OWN_BLOCK=$base_block HB_ROWS=$base_hb
   fi
-  LANE_SEATS=$({ lane_seats_of "$TIP_TEXT"; [ "$HAVE_BASE" = 0 ] || lane_seats_of "$BASE_TEXT"; } | awk 'NF && !seen[$0]++' | sort | tr '\n' ' ' | sed 's/ $//')
-  UNCOVERED=$({ awk '$1 == "#" && $2 == "uncovered" { print $3 }' <<<"$TIP_TEXT"; [ "$HAVE_BASE" = 0 ] || awk '$1 == "#" && $2 == "uncovered" { print $3 }' <<<"$BASE_TEXT"; } | sort -u | tr '\n' ' ' | sed 's/ $//')
+  LANE_SEATS=$({ lane_seats_of "$TIP_TEXT"; [ "$HAVE_BASE" = 0 ] || lane_seats_of "$BASE_TEXT"; [ "$HAVE_UP" = 0 ] || lane_seats_of "$UP_TEXT"; } | awk 'NF && !seen[$0]++' | sort | tr '\n' ' ' | sed 's/ $//')
+  UNCOVERED=$({ awk '$1 == "#" && $2 == "uncovered" { print $3 }' <<<"$TIP_TEXT"; [ "$HAVE_BASE" = 0 ] || awk '$1 == "#" && $2 == "uncovered" { print $3 }' <<<"$BASE_TEXT"; [ "$HAVE_UP" = 0 ] || awk '$1 == "#" && $2 == "uncovered" { print $3 }' <<<"$UP_TEXT"; } | sort -u | tr '\n' ' ' | sed 's/ $//')
   UNCOVERED_GIVES=$({ awk '$1 == "#" && $2 == "uncovered" && NF > 3 { s = $3; $1 = $2 = $3 = ""; sub(/^ +/, ""); print s " (" $0 ")" }' <<<"$TIP_TEXT"; [ "$HAVE_BASE" = 0 ] || awk '$1 == "#" && $2 == "uncovered" && NF > 3 { s = $3; $1 = $2 = $3 = ""; sub(/^ +/, ""); print s " (" $0 ")" }' <<<"$BASE_TEXT"; } | awk '!seen[$1]++' | awk 'NR > 1 { printf " · " } { printf "%s", $0 }')
   if [ "$HAVE_BASE" = 1 ]; then
     # An edit of the Ownership line is a change to who owns what: every lane of base ∪ tip is asked
@@ -1422,6 +1444,9 @@ cmd_go_request() {
   if [ -z "$OWNERS_MAP" ]; then
     if [ "$HAVE_BASE" = 1 ]; then owners_line+="The owners map is the \"Ownership is fixed\" line of $TIP_SRC and of $BASE_SRC (with the \"Who owns each folder\" table of handbook/README.md at each); each path is asked of its owner at both."$'\n'
     else owners_line+="The owners map is the \"Ownership is fixed\" line of $TIP_SRC (with the \"Who owns each folder\" table of handbook/README.md there). $BASE_NOTE"$'\n'; fi
+    # Only a side that can change who is asked is named: the message is cut at the inline cap, and
+    # a note that changes nothing would push the receipts and the forward line past it.
+    [ "$HAVE_UP" = 0 ] || owners_line+="Each path is also asked of its owner in $UP_SRC, the line as it stands upstream now."$'\n'
   fi
   [ -z "$line_seats" ] || owners_line+="The range edits the \"Ownership is fixed\" line, so every lane seat of the base and the tip is asked for $OWNERS_DOC: $line_seats."$'\n'
   [ -z "$hb_seats" ] || owners_line+="The range edits the \"Who owns each folder\" table, so the seats of each changed row are asked for handbook/README.md: $hb_seats."$'\n'

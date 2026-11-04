@@ -1892,6 +1892,27 @@ test_go_owners_from_doc_is_the_default() {
   assert_eq "domain:agent" "$(audience)" "doc owners: playground/, its own lane bullet in the fixed line"
 }
 
+# DOCSINCE: a checkout behind origin cuts its range from a line that no longer stands. Upstream
+# has moved ideas-exchange/ from core:exchange to domain:stats; the stale repo's range never saw it. The
+# seat map must ask the upstream owner too, and refuse when the upstream cannot be fetched.
+test_go_owners_from_doc_reads_the_upstream_tip_too() {
+  doc_repo ownfix-073237f16.md
+  git init -q --bare "$FIX/up.git"; git -C "$FIX/up.git" symbolic-ref HEAD refs/heads/main
+  G remote add origin "$FIX/up.git"; G push -q origin HEAD:refs/heads/main
+  git clone -q "$FIX/up.git" "$FIX/seat" 2>/dev/null
+  sed -i.bak 's/^  - core:exchange: ideas-exchange\./  - core:exchange: ideas-exchange-v2./; s/^  - domain:stats: ideas-stats\./  - domain:stats: ideas-stats, ideas-exchange./' "$FIX/seat/docs/LIVE_MARKET_DIRECT.md"; rm -f "$FIX/seat/docs/LIVE_MARKET_DIRECT.md.bak"
+  git -C "$FIX/seat" -c user.name=t -c user.email=t@t -c core.hooksPath=/dev/null -c commit.gpgsign=false commit -qam "ideas-exchange to stats"
+  git -C "$FIX/seat" push -q origin HEAD:refs/heads/main 2>/dev/null
+  PANE=%2 goreqd --pr 5 --paths ideas-exchange/x.ts --dry-run
+  assert_eq 0 "$RC" "upstream owners: a stale range still resolves"
+  assert_eq "core:exchange domain:stats" "$(audience)" "upstream owners: the upstream tip's owner is asked beside the range's"
+  assert_has "the line as it stands upstream now" "$OUT" "upstream owners: the message names the upstream side"
+  G remote set-url origin "$FIX/nowhere.git"
+  PANE=%2 goreqd --pr 5 --paths ideas-exchange/x.ts --dry-run
+  assert_eq 2 "$RC" "upstream owners: an unfetchable upstream refuses"
+  assert_has "cannot read the owners at the upstream tip" "$OUT" "upstream owners: and says why"
+}
+
 test_go_owners_from_doc_reads_the_tip_not_the_worktree() {
   doc_repo ownfix-073237f16.md
   sed -i.bak 's/^  - core:world: /  - domain:stats: /; s/^  - domain:language: /  - app:ui: /' "$FIX/repo/docs/LIVE_MARKET_DIRECT.md"; rm -f "$FIX/repo/docs/LIVE_MARKET_DIRECT.md.bak"

@@ -11,19 +11,26 @@
 #
 # Subcommands (TSV = tab-separated, one row per line):
 #
-#   detect --repo DIR [--since REV] [--head REV] [--exclude GLOB]...
-#       Reads the commits in REV..HEAD (--head names another end, for re-labelling a past range)
-#       and nothing else: not the working tree, not untracked
+#   detect --repo DIR [--since REV] [--head REV | --base BRANCH [--no-fetch]] [--exclude GLOB]...
+#       Reads the commits in REV..<upstream tip> and nothing else: not the working tree, not
+#       the checkout's own HEAD, which a primary checkout can hold far behind origin (DOCSINCE).
+#       The upstream tip is origin/BRANCH after `git fetch origin BRANCH`; BRANCH defaults to
+#       origin/HEAD's branch, else the remote's HEAD. --no-fetch reads the tracking ref as it is.
+#       A repository with no `origin` reads HEAD and says so. A fetch that fails, or a branch it
+#       cannot name, exits 2 with `unread — <why>` and no range line: unread, never empty.
+#       --head names the end explicitly (HEAD to read the checkout, or a past tip to re-label a
+#       range) and skips the fetch. Nothing else is read: not untracked
 #       files (another seat's half-written work is not this run's diff). Prints:
 #         signal<TAB>kind<TAB>repo-id:path<TAB>subject
 #       and, on stderr, `detect: range <rev>..<head>` (the head is the marker `apply` records).
 #       REV defaults to the newest commit older than 24 hours. A REV that is not a commit, or not
-#       an ancestor of HEAD, falls back to that default with a warning on stderr; it never fails.
-#       An empty range (REV is HEAD) prints nothing and returns at once.
-#       Docs are the *.md files committed at HEAD, read from the commit rather than the disk,
+#       an ancestor of the tip read, falls back to that default with a warning on stderr.
+#       An empty range (REV is the tip) prints nothing and returns at once.
+#       Docs are the *.md files committed at the tip, read from the commit rather than the disk,
 #       minus every --exclude glob (default: sessions/*,
 #       */fixtures/*, fixtures/*, node_modules/*).
-#       Exit 0 = no signal, 3 = signals found (a finding, not a failure), 2 = usage/git error.
+#       Exit 0 = no signal, 3 = signals found (a finding, not a failure), 2 = usage/git error or
+#       an unread upstream (stderr says which).
 #
 #   plan --signals F --owners F --channels F [--open F] [--held F] [--sessions-root DIR]
 #        [--max N] [--hold-kinds "K…"]
@@ -75,10 +82,17 @@
 #                    KIND KEY is among the open keys read back from the channel, else exit 1
 #                    "marker-lost". posted-file rows are written only for a landed key.
 #   registry-channels REGISTRY.md   prints project<TAB>channel for each 🟦 row in the registry.
-#   owners-from-doc --repo DIR [--repo-id ID] [--rev REV] [--emit project|lane] [--verbose] FILE
+#   upstream --repo DIR [--base BRANCH] [--no-fetch]
+#       Fetches origin/BRANCH and prints "<sha> <ref>" for its tip, the commit every reading of
+#       landed work ends at. No origin: "<sha> HEAD", said on stderr. A failed fetch, or a branch
+#       it cannot name, exits 2 with `unread — <why>`. broadcast's go-request reads its owners here.
+#   owners-from-doc --repo DIR [--repo-id ID] [--rev REV | --base BRANCH [--no-fetch]] [--emit project|lane] [--verbose] FILE
 #       Derives owner rows from an "Ownership is fixed" line in the file the repository names:
-#       each lane's paths, the lane → project list, and the sub-path overrides. Emits a path
-#       only when it exists at DIR's REV (default HEAD). An item it skips is named on stderr for a
+#       each lane's paths, the lane → project list, and the sub-path overrides. With no --rev,
+#       FILE (a repo path) is read out of the fetched upstream tip, never off the checkout's disk,
+#       and a failed fetch exits 2 unread (DOCSINCE); a repository with no origin reads FILE as
+#       given, at HEAD. With --rev, FILE is the caller's copy of the line as REV has it. Emits a
+#       path only when it exists at that rev. An item it skips is named on stderr for a
 #       lane keyed by a word; a lane keyed by its seat ("domain:language: …") has its skips named
 #       only with --verbose. A lane that maps to "none" emits its paths with project "-".
 #       Path-level override rows may be appended.
@@ -136,13 +150,53 @@ not_feature_source() {
 }
 
 # ---------------------------------------------------------------- detect
+# upstream_ref <repo> <base> <nofetch> [<who>] → prints the ref whose commits the range ends at: the
+# fetched tip of origin/<base>. The checkout's own HEAD is not it: a primary checkout can sit far
+# behind origin, and a range ending there is empty and misses everything the seat landed
+# (DOCSINCE, ¶PTF_THE_DEFAULT_CHECKOUT_IS_THE_STALE_ONE_AND_EVERY_CASUAL_READ_LANDS_THERE).
+# <base> defaults to origin/HEAD's branch, else the remote's HEAD branch. A repository with no
+# `origin` has nothing upstream to be behind and reads HEAD, said on stderr. Any other failure
+# (no base, a failed fetch, a missing tracking ref) returns 2 with `unread — <why>`: the caller
+# reports the step unread, never an empty range.
+upstream_ref() {
+  local repo="$1" base="$2" nofetch="$3" who="${4:-detect}" out
+  if ! git -C "$repo" remote get-url origin >/dev/null 2>&1; then
+    warn "$who: no remote 'origin', so nothing upstream to be behind; reading HEAD"
+    echo HEAD; return 0
+  fi
+  if [ -z "$base" ]; then
+    base=$(git -C "$repo" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null); base="${base#origin/}"
+  fi
+  if [ -z "$base" ] && [ "$nofetch" = 0 ]; then
+    base=$(GIT_TERMINAL_PROMPT=0 git -C "$repo" ls-remote --symref origin HEAD 2>/dev/null |
+           awk '$1 == "ref:" && $3 == "HEAD" {sub("^refs/heads/", "", $2); print $2; exit}')
+  fi
+  if [ -z "$base" ]; then
+    warn "$who: unread — cannot tell which branch origin publishes (no origin/HEAD; pass --base)"; return 2
+  fi
+  if [ "$nofetch" = 0 ]; then
+    if ! out=$(GIT_TERMINAL_PROMPT=0 git -C "$repo" fetch --quiet --no-tags origin \
+                 "+refs/heads/$base:refs/remotes/origin/$base" 2>&1); then
+      warn "$who: unread — could not fetch origin/$base: $(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -1)"
+      return 2
+    fi
+  fi
+  if ! git -C "$repo" rev-parse --verify -q "refs/remotes/origin/$base^{commit}" >/dev/null; then
+    warn "$who: unread — no origin/$base here to read"; return 2
+  fi
+  warn "$who: head origin/$base$([ "$nofetch" = 1 ] && echo ' (not fetched: --no-fetch)')"
+  echo "refs/remotes/origin/$base"
+}
+
 cmd_detect() {
-  local repo="" since="" headrev="HEAD" excludes=()
+  local repo="" since="" headrev="" base="" nofetch=0 excludes=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --repo) repo="${2:-}"; shift 2 ;;
       --since) since="${2:-}"; shift 2 ;;
       --head) headrev="${2:-}"; shift 2 ;;
+      --base) base="${2:-}"; shift 2 ;;
+      --no-fetch) nofetch=1; shift ;;
       --exclude) excludes+=("${2:-}"); shift 2 ;;
       *) die "detect: unknown argument $1" ;;
     esac
@@ -151,6 +205,7 @@ cmd_detect() {
   git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || die "detect: not a git repository: $repo"
   [ ${#excludes[@]} -gt 0 ] || excludes=("sessions/*" "*/fixtures/*" "fixtures/*" "node_modules/*")
   repo=$(canon "$repo")
+  [ -n "$headrev" ] || headrev=$(upstream_ref "$repo" "$base" "$nofetch") || exit 2
   local rid head; rid=$(repo_id "$repo"); head=$(git -C "$repo" rev-parse --verify -q "$headrev^{commit}") || die "detect: cannot resolve --head $headrev"
 
   local fallback
@@ -160,7 +215,7 @@ cmd_detect() {
     if ! git -C "$repo" rev-parse --verify -q "$since^{commit}" >/dev/null; then
       warn "detect: since $since is not a commit here; falling back to the last 24 hours"; since=$fallback
     elif ! git -C "$repo" merge-base --is-ancestor "$since" "$head" 2>/dev/null; then
-      warn "detect: since $since is not an ancestor of HEAD; falling back to the last 24 hours"; since=$fallback
+      warn "detect: since $since is not an ancestor of $headrev; falling back to the last 24 hours"; since=$fallback
     fi
   else
     since=$fallback
@@ -737,18 +792,44 @@ cmd_registry_channels() {
 
 # ---------------------------------------------------------------- owners-from-doc
 cmd_owners_from_doc() {
-  local repo="" rid="" file="" rev=HEAD emit=project verbose="${DOC_SIGNALS_VERBOSE:-0}"
+  local repo="" rid="" file="" rev="" base="" nofetch=0 emit=project verbose="${DOC_SIGNALS_VERBOSE:-0}"
+  local usage="owners-from-doc: --repo DIR [--repo-id ID] [--rev REV | --base BRANCH [--no-fetch]] [--emit project|lane] [--verbose] FILE"
   while [ $# -gt 0 ]; do
     case "$1" in
       --repo) repo="$2"; shift 2 ;;
       --repo-id) rid="$2"; shift 2 ;;
-      --rev) rev="${2:-}"; shift 2 ;;
+      --rev) rev="${2:-}"; [ -n "$rev" ] || die "$usage"; shift 2 ;;
+      --base) base="${2:-}"; shift 2 ;;
+      --no-fetch) nofetch=1; shift ;;
       --emit) emit="${2:-}"; shift 2 ;;
       --verbose) verbose=1; shift ;;
       *) file="$1"; shift ;;
     esac
   done
-  [ -n "$repo" ] && [ -n "$file" ] && [ -f "$file" ] && [ -n "$rev" ] || die "owners-from-doc: --repo DIR [--repo-id ID] [--rev REV] [--emit project|lane] [--verbose] FILE"
+  [ -n "$repo" ] && [ -n "$file" ] || die "$usage"
+  # With no --rev, the Ownership line is read from the repository's upstream tip (DOCSINCE): the
+  # file's text comes out of that commit, never off the disk of the checkout this runs in, which
+  # can sit far behind origin and hold a line the parser no longer reads. A fetch that fails
+  # refuses (exit 2, unread). A repository with no origin reads the file as given, at HEAD.
+  # With --rev, FILE is the caller's copy of the line as REV has it (broadcast's go-request
+  # writes it out of the commit it reads), and REV is where its paths are checked.
+  local fromrev="" relf
+  if [ -z "$rev" ]; then
+    rev=$(upstream_ref "$repo" "$base" "$nofetch" owners-from-doc) || exit 2
+    if [ "$rev" != HEAD ]; then
+      relf=$file
+      case "$relf" in
+        /*) [ -d "${relf%/*}" ] && relf="$(cd "${relf%/*}" && pwd -P)/${relf##*/}"
+            relf="${relf#"$(canon "$repo")"/}" ;;
+      esac
+      relf="${relf#./}"
+      fromrev=$(mktemp "${TMPDIR:-/tmp}/doc-owners.XXXXXX")
+      git -C "$repo" show "$rev:$relf" >"$fromrev" 2>/dev/null ||
+        { rm -f "$fromrev"; die "owners-from-doc: unread — no $relf at ${rev#refs/remotes/}"; }
+      file=$fromrev
+    fi
+  fi
+  [ -f "$file" ] || die "$usage"
   case "$emit" in project|lane) ;; *) die "owners-from-doc: --emit takes project or lane" ;; esac
   [ -n "$rid" ] || rid=$(repo_id "$repo")
   local tree hb; tree=$(mktemp "${TMPDIR:-/tmp}/doc-owners.XXXXXX") hb=$(mktemp "${TMPDIR:-/tmp}/doc-owners.XXXXXX")
@@ -997,8 +1078,25 @@ cmd_owners_from_doc() {
       if (!rows)   { print "owners-from-doc: the Ownership line yielded no row; the map is unread" > "/dev/stderr"; exit 2 }
     }' "$file" | sort -u
   local rc=$?
-  rm -f "$tree" "$hb"
+  rm -f "$tree" "$hb" ${fromrev:+"$fromrev"}
   return $rc
+}
+
+# ---------------------------------------------------------------- upstream
+cmd_upstream() {
+  local repo="" base="" nofetch=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --repo) repo="${2:-}"; shift 2 ;;
+      --base) base="${2:-}"; shift 2 ;;
+      --no-fetch) nofetch=1; shift ;;
+      *) die "upstream: unknown argument $1" ;;
+    esac
+  done
+  [ -n "$repo" ] || die "upstream: --repo is required"
+  git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || die "upstream: not a git repository: $repo"
+  local ref; ref=$(upstream_ref "$(canon "$repo")" "$base" "$nofetch" upstream) || exit 2
+  git -C "$repo" rev-parse --verify -q "$ref^{commit}" | sed "s|\$| $ref|"
 }
 
 sub="${1:-}"; [ $# -gt 0 ] && shift
@@ -1012,5 +1110,6 @@ case "$sub" in
   landed) cmd_landed "$@" ;;
   registry-channels) cmd_registry_channels "$@" ;;
   owners-from-doc) cmd_owners_from_doc "$@" ;;
-  *) die "usage: doc-signals.sh detect|plan|apply|since|notice|open-keys|landed|registry-channels|owners-from-doc …" ;;
+  upstream) cmd_upstream "$@" ;;
+  *) die "usage: doc-signals.sh detect|plan|apply|since|notice|open-keys|landed|registry-channels|owners-from-doc|upstream …" ;;
 esac
