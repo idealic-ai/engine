@@ -39,7 +39,7 @@ The three questions are asked in phrases that do not separate them, so the phras
 
 ## Requirements
 
-*   `engine project next` (in `~/.claude/engine/scripts/project.sh`) + `LINEAR_API_KEY` (env or `.env`). No key → the CLI fails; report it and suggest setting the key. No project resolvable (no arg, no branch ticket key) → say so and ask for a project.
+*   `engine project next` (in `~/.claude/engine/scripts/project.sh`) + `LINEAR_API_KEY` (env or `.env`). No key → the CLI fails; report it and suggest setting the key. No arg and no branch ticket key → the CLI ranks the team from the repository's `## Tracker` block team-wide and says so on stderr; treat that as a team-wide list, not a project's. No Tracker team either, or a team Linear does not have → the CLI exits 1 naming the problem; say so and ask for a project.
 *   Linear MCP for the read path (`§CMD_READ_RELATED_TICKET`); load schemas on demand (ToolSearch `linear`).
 *   **The issue-key prefix comes from the project's CLAUDE.md `## Tracker` block** — `<PREFIX>` uppercase for keys (`<PREFIX>-NNNN`), its lowercase form for branches (`<prefix>-NNNN-…`). Resolve it before reading a branch for a ticket key or writing a key into a prompt; do not assume a particular prefix. **No `## Tracker` block** → detect an uppercase-alpha prefix + `-NNNN` from the branch/slug/conversation at lower confidence. The config is never a hard requirement; absent it, degrade to detection rather than erroring.
 

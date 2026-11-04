@@ -1,0 +1,23 @@
+{
+  "data": {
+    "issues": {
+      "pageInfo": { "hasNextPage": false, "endCursor": null },
+      "nodes": [
+        {
+          "id": "t1", "identifier": "IDE-501", "title": "Team-wide high", "url": "https://linear.app/x/IDE-501",
+          "priority": 2, "state": { "name": "Backlog", "type": "backlog" },
+          "project": { "name": "Product: Orchestration" }, "projectMilestone": null,
+          "labels": { "nodes": [ { "name": "Bug" } ] }, "parent": null,
+          "relations": { "nodes": [] }, "inverseRelations": { "nodes": [] }
+        },
+        {
+          "id": "t2", "identifier": "IDE-502", "title": "Team-wide low", "url": "https://linear.app/x/IDE-502",
+          "priority": 4, "state": { "name": "Todo", "type": "unstarted" },
+          "project": { "name": "Product: Writer" }, "projectMilestone": null,
+          "labels": { "nodes": [] }, "parent": null,
+          "relations": { "nodes": [] }, "inverseRelations": { "nodes": [] }
+        }
+      ]
+    }
+  }
+}

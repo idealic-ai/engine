@@ -1,0 +1,12 @@
+{
+  "_comment": "Answer to the teams read. It also carries an empty `issues` page so that, run against a project.sh with no team check, the first call (a team-wide issues read) gets a well-formed empty answer: that is exactly what live Linear returns for an unknown team key, the silent zero these cases pin.",
+  "data": {
+    "teams": {
+      "nodes": [
+        { "id": "team-ide", "key": "IDE", "name": "Idealic" },
+        { "id": "team-fin", "key": "FIN", "name": "Finch" }
+      ]
+    },
+    "issues": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [] }
+  }
+}

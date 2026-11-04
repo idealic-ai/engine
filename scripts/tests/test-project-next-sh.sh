@@ -230,4 +230,149 @@ test_projectnext_tickets_and_query() {
   assert_json "$tmp" '.adjacency[0] | has("relation")' "false" "adjacency rows are term-matched, not relation-tagged (not blended)"
 }
 
+# ---- Team resolution: the repository's § Tracker config (TICKETFLOW) ----
+#
+# Every seat runs on `main`, which carries no ticket key. Before this, a bare `next` there exited 1
+# and `--all` took the team from the branch name (`main` -> MAIN) and returned 0 rows at exit 0, a
+# zero that reads as an empty backlog. Now the team comes from `## Tracker` in the repository's
+# CLAUDE.md, and every team is checked against Linear's teams before any issue is read.
+#
+# Fixture order for a team-wide run: call 1 = the teams read (teams.json), call 2 = the issues.
+
+# make_repo DIR [CLAUDE.md body] — a git repo on branch `main` (no ticket key), optional CLAUDE.md.
+make_repo() {
+  local dir="$1" body="${2:-}"
+  mkdir -p "$dir"
+  git -C "$dir" init -q -b main 2>/dev/null || { git -C "$dir" init -q && git -C "$dir" checkout -q -b main; }
+  if [ -n "$body" ]; then printf '%s\n' "$body" > "$dir/CLAUDE.md"; fi
+}
+
+TRACKER_IDE='# demo
+
+## Tracker
+
+- **Tracker**: Linear (via the `linear` MCP)
+- **Issue-key prefix**: `IDE` (keys look like `IDE-118`)
+- **Team**: Idealic
+- **PR base branch**: `main`
+
+## Owners
+
+- **Team**: NotThisOne'
+
+# Positive control for every zero below: the fixture route returns rows when the team is right.
+test_projectnext_team_explicit_known_ranks() {
+  local tmp="$TMP_DIR/out.json" rc
+  make_repo "$TMP_DIR/repo"
+  ( cd "$TMP_DIR/repo" && LINEAR_FIXTURE="$FXDIR/teams.json:$FXDIR/team-issues.json" "$PS" next --all --team IDE --json >"$tmp" 2>"$TMP_DIR/err" ); rc=$?
+  assert_eq "0" "$rc" "--all --team IDE exits 0"
+  assert_json "$tmp" '.project.name' "(team IDE)" "ranked team IDE"
+  assert_json "$tmp" '.importance | length' "2" "both team issues ranked (control: the route yields rows)"
+}
+
+# The defect: a bare `next` on `main` exited 1. Now it ranks the Tracker team, and says so.
+test_projectnext_bare_on_main_takes_team_from_tracker() {
+  local tmp="$TMP_DIR/out.json" rc err
+  make_repo "$TMP_DIR/repo" "$TRACKER_IDE"
+  ( cd "$TMP_DIR/repo" && LINEAR_FIXTURE="$FXDIR/teams.json:$FXDIR/team-issues.json" "$PS" next --json >"$tmp" 2>"$TMP_DIR/err" ); rc=$?
+  err=$(cat "$TMP_DIR/err")
+  assert_eq "0" "$rc" "bare next on main with a Tracker team exits 0"
+  assert_json "$tmp" '.project.name' "(team IDE)" "team taken from § Tracker's issue-key prefix"
+  assert_json "$tmp" '.importance | length' "2" "team issues ranked"
+  assert_contains "Tracker" "$err" "stderr says the team came from § Tracker"
+  assert_contains "CLAUDE.md" "$err" "stderr names the file it read"
+}
+
+# The silent zero: `--all` on `main` guessed MAIN and returned 0 rows at exit 0.
+test_projectnext_all_on_main_takes_team_from_tracker() {
+  local tmp="$TMP_DIR/out.json" rc
+  make_repo "$TMP_DIR/repo" "$TRACKER_IDE"
+  ( cd "$TMP_DIR/repo" && LINEAR_FIXTURE="$FXDIR/teams.json:$FXDIR/team-issues.json" "$PS" next --all --json >"$tmp" 2>"$TMP_DIR/err" ); rc=$?
+  assert_eq "0" "$rc" "--all on main exits 0"
+  assert_json "$tmp" '.project.name' "(team IDE)" "--all takes the Tracker team, not the branch name"
+  assert_json "$tmp" '.importance | length' "2" "rows ranked, not a silent zero"
+}
+
+# An explicit team that Linear does not have fails loudly instead of returning 0 rows.
+test_projectnext_unknown_explicit_team_fails_loudly() {
+  local out rc err
+  make_repo "$TMP_DIR/repo"
+  out=$(cd "$TMP_DIR/repo" && LINEAR_FIXTURE="$FXDIR/teams.json:$FXDIR/team-issues.json" "$PS" next --all --team MAIN --json 2>"$TMP_DIR/err"); rc=$?
+  err=$(cat "$TMP_DIR/err")
+  assert_neq "0" "$rc" "unknown team -> non-zero"
+  assert_empty "$out" "no ranking printed for an unknown team"
+  assert_contains "MAIN" "$err" "stderr names the team"
+  assert_contains "not found" "$err" "stderr says it was not found"
+}
+
+# A Tracker prefix Linear does not know fails loudly too, naming where it came from.
+test_projectnext_unknown_tracker_team_fails_loudly() {
+  local out rc err
+  make_repo "$TMP_DIR/repo" '## Tracker
+
+- **Tracker**: Linear
+- **Issue-key prefix**: `ZZZ`'
+  out=$(cd "$TMP_DIR/repo" && LINEAR_FIXTURE="$FXDIR/teams.json:$FXDIR/team-issues.json" "$PS" next --all --json 2>"$TMP_DIR/err"); rc=$?
+  err=$(cat "$TMP_DIR/err")
+  assert_neq "0" "$rc" "unknown Tracker team -> non-zero"
+  assert_empty "$out" "no ranking printed"
+  assert_contains "ZZZ" "$err" "stderr names the configured team"
+  assert_contains "Tracker" "$err" "stderr names § Tracker as the source"
+}
+
+# Prefix and team name disagree with Linear: refuse rather than pick one.
+test_projectnext_tracker_team_name_mismatch_fails() {
+  local out rc err
+  make_repo "$TMP_DIR/repo" '## Tracker
+
+- **Tracker**: Linear
+- **Issue-key prefix**: `IDE`
+- **Team**: Acme'
+  out=$(cd "$TMP_DIR/repo" && LINEAR_FIXTURE="$FXDIR/teams.json:$FXDIR/team-issues.json" "$PS" next --all --json 2>"$TMP_DIR/err"); rc=$?
+  err=$(cat "$TMP_DIR/err")
+  assert_neq "0" "$rc" "prefix/team mismatch -> non-zero"
+  assert_empty "$out" "no ranking printed"
+  assert_contains "Acme" "$err" "stderr names the configured team"
+  assert_contains "Idealic" "$err" "stderr names the team Linear has for that key"
+}
+
+# A Tracker block naming only the team resolves the key through Linear's teams.
+test_projectnext_tracker_team_name_only_resolves_key() {
+  local tmp="$TMP_DIR/out.json" rc
+  make_repo "$TMP_DIR/repo" '## Tracker
+
+- **Tracker**: Linear
+- **Team**: idealic'
+  ( cd "$TMP_DIR/repo" && LINEAR_FIXTURE="$FXDIR/teams.json:$FXDIR/team-issues.json" "$PS" next --all --json >"$tmp" 2>"$TMP_DIR/err" ); rc=$?
+  assert_eq "0" "$rc" "team name only exits 0"
+  assert_json "$tmp" '.project.name' "(team IDE)" "team name resolved to its key"
+}
+
+# A tracker that is not Linear is refused by name.
+test_projectnext_tracker_not_linear_fails() {
+  local out rc err
+  make_repo "$TMP_DIR/repo" '## Tracker
+
+- **Tracker**: GitHub Issues
+- **Issue-key prefix**: `GH`'
+  out=$(cd "$TMP_DIR/repo" && LINEAR_FIXTURE="$FXDIR/teams.json:$FXDIR/team-issues.json" "$PS" next --json 2>"$TMP_DIR/err"); rc=$?
+  err=$(cat "$TMP_DIR/err")
+  assert_neq "0" "$rc" "non-Linear tracker -> non-zero"
+  assert_empty "$out" "no ranking printed"
+  assert_contains "GitHub Issues" "$err" "stderr names the configured tracker"
+  assert_contains "Linear" "$err" "stderr says only Linear is read"
+}
+
+# On `main` with no Tracker block there is nothing to rank: fail, and say what was looked for.
+test_projectnext_bare_on_main_without_tracker_errors() {
+  local out rc err
+  make_repo "$TMP_DIR/repo"
+  out=$(cd "$TMP_DIR/repo" && LINEAR_FIXTURE="$FXDIR/teams.json:$FXDIR/team-issues.json" "$PS" next --json 2>"$TMP_DIR/err"); rc=$?
+  err=$(cat "$TMP_DIR/err")
+  assert_neq "0" "$rc" "no project, no key, no Tracker -> non-zero"
+  assert_empty "$out" "nothing printed"
+  assert_contains "Tracker" "$err" "stderr says no § Tracker team was found"
+  assert_not_contains "MAIN" "$err" "the branch name is never taken as a team"
+}
+
 run_discovered_tests

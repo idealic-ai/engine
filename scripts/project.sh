@@ -35,6 +35,13 @@
 #   related/parent/child/blocks/blockedBy/duplicate, cross-project resolved). Each importance row
 #   also carries its own relatedTo/parent/blocks/blockedBy keys. Proposes; never starts. <project>
 #   defaults from the branch's ticket key; --all widens to team-wide (priority-ranked).
+#   With no <project> and no branch ticket key (a seat on `main`), `next` ranks team-wide too and
+#   says so on stderr. The team is --team (a key or a name), else the `## Tracker` block of
+#   CLAUDE.md at the git toplevel (its Issue-key prefix, else its Team), else, for --all only,
+#   the prefix of a branch ticket key. The bare branch name is never a team. Every team is checked
+#   against Linear's teams before any issue is read: an unknown team, a prefix whose Linear team
+#   is not the configured Team, or a Tracker that is not Linear exits 1 and names the problem,
+#   because an issues filter on an unknown key would answer 0 rows at exit 0.
 #   Linear's own open-filter drops only `completed`/`canceled` TYPES, so a state a team uses to
 #   mean finished — In Review, Undeployed — still types as `started` and would rank as open work.
 #   --done-states (or PROJECT_NEXT_DONE_STATES) names those states so they are dropped; the
@@ -419,6 +426,114 @@ _infer_project_from_branch() {
   printf '%s' "$pid"
 }
 
+# ---- Team resolution for `next` (the repository's § Tracker config) ----
+#
+# The team comes from, in order: --team; the `## Tracker` block of CLAUDE.md at the git
+# toplevel (its Issue-key prefix, else its Team name); for --all only, the prefix of a branch
+# TICKET key (ide-118-… → IDE). The bare branch name is never a team: on `main` it guessed MAIN.
+# Whatever the source, the team is checked against Linear's teams before any issue is read,
+# because an issues filter on an unknown team key answers with an empty list, not an error.
+
+# _tracker_file → path of CLAUDE.md at the git toplevel, or return 1.
+_tracker_file() {
+  local top
+  top=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+  [ -f "$top/CLAUDE.md" ] || return 1
+  printf '%s' "$top/CLAUDE.md"
+}
+
+# _tracker_field FILE LABEL → the value of `- **LABEL**: value` inside `## Tracker`, cut at
+# the first " (" and with backticks removed. Empty when absent.
+_tracker_field() {
+  awk -v want="$2" '
+    /^## / { inblk = ($0 ~ /^## Tracker[[:space:]]*$/); next }
+    inblk {
+      line = $0
+      if (line !~ /^[-*][[:space:]]+\*\*/) next
+      sub(/^[-*][[:space:]]+\*\*/, "", line)
+      i = index(line, "**:"); if (i == 0) next
+      if (substr(line, 1, i - 1) != want) next
+      v = substr(line, i + 3)
+      j = index(v, " ("); if (j > 0) v = substr(v, 1, j - 1)
+      gsub(/`/, "", v); gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
+      print v; exit
+    }' "$1"
+}
+
+_q_teams() { cat <<'GQL'
+query { teams(first: 250) { nodes { id key name } } }
+GQL
+}
+
+# _check_team KEY NAME SOURCE [EITHER] → the team's key on stdout, or a named failure on stderr +
+# return 1. KEY and NAME may each be empty (not both). With both, Linear's team for KEY must carry
+# NAME. EITHER=1 matches KEY against a team's key or its name (what --team accepts). One read.
+_check_team() {
+  local key="$1" name="$2" source="$3" either="${4:-0}" resp teams hit known
+  resp=$(_graphql "$(_q_teams)" 'null') || { echo "project: could not read Linear's teams to check team '${key:-$name}' (from $source)" >&2; return 1; }
+  teams=$(printf '%s' "$resp" | jq -c '.data.teams.nodes // null')
+  if [ "$teams" = "null" ]; then echo "project: Linear returned no teams list; cannot check team '${key:-$name}' (from $source)" >&2; return 1; fi
+  known=$(printf '%s' "$teams" | jq -r '[.[] | "\(.key) (\(.name))"] | join(", ")')
+  if [ -n "$key" ] && [ "$either" = "1" ]; then
+    hit=$(printf '%s' "$teams" | jq -c --arg k "$key" 'map(select((.key | ascii_upcase) == ($k | ascii_upcase))) + map(select((.name | ascii_downcase) == ($k | ascii_downcase))) | .[0] // empty')
+  elif [ -n "$key" ]; then
+    hit=$(printf '%s' "$teams" | jq -c --arg k "$key" 'map(select((.key | ascii_upcase) == ($k | ascii_upcase))) | .[0] // empty')
+  else
+    hit=$(printf '%s' "$teams" | jq -c --arg n "$name" 'map(select((.name | ascii_downcase) == ($n | ascii_downcase))) | .[0] // empty')
+  fi
+  if [ -z "$hit" ]; then
+    echo "project: team not found in Linear: ${key:-$name} (from $source); teams Linear has: ${known:-none}" >&2
+    return 1
+  fi
+  if [ -n "$key" ] && [ -n "$name" ]; then
+    local hname; hname=$(printf '%s' "$hit" | jq -r '.name')
+    if [ "$(printf '%s' "$hname" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')" ]; then
+      echo "project: team mismatch (from $source): key $key is team '$hname' in Linear, but the config names team '$name'" >&2
+      return 1
+    fi
+  fi
+  printf '%s' "$hit" | jq -r '.key'
+}
+
+# _resolve_next_team EXPLICIT ALLOW_BRANCH_KEY → "KEY<TAB>SOURCE" on stdout; return 1 with a
+# reason on stderr when a source is present but bad; return 3 (silent) when no source exists.
+_resolve_next_team() {
+  local explicit="$1" allow_branch="$2" file tracker key name source team
+  if [ -n "$explicit" ]; then
+    # --team takes a key or a team name.
+    team=$(_check_team "$explicit" "" "--team" 1) || return 1
+    printf '%s\t%s' "$team" "--team"; return 0
+  fi
+  if file=$(_tracker_file); then
+    tracker=$(_tracker_field "$file" "Tracker")
+    key=$(_tracker_field "$file" "Issue-key prefix")
+    name=$(_tracker_field "$file" "Team")
+    if [ -n "$tracker$key$name" ]; then
+      source="§ Tracker in $file"
+      if [ -n "$tracker" ] && ! printf '%s' "$tracker" | grep -qi 'linear'; then
+        echo "project: $source names tracker '$tracker'; engine project next reads Linear only" >&2; return 1
+      fi
+      if [ -n "$key" ] && ! printf '%s' "$key" | grep -qE '^[A-Za-z]+$'; then
+        echo "project: $source has an Issue-key prefix that is not a team key: '$key'" >&2; return 1
+      fi
+      if [ -z "$key$name" ]; then
+        echo "project: $source names neither an Issue-key prefix nor a Team" >&2; return 1
+      fi
+      team=$(_check_team "$key" "$name" "$source") || return 1
+      printf '%s\t%s' "$team" "$source"; return 0
+    fi
+  fi
+  if [ "$allow_branch" = "1" ]; then
+    key=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | grep -oiE '^[a-z]+-[0-9]+' | head -1 | grep -oiE '^[a-z]+')
+    if [ -n "$key" ]; then
+      source="branch ticket key"
+      team=$(_check_team "$key" "" "$source") || return 1
+      printf '%s\t%s' "$team" "$source"; return 0
+    fi
+  fi
+  return 3
+}
+
 # _fetch_next PID → {project, milestones, issues} (paginated, thin). Cursor-progress guarded.
 _fetch_next() {
   local pid="$1" after="null" resp page meta="" milestones="" prev_cursor=""
@@ -609,20 +724,30 @@ cmd_next() {
     echo "project: next --limit must be a positive integer" >&2; return 1
   fi
 
-  local raw
+  local raw fallback=0
+  # No <project> and no branch ticket key: rank the repository's § Tracker team, team-wide.
+  if [ "$all" = "0" ] && [ -z "$input" ]; then
+    input=$(_infer_project_from_branch) || { input=""; all=1; fallback=1; }
+  fi
   if [ "$all" = "1" ]; then
-    if [ -z "$team" ]; then
-      local branch
-      branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | grep -oiE '^[a-z]+' | head -1)
-      team=$(printf '%s' "$branch" | tr '[:lower:]' '[:upper:]')
+    local resolved rrc source allow_branch=1
+    [ "$fallback" = "1" ] && allow_branch=0
+    resolved=$(_resolve_next_team "$team" "$allow_branch"); rrc=$?
+    if [ "$rrc" = "3" ]; then
+      if [ "$fallback" = "1" ]; then
+        echo "project: next requires a <project> (none given, no branch ticket key to infer one from, and no ## Tracker team in the repository's CLAUDE.md)" >&2
+      else
+        echo "project: next --all needs a --team KEY (none given, no ## Tracker team in the repository's CLAUDE.md, no branch ticket key)" >&2
+      fi
+      return 1
     fi
-    [ -n "$team" ] || { echo "project: next --all needs a --team KEY (none given, none inferable)" >&2; return 1; }
+    [ "$rrc" = "0" ] || return 1
+    team="${resolved%%$'\t'*}"; source="${resolved#*$'\t'}"
+    if [ "$fallback" = "1" ]; then
+      echo "project: no <project> given and no branch ticket key; ranking team $team team-wide (from $source)" >&2
+    fi
     raw=$(_fetch_next_team "$team") || return 1
   else
-    if [ -z "$input" ]; then
-      input=$(_infer_project_from_branch) || {
-        echo "project: next requires a <project> (none given, and no branch ticket key to infer one from)" >&2; return 1; }
-    fi
     local pid
     pid=$(_resolve_project_id "$input") || return 1
     raw=$(_fetch_next "$pid") || return 1
