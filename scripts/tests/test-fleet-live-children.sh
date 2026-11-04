@@ -459,6 +459,25 @@ test_loader_refuses_a_lib_missing_functions() {
   assert_eq "unknown" "$OUT" "partial lib: 'unknown'"
 }
 
+# NIT 5: an exported shell function named tmux (or ps) must not supply the tree or the env.
+test_exported_tmux_function_does_not_supply_the_tree() {
+  # shellcheck disable=SC2086
+  OUT=$(env $SCRUB FLEET_TMUX_SOCKET="$NO_SOCK" "$BASH_BIN" -c '
+    tmux() { printf "manager:x %%9 -\nw:fake %%8 manager:x\n"; }
+    ps() { echo "1 0 claude PATH=/x FLEET_MANAGES=bogus"; }
+    export -f tmux ps
+    exec "$0" "$@"' "$FLEET_SH" live-children manager:x 2>"$FIX/err"); RC=$?
+  assert_eq 2 "$RC" "exported tmux fn: the real tmux is asked (no server → exit 2)"
+  assert_hasnt "w:fake" "$OUT" "exported tmux fn: the function's tree is not used"
+  # shellcheck disable=SC2086
+  OUT=$(env $SCRUB FLEET_TMUX_SOCKET="$NO_SOCK" "$BASH_BIN" -c '
+    tmux() { printf "manager:x %%9 -\nw:fake %%8 manager:x\n"; }
+    export -f tmux
+    exec "$0" "$@"' "$FLEET_SH" stale-managers 2>"$FIX/err"); RC=$?
+  assert_eq 2 "$RC" "exported tmux fn, stale-managers: exit 2"
+  assert_eq "unknown" "$OUT" "exported tmux fn, stale-managers: 'unknown'"
+}
+
 # ---------------------------------------------------------------- ps through the marked seam
 # Tree via FLEET_LIVE_PANES, ps via FLEET_PS (both only with the marker), tmux display/show-options
 # via the PATH stub. This drives agent discovery and the env parse, not the FLEET_LAUNCH_ENV shortcut.
@@ -481,6 +500,7 @@ test_ps_seam_ignored_without_marker() {
   mv "$FIX/fake-ps" "$FIX/fake-ps.real"; cp "$FIX/fake-ps.real" "$FIX/bin/ps"; chmod +x "$FIX/spy-ps"
   fleet FLEET_PS="$FIX/spy-ps" PATH="$FIX/bin:$PATH" FLEET_TMUX_SOCKET=stubsock stale-managers
   assert_file_not_exists "$FIX/fake-ps-called" "ps seam, no marker: FLEET_PS is not run"
+  assert_eq 1 "$(grep -c 'ignoring a test seam (FLEET_PS)' <<<"$ERR")" "ps seam, no marker: one warning, as the other seams give"
   assert_eq 3 "$RC" "ps seam, no marker: the real (PATH) ps is used"
 }
 

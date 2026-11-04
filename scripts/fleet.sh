@@ -1597,9 +1597,11 @@ _fleet_load_lib() {
     return 2
 }
 
-# _fleet_ps — ps, or under the test marker the FLEET_PS substitute (same argv).
+# _fleet_ps — `command ps` (never an exported function named ps), or the FLEET_PS substitute
+# that cmd_stale_managers accepted once, under the test marker, into _FLEET_PS_SEAM.
+_FLEET_PS_SEAM=""
 _fleet_ps() {
-    if _fleet_test_seam "${FLEET_PS:-}" FLEET_PS 2>/dev/null; then "$FLEET_PS" "$@"; else ps "$@"; fi
+    if [ -n "$_FLEET_PS_SEAM" ]; then "$_FLEET_PS_SEAM" "$@"; else command ps "$@"; fi
 }
 
 cmd_live_children() {
@@ -1633,6 +1635,9 @@ cmd_stale_managers() {
     local tree procs="" seam="" seat pane parent line launch opt kids krc ppid agent envline
     local checked=0 stale=0 unknown=0 diff lo ko optdiff csv
     tree=$(fleet_live_tree) || { echo unknown; exit 2; }
+    # Decided once, so an unmarked FLEET_PS draws one warning, as the other seams do.
+    _FLEET_PS_SEAM=""
+    _fleet_test_seam "${FLEET_PS:-}" FLEET_PS && _FLEET_PS_SEAM="$FLEET_PS"
     if _fleet_test_seam "${FLEET_LAUNCH_ENV:-}" FLEET_LAUNCH_ENV; then
         [ -r "$FLEET_LAUNCH_ENV" ] || { echo "fleet: cannot read $FLEET_LAUNCH_ENV" >&2; echo unknown; exit 2; }
         seam="$FLEET_LAUNCH_ENV"

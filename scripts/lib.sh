@@ -1650,11 +1650,12 @@ clear_agent_context() {
 #                          once, stamped in this dir (await-next sets it: it runs every loop turn)
 # Bash 3.2 safe (§PTF_BASH32_COMPATIBILITY): no arrays, no arithmetic, every var defaulted.
 
+# `command tmux`: an exported shell function named tmux must not answer for the server.
 _fleet_tmux() {
   if [ -n "${FLEET_TMUX_SOCKET:-}" ]; then
-    tmux -L "$FLEET_TMUX_SOCKET" "$@"
+    command tmux -L "$FLEET_TMUX_SOCKET" "$@"
   elif [ -n "${TMUX:-}" ]; then
-    tmux -S "${TMUX%%,*}" "$@"
+    command tmux -S "${TMUX%%,*}" "$@"
   else
     return 1
   fi
