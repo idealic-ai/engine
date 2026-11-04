@@ -1564,27 +1564,42 @@ EOF
 #       per stale manager: pane, seat, launch list, live list, the difference, and what a restart
 #       would re-export (@pane_manages). Then one summary line.
 #       exit 0 nothing stale · 3 at least one stale (UNKNOWN rows, if any, are printed too) ·
-#       2 cannot read: the tree (stdout "unknown"), the process table, or a manager's environment
-#       with nothing stale found.
+#       2 cannot read: the tree (stdout "unknown"), the process table, or some manager's launch
+#       copy (its environment not shown by ps, or no agent found under a pane that has live
+#       children), with nothing stale found. Never 0 while any manager is UNKNOWN.
+#       Test seams (only with FLEET_TEST_SEAM=1): FLEET_PS, a command used in place of ps.
 #       Test seam (only with FLEET_TEST_SEAM=1): FLEET_LAUNCH_ENV, lines
 #       "<pane_id> <FLEET_MANAGES | - unset | ? unreadable> <@pane_manages | ->"; a pane absent
 #       from it has no agent process.
 
+# _fleet_load_lib — ALWAYS sources lib.sh, never trusting a function already in the shell: bash
+# imports exported functions from the environment (`export -f`, BASH_FUNC_*%%), so a
+# pre-existing fleet_live_tree could be anybody's tree. Every function these commands call is
+# unset first, then a candidate lib counts only if it defines all of them.
+_FLEET_LIB_FNS="fleet_live_tree fleet_live_children fleet_self _fleet_children_in _fleet_env_value _fleet_test_seam _fleet_tmux _fleet_live_read"
 _fleet_load_lib() {
-    declare -F fleet_live_tree >/dev/null 2>&1 && return 0
-    local c cands="" here
+    local c cands="" here f ok
     here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
     if [ "${FLEET_TEST_SEAM:-}" = 1 ] && [ -n "${FLEET_LIB:-}" ]; then cands="$FLEET_LIB"; fi
     cands="$cands $here/lib.sh $HOME/.claude/scripts/lib.sh"
     for c in $cands; do
         [ -r "$c" ] || continue
+        for f in $_FLEET_LIB_FNS; do unset -f "$f" 2>/dev/null; done
         unset _LIB_SH_LOADED
         # shellcheck disable=SC1090
         source "$c"
-        declare -F fleet_live_tree >/dev/null 2>&1 && return 0
+        ok=1
+        for f in $_FLEET_LIB_FNS; do declare -F "$f" >/dev/null 2>&1 || ok=0; done
+        [ "$ok" = 1 ] && return 0
     done
-    echo "fleet: no scripts/lib.sh defining fleet_live_tree (tried:$cands)" >&2
+    for f in $_FLEET_LIB_FNS; do unset -f "$f" 2>/dev/null; done
+    echo "fleet: no scripts/lib.sh defining $_FLEET_LIB_FNS (tried:$cands)" >&2
     return 2
+}
+
+# _fleet_ps — ps, or under the test marker the FLEET_PS substitute (same argv).
+_fleet_ps() {
+    if _fleet_test_seam "${FLEET_PS:-}" FLEET_PS 2>/dev/null; then "$FLEET_PS" "$@"; else ps "$@"; fi
 }
 
 cmd_live_children() {
@@ -1594,21 +1609,22 @@ cmd_live_children() {
     exit $?
 }
 
-# _fleet_stale_diff <launch csv> <kids, one per line> — "LO <entry>" for each launch entry that
-# names no live child, "KO <kid>" for each live child no entry names. An entry names a seat when
-# equal, or when it is the seat's label (`kernel` names `idealic:kernel`), case folded: ask-app's
-# listNames + seatEq.
+# _fleet_stale_diff <launch list> <kids, one per line> — "LO <entry>" for each launch entry that
+# names no live child, "KO <kid>" for each live child no entry names. The list splits on commas
+# and whitespace. An entry names a seat when equal, or when it is the seat's label (`kernel`
+# names `idealic:kernel`) — ask-app's listNames exactly, which is case-SENSITIVE: a launch
+# `Kernel` does not name `idealic:kernel` there, so it does not here either.
 _fleet_stale_diff() {
     printf '%s\n' "$2" | awk -v L="$1" '
-        BEGIN { n = split(L, e, ","); }
+        BEGIN { n = split(L, e, /[ \t,]+/); }
         NF { k[++m] = $1 }
         END {
           for (i = 1; i <= n; i++) { if (e[i] == "") continue; hit = 0
             for (j = 1; j <= m; j++) if (names(e[i], k[j])) { hit = 1; got[j] = 1 }
             if (!hit) print "LO " e[i] }
           for (j = 1; j <= m; j++) if (!got[j]) print "KO " k[j] }
-        function names(a, s,   la, ls) { la = tolower(a); ls = tolower(s)
-          return la == ls || (length(ls) > length(la) && substr(ls, length(ls) - length(la)) == ":" la) }'
+        function names(a, s) {
+          return a == s || (length(s) > length(a) && substr(s, length(s) - length(a)) == ":" a) }'
 }
 
 cmd_stale_managers() {
@@ -1621,7 +1637,7 @@ cmd_stale_managers() {
         [ -r "$FLEET_LAUNCH_ENV" ] || { echo "fleet: cannot read $FLEET_LAUNCH_ENV" >&2; echo unknown; exit 2; }
         seam="$FLEET_LAUNCH_ENV"
     else
-        procs=$(ps -A -o pid=,ppid=,command= </dev/null 2>/dev/null)
+        procs=$(_fleet_ps -A -o pid=,ppid=,command= </dev/null 2>/dev/null)
         [ -n "$procs" ] || { echo "fleet: cannot read the process table (ps -A)" >&2; echo unknown; exit 2; }
     fi
     while read -r seat pane parent; do
@@ -1648,8 +1664,11 @@ cmd_stale_managers() {
                             n=split(kids[p], a, " "); for (i=1; i<=n; i++) q[++t]=a[i] } }')
             fi
             if [ -n "$agent" ]; then
-                envline=$(ps eww -o command= -p "$agent" </dev/null 2>/dev/null)
-                if [ -z "$envline" ]; then launch="?"
+                envline=$(_fleet_ps eww -o command= -p "$agent" </dev/null 2>/dev/null)
+                # Every agent's environment carries PATH; a line with none is ps showing no
+                # environment at all (another user's process, a restricted ps), and FLEET_MANAGES
+                # absent there is unreadable, not "launched managing nobody".
+                if [ -z "$envline" ] || ! _fleet_env_value PATH "$envline" >/dev/null; then launch="?"
                 else launch=$(_fleet_env_value FLEET_MANAGES "$envline") || launch=""
                 fi
                 opt=$(_fleet_tmux show-options -p -v -t "$pane" @pane_manages </dev/null 2>/dev/null)
@@ -1661,8 +1680,15 @@ cmd_stale_managers() {
             echo "UNKNOWN $pane $seat — two panes carry this seat, so its live children cannot be read"
             unknown=$((unknown + 1)); checked=$((checked + 1)); continue
         fi
+        if [ "$krc" != 0 ]; then
+            echo "UNKNOWN $pane $seat — its live children could not be read (exit $krc)"
+            unknown=$((unknown + 1)); checked=$((checked + 1)); continue
+        fi
         if [ -z "$agent" ]; then
-            [ -n "$kids" ] && echo "NOTE $pane $seat — has live children but no agent process under the pane; no launch copy to compare"
+            if [ -n "$kids" ]; then
+                echo "UNKNOWN $pane $seat — has live children ($(printf '%s\n' "$kids" | paste -sd, -)) but no agent process was found under the pane, so its launch copy cannot be read"
+                unknown=$((unknown + 1)); checked=$((checked + 1))
+            fi
             continue
         fi
         [ -z "$launch" ] && [ -z "$kids" ] && continue

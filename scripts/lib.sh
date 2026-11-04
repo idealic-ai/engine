@@ -1760,13 +1760,17 @@ fleet_parent() {
 #       from a tree that was read.
 #       exit 2  the tree cannot be read: stdout is the single word "unknown", never an empty list,
 #               because a caller reading an empty list as "manages nobody" would lift a restriction.
+#       exit 5  no pane carries <seat> in a tree that was read (a typo or a gone seat): stdout
+#               "unknown", so it is never read as "manages nobody".
 #       exit 4  <seat> is carried by more than one pane: refused, stdout "unknown" (ask-app: a seat
 #               two panes carry has no standing). A CHILD seat two panes carry is left out of the
 #               list and named on stderr, for the same reason.
-#       exit 3  only with --fallback-launch, and only when the tree cannot be read: the NAMED
-#               offline fallback. stdout's first line is "fallback FLEET_MANAGES", then this
-#               process's launch-time FLEET_MANAGES entries one per line, as stored (labels or
-#               seats). Unset or empty FLEET_MANAGES stays exit 2 "unknown". FLEET_MANAGES is read
+#       exit 3  only with --fallback-launch, only when the tree cannot be read, and only when
+#               <seat> is this process's own seat (fleet_self, case folded): FLEET_MANAGES is this
+#               process's launch copy and says nothing about any other seat. stdout's first line
+#               is "fallback FLEET_MANAGES", then the entries one per line, as stored (labels or
+#               seats; split on commas and whitespace). Another seat, an unresolved own seat, or
+#               an unset/empty FLEET_MANAGES stays exit 2 "unknown". FLEET_MANAGES is read
 #               nowhere else.
 #       exit 1  usage.
 #
@@ -1820,13 +1824,27 @@ fleet_live_children() {
   [ -n "$seat" ] || { echo "usage: fleet_live_children <window:label> [--fallback-launch]" >&2; return 1; }
 
   if ! tree=$(fleet_live_tree); then
-    if [ "$fallback" = 1 ] && [ -n "$(printf '%s' "${FLEET_MANAGES:-}" | tr -d ', ')" ]; then
-      echo "$pfx: the live tree cannot be read; '$seat' children from the launch-time FLEET_MANAGES fallback (may be stale)" >&2
-      echo "fallback FLEET_MANAGES"
-      printf '%s\n' "$FLEET_MANAGES" | tr ',' '\n' | awk 'NF'
-      return 3
+    if [ "$fallback" = 1 ]; then
+      # FLEET_MANAGES belongs to THIS process, so it can only answer for this process's own seat.
+      # The seat comes from fleet_self; the tree stub is withheld from it unless marked.
+      local self="" seam_panes=""
+      _fleet_test_seam "${FLEET_LIVE_PANES:-}" FLEET_LIVE_PANES 2>/dev/null && seam_panes="$FLEET_LIVE_PANES"
+      # fleet_self exit 3 is its flagged FLEET_PANE cache, which is this process's launch seat —
+      # the same launch-time origin as FLEET_MANAGES, so it is the right key for this fallback.
+      local src=0
+      self=$(FLEET_LIVE_PANES="$seam_panes" fleet_self 2>/dev/null) || src=$?
+      case "$src" in 0|3) ;; *) self="" ;; esac
+      if [ -z "$self" ] || [ "$(printf '%s' "$self" | tr 'A-Z' 'a-z')" != "$(printf '%s' "$seat" | tr 'A-Z' 'a-z')" ]; then
+        echo "$pfx: --fallback-launch answers only for this process's own seat ('${self:-unresolved}'), not '$seat'" >&2
+      elif [ -n "$(printf '%s' "${FLEET_MANAGES:-}" | tr -d ', \t')" ]; then
+        echo "$pfx: the live tree cannot be read; '$seat' children from this process's launch-time FLEET_MANAGES fallback (may be stale)" >&2
+        echo "fallback FLEET_MANAGES"
+        printf '%s\n' "$FLEET_MANAGES" | tr ', \t' '\n\n\n' | awk 'NF'
+        return 3
+      else
+        echo "$pfx: --fallback-launch asked, but FLEET_MANAGES is unset or empty" >&2
+      fi
     fi
-    [ "$fallback" = 1 ] && echo "$pfx: --fallback-launch asked, but FLEET_MANAGES is unset or empty" >&2
     echo unknown
     return 2
   fi
@@ -1836,7 +1854,7 @@ fleet_live_children() {
 
 # _fleet_children_in <seat> — fleet_live_children's rule over a tree already read, on stdin, so
 # a caller walking every pane (fleet.sh stale-managers) reads tmux once. Same stdout and exits
-# (0 list, 4 "unknown" for a seat two panes carry).
+# (0 list, 4 "unknown" for a seat two panes carry, 5 "unknown" for a seat no pane carries).
 _fleet_children_in() {
   local pfx="${FLEET_WARN_PREFIX:-fleet}" seat="${1:-}" tree="" n="" res="" e=""
   tree=$(cat)
@@ -1846,6 +1864,11 @@ _fleet_children_in() {
     echo "$pfx: refused: $n panes carry '$seat', so its children cannot be told apart" >&2
     echo unknown
     return 4
+  fi
+  if [ "$n" = 0 ]; then
+    echo "$pfx: no pane carries '$seat' in the live tree (mistyped, or the seat is gone)" >&2
+    echo unknown
+    return 5
   fi
   # Rows parented to <seat>; a child seat carried by more than one pane is left out and named.
   # A row with no label (":", "win:") is not a seat; a row naming itself is not a child.

@@ -27,7 +27,7 @@ NO_SOCK="manages2-test-no-such-socket-$$"
 
 SCRUB="-u TMUX -u TMUX_PANE -u FLEET_PANE -u FLEET_PARENT -u FLEET_TMUX_SOCKET -u FLEET_LIVE_PANES
        -u FLEET_TEST_SEAM -u FLEET_LAUNCH_ENV -u FLEET_WARN_PREFIX -u FLEET_WARN_ONCE_DIR
-       -u _LIB_SH_LOADED -u HOP_LIVE_PANES -u HOP_TMUX_SOCKET -u FLEET_MANAGES -u FLEET_LIB"
+       -u _LIB_SH_LOADED -u HOP_LIVE_PANES -u HOP_TMUX_SOCKET -u FLEET_MANAGES -u FLEET_LIB -u FLEET_PS"
 
 FIX=""
 
@@ -64,7 +64,8 @@ fleet() {
   local envs=()
   while [ $# -gt 0 ] && [[ "$1" == *=* ]]; do envs+=("$1"); shift; done
   # shellcheck disable=SC2086
-  OUT=$(env $SCRUB FLEET_LIB="$LIB_SH" ${envs[@]+"${envs[@]}"} "$BASH_BIN" "$FLEET_SH" "$@" 2>"$FIX/err")
+  # No FLEET_LIB: fleet.sh's own loader picks the lib (its tree's scripts/lib.sh), as in production.
+  OUT=$(env $SCRUB ${envs[@]+"${envs[@]}"} "$BASH_BIN" "$FLEET_SH" "$@" 2>"$FIX/err")
   RC=$?
   ERR=$(cat "$FIX/err")
 }
@@ -170,19 +171,57 @@ test_fleet_manages_is_never_used_unasked() {
 }
 
 test_named_fallback_says_so() {
-  lib FLEET_MANAGES="deploy,writer" FLEET_TMUX_SOCKET="$NO_SOCK" fleet_live_children manager:app --fallback-launch
-  assert_eq 3 "$RC" "fallback: exit 3"
+  lib FLEET_PANE=manager:app FLEET_MANAGES="deploy,writer" FLEET_TMUX_SOCKET="$NO_SOCK" fleet_live_children Manager:App --fallback-launch
+  assert_eq 3 "$RC" "fallback: exit 3 for this process's own seat"
   assert_eq "fallback FLEET_MANAGES
 deploy
 writer" "$OUT" "fallback: first line names the source, then the launch-time entries"
   assert_has "launch-time" "$ERR" "fallback: stderr says it is the launch-time copy"
 }
 
+# MUST-FIX 2: FLEET_MANAGES is this process's launch copy; it never answers for another seat.
+test_fallback_refuses_another_seat() {
+  lib FLEET_PANE=manager:app FLEET_MANAGES="kernel,storage" FLEET_TMUX_SOCKET="$NO_SOCK" fleet_live_children idealic:ui --fallback-launch
+  assert_eq 2 "$RC" "fallback, other seat: exit 2"
+  assert_eq "unknown" "$OUT" "fallback, other seat: 'unknown', not the caller's list"
+  assert_has "own seat" "$ERR" "fallback, other seat: stderr says the fallback covers only the own seat"
+}
+
+test_fallback_refuses_when_own_seat_unresolved() {
+  lib FLEET_MANAGES="deploy,writer" FLEET_TMUX_SOCKET="$NO_SOCK" fleet_live_children manager:app --fallback-launch
+  assert_eq 2 "$RC" "fallback, no own identity: exit 2"
+  assert_eq "unknown" "$OUT" "fallback, no own identity: 'unknown'"
+}
+
+# An unmarked stub must not decide the own seat either.
+test_fallback_identity_ignores_unmarked_stub() {
+  printf 'manager:app %%77 -\n' > "$FIX/self.txt"
+  lib TMUX_PANE=%77 FLEET_LIVE_PANES="$FIX/self.txt" FLEET_PANE=other:seat FLEET_MANAGES="deploy" FLEET_TMUX_SOCKET="$NO_SOCK" \
+    fleet_live_children manager:app --fallback-launch
+  assert_eq 2 "$RC" "fallback, unmarked stub names the seat: still exit 2"
+  assert_hasnt "deploy" "$OUT" "fallback, unmarked stub: no list"
+}
+
+test_fallback_splits_on_whitespace_too() {
+  lib FLEET_PANE=manager:app FLEET_MANAGES="deploy writer" FLEET_TMUX_SOCKET="$NO_SOCK" fleet_live_children manager:app --fallback-launch
+  assert_eq "fallback FLEET_MANAGES
+deploy
+writer" "$OUT" "fallback: commas and whitespace both split (ask-app's [\\s,]+)"
+}
+
+# SHOULD 1: a seat no pane carries is not "manages nobody".
+test_absent_seat_is_unknown_exit_5() {
+  lib "$(SEAM)" FLEET_LIVE_PANES="$FIX/tree.txt" fleet_live_children manager:domian
+  assert_eq 5 "$RC" "absent seat: exit 5"
+  assert_eq "unknown" "$OUT" "absent seat: 'unknown', never an empty list"
+  assert_has "no pane carries" "$ERR" "absent seat: stderr names it"
+}
+
 test_fallback_with_no_fleet_manages_stays_unknown() {
-  lib FLEET_TMUX_SOCKET="$NO_SOCK" fleet_live_children manager:app --fallback-launch
+  lib FLEET_PANE=manager:app FLEET_TMUX_SOCKET="$NO_SOCK" fleet_live_children manager:app --fallback-launch
   assert_eq 2 "$RC" "fallback, FLEET_MANAGES unset: exit 2"
   assert_eq "unknown" "$OUT" "fallback, FLEET_MANAGES unset: 'unknown'"
-  lib FLEET_MANAGES="" FLEET_TMUX_SOCKET="$NO_SOCK" fleet_live_children manager:app --fallback-launch
+  lib FLEET_PANE=manager:app FLEET_MANAGES="" FLEET_TMUX_SOCKET="$NO_SOCK" fleet_live_children manager:app --fallback-launch
   assert_eq 2 "$RC" "fallback, FLEET_MANAGES empty: exit 2, not 'manages nobody'"
 }
 
@@ -260,6 +299,17 @@ EOF
   fleet "$(SEAM)" FLEET_LIVE_PANES="$FIX/tree.txt" FLEET_LAUNCH_ENV="$FIX/launch.txt" stale-managers
   assert_eq 3 "$RC" "stale pane option: exit 3"
   assert_has "@pane_manages is stale too" "$OUT" "stale pane option: a restart alone would not fix it, and says so"
+}
+
+# NIT 1: label entries match as ask-app's listNames does, case-sensitively.
+test_label_entry_is_case_sensitive() {
+  launch_env <<'EOF'
+%2 stats,platform stats,platform
+%5 Deploy,writer deploy,writer
+%1 domain,app domain,app
+EOF
+  fleet "$(SEAM)" FLEET_LIVE_PANES="$FIX/tree.txt" FLEET_LAUNCH_ENV="$FIX/launch.txt" stale-managers
+  assert_has "STALE %5 manager:app" "$OUT" "case: launch 'Deploy' does not name app:deploy (listNames)"
 }
 
 test_nothing_stale_exit_0() {
@@ -371,6 +421,105 @@ test_stale_managers_production_path() {
   assert_hasnt "STALE %1" "$OUT" "prod path: manager:director matches"
   assert_hasnt "set-option" "$(cat "$FIX/argv")" "prod path: tmux is only read"
   assert_hasnt "send-keys" "$(cat "$FIX/argv")" "prod path: tmux is only read (no send-keys)"
+}
+
+# ---------------------------------------------------------------- loader (MUST-FIX 1)
+# bash imports exported functions. A stub fleet_live_tree exported into fleet.sh's environment,
+# with no marker, must never stand in for the fleet: the loader sources lib.sh regardless.
+exported_stub() { # <subcommand…> — fleet.sh with an exported fleet_live_tree/_fleet_children_in stub
+  # shellcheck disable=SC2086
+  OUT=$(env $SCRUB FLEET_TMUX_SOCKET="$NO_SOCK" "$BASH_BIN" -c '
+    fleet_live_tree() { printf "manager:x %%9 -\nw:fake %%8 manager:x\n"; }
+    _fleet_children_in() { echo w:fake; }
+    fleet_live_children() { echo w:fake; }
+    export -f fleet_live_tree _fleet_children_in fleet_live_children
+    exec "$0" "$@"' "$FLEET_SH" "$@" 2>"$FIX/err")
+  RC=$?
+  ERR=$(cat "$FIX/err")
+}
+
+test_exported_function_does_not_bypass_live_children() {
+  exported_stub live-children manager:x
+  assert_eq 2 "$RC" "exported stub, live-children: the real tree is read (exit 2, no server)"
+  assert_eq "unknown" "$OUT" "exported stub, live-children: 'unknown', not the stub's child"
+}
+
+test_exported_function_does_not_bypass_stale_managers() {
+  exported_stub stale-managers
+  assert_eq 2 "$RC" "exported stub, stale-managers: exit 2, never 0"
+  assert_eq "unknown" "$OUT" "exported stub, stale-managers: 'unknown', no '0 checked' line"
+}
+
+test_loader_refuses_a_lib_missing_functions() {
+  printf 'fleet_live_tree() { echo "manager:x %%9 -"; }\n' > "$FIX/partial-lib.sh"
+  mkdir -p "$FIX/tree/scripts"; cp "$FLEET_SH" "$FIX/tree/scripts/fleet.sh"; cp "$FIX/partial-lib.sh" "$FIX/tree/scripts/lib.sh"
+  # shellcheck disable=SC2086
+  OUT=$(env $SCRUB HOME="$FIX/nohome" "$BASH_BIN" "$FIX/tree/scripts/fleet.sh" stale-managers 2>"$FIX/err"); RC=$?
+  assert_eq 2 "$RC" "partial lib: exit 2"
+  assert_eq "unknown" "$OUT" "partial lib: 'unknown'"
+}
+
+# ---------------------------------------------------------------- ps through the marked seam
+# Tree via FLEET_LIVE_PANES, ps via FLEET_PS (both only with the marker), tmux display/show-options
+# via the PATH stub. This drives agent discovery and the env parse, not the FLEET_LAUNCH_ENV shortcut.
+ps_seam() {
+  make_stubs
+  cp "$FIX/bin/ps" "$FIX/fake-ps"; rm -f "$FIX/bin/ps"
+}
+
+test_ps_seam_reads_env_through_agent_discovery() {
+  ps_seam
+  fleet "$(SEAM)" FLEET_LIVE_PANES="$FIX/tree.txt" FLEET_PS="$FIX/fake-ps" PATH="$FIX/bin:$PATH" FLEET_TMUX_SOCKET=stubsock stale-managers
+  assert_eq 3 "$RC" "ps seam: exit 3"
+  assert_has "STALE %2 manager:domain" "$OUT" "ps seam: manager:domain read through ps eww"
+  assert_hasnt "STALE %5" "$OUT" "ps seam: manager:app matches"
+}
+
+test_ps_seam_ignored_without_marker() {
+  ps_seam
+  printf '#!/bin/bash\necho called >> "%s/fake-ps-called"\nexec "%s/fake-ps.real" "$@"\n' "$FIX" "$FIX" > "$FIX/spy-ps"
+  mv "$FIX/fake-ps" "$FIX/fake-ps.real"; cp "$FIX/fake-ps.real" "$FIX/bin/ps"; chmod +x "$FIX/spy-ps"
+  fleet FLEET_PS="$FIX/spy-ps" PATH="$FIX/bin:$PATH" FLEET_TMUX_SOCKET=stubsock stale-managers
+  assert_file_not_exists "$FIX/fake-ps-called" "ps seam, no marker: FLEET_PS is not run"
+  assert_eq 3 "$RC" "ps seam, no marker: the real (PATH) ps is used"
+}
+
+test_ps_manager_with_children_and_no_agent_is_unknown() {
+  ps_seam
+  # %5's shell has no claude under it any more.
+  awk '$1 != 305' "$FIX/procs.txt" > "$FIX/p2" && mv "$FIX/p2" "$FIX/procs.txt"
+  awk '$1 != 202' "$FIX/envs.txt" > "$FIX/e2" && mv "$FIX/e2" "$FIX/envs.txt"
+  printf '202 node /opt/bin/claude PATH=/bin FLEET_MANAGES=stats,platform\n' >> "$FIX/envs.txt"
+  fleet "$(SEAM)" FLEET_LIVE_PANES="$FIX/tree.txt" FLEET_PS="$FIX/fake-ps" PATH="$FIX/bin:$PATH" FLEET_TMUX_SOCKET=stubsock stale-managers
+  assert_eq 2 "$RC" "no agent under a manager with children: exit 2, never 0"
+  assert_has "UNKNOWN %5 manager:app" "$OUT" "no agent: named UNKNOWN"
+}
+
+test_ps_showing_no_environment_is_unknown() {
+  ps_seam
+  awk '$1 != 202 && $1 != 305' "$FIX/envs.txt" > "$FIX/e2" && mv "$FIX/e2" "$FIX/envs.txt"
+  printf '202 node /opt/bin/claude\n305 claude PATH=/bin FLEET_MANAGES=deploy,writer\n' >> "$FIX/envs.txt"
+  fleet "$(SEAM)" FLEET_LIVE_PANES="$FIX/tree.txt" FLEET_PS="$FIX/fake-ps" PATH="$FIX/bin:$PATH" FLEET_TMUX_SOCKET=stubsock stale-managers
+  assert_eq 2 "$RC" "ps shows no env: exit 2"
+  assert_has "UNKNOWN %2 manager:domain" "$OUT" "ps shows no env: UNKNOWN, not STALE and not clean"
+}
+
+test_ps_empty_fleet_manages_with_children_is_stale() {
+  ps_seam
+  awk '$1 != 202' "$FIX/envs.txt" > "$FIX/e2" && mv "$FIX/e2" "$FIX/envs.txt"
+  printf '202 node /opt/bin/claude PATH=/bin FLEET_MANAGES=\n' >> "$FIX/envs.txt"
+  fleet "$(SEAM)" FLEET_LIVE_PANES="$FIX/tree.txt" FLEET_PS="$FIX/fake-ps" PATH="$FIX/bin:$PATH" FLEET_TMUX_SOCKET=stubsock stale-managers
+  assert_eq 3 "$RC" "FLEET_MANAGES= empty, live children: exit 3"
+  assert_has "launch: (none)" "$OUT" "FLEET_MANAGES= empty: launch read as an empty list"
+}
+
+test_ps_two_claudes_at_one_depth_takes_the_first_listed() {
+  ps_seam
+  awk '$1 != 202' "$FIX/procs.txt" > "$FIX/p2" && mv "$FIX/p2" "$FIX/procs.txt"
+  printf '402 102 claude --first\n403 102 claude --second\n' >> "$FIX/procs.txt"
+  printf '402 claude --first PATH=/bin FLEET_MANAGES=stats,platform\n403 claude --second PATH=/bin FLEET_MANAGES=bogus\n' >> "$FIX/envs.txt"
+  fleet "$(SEAM)" FLEET_LIVE_PANES="$FIX/tree.txt" FLEET_PS="$FIX/fake-ps" PATH="$FIX/bin:$PATH" FLEET_TMUX_SOCKET=stubsock stale-managers
+  assert_hasnt "STALE %2" "$OUT" "two claudes: the first one ps lists is the agent read"
 }
 
 run_discovered_tests
