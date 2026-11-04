@@ -609,9 +609,10 @@ test_f3_normalisation() {
   out=$(jq -n --arg f "$f" --argjson lane "$PLANE" '{wave:"W",project:"Docs",projectLevel:true,bodyFile:$f,lane:$lane,existing:[]}' | run_wu project)
   assert_eq "decline" "$(jqr "$out" .action)" "SU-34e: a file over 64 KiB declines"
   assert_contains "64 KiB" "$(jqr "$out" .reason)" "SU-34f: naming the cap"
-  f="$SCRATCH/edge.md"; head -c 65536 /dev/zero | tr '\0' 'a' >"$f"
+  # the cap counts the body as sent: "\n\n— wave W" is 12 bytes, so 65524 bytes of text send exactly 64 KiB
+  f="$SCRATCH/edge.md"; head -c 65524 /dev/zero | tr '\0' 'a' >"$f"
   out=$(jq -n --arg f "$f" --argjson lane "$PLANE" '{wave:"W",project:"Docs",projectLevel:true,bodyFile:$f,lane:$lane,existing:[]}' | run_wu project)
-  assert_eq "create" "$(jqr "$out" .action)" "SU-34g control: exactly 64 KiB posts"
+  assert_eq "create" "$(jqr "$out" .action)" "SU-34g control: a body that sends exactly 64 KiB posts"
   # the result itself is larger than a pipe buffer here; it must arrive whole, for any lane
   local big; big=$(jq -c --arg t "$(head -c 70000 /dev/zero | tr '\0' 'a')" '.tldr = $t' <<<"$LANE_GREEN")
   out=$(printf '{"wave":"W","project":"Engine","lane":%s,"existing":[]}' "$big" | run_wu project)
@@ -621,6 +622,78 @@ test_f3_normalisation() {
   out=$(wu_unatt "$f" "$(jq -cn '{existing:[{id:"u1",body:"Line one\nLine two\n\n— wave W"}]}')")
   assert_eq "edit" "$(jqr "$out" .action)" "SU-34h: a CRLF re-post against the LF copy edits in place"
   assert_eq "null" "$(jqr "$out" .replacesText)" "SU-34i: and replaces nothing"
+}
+
+# SU-39 — round 2 S1: an inherited project health is recomputed on every render, so a lane
+# re-posting moves the project's reading instead of leaving a stale worst behind.
+lane1() { jq -cn --arg b "$1" '{ticket:"IDE-1",title:"Lease queue",stateFrom:"In Progress",stateTo:"In Review",tldr:"One.",gates:"green",direction:"aligned",blocked:$b,mustFixOpen:0}'; }
+test_s1_inherited_health_recomputes() {
+  local first inh again out
+  first=$(printf '{"wave":"W","project":"Orch","lane":%s,"existing":[]}' "$(lane1 yes)" | run_wu project)
+  assert_eq "offTrack" "$(jqr "$first" .health)" "SU-39 control: IDE-1 posts offTrack"
+  inh=$(jq -n --arg b "$(jqr "$first" .body)" '{wave:"W",project:"Orch",projectLevel:true,unattended:true,lane:{tldr:"Manager summary."},existing:[{id:"u1",body:$b}]}' | run_wu project)
+  assert_eq "offTrack" "$(jqr "$inh" .health)" "SU-39b: the signal-less project run inherits offTrack"
+  assert_contains "Manager summary." "$(jqr "$inh" .body)" "SU-39c: and keeps the manager's TL;DR"
+  again=$(jq -n --arg b "$(jqr "$inh" .body)" --argjson lane "$(lane1 no)" '{wave:"W",project:"Orch",lane:$lane,existing:[{id:"u1",body:$b}]}' | run_wu project)
+  assert_eq "edit" "$(jqr "$again" .action)" "SU-39d: IDE-1 re-posting onTrack edits the update"
+  assert_eq "onTrack" "$(jqr "$again" .health)" "SU-39e: and the project then reads onTrack"
+  assert_eq "onTrack" "$(jqr "$again" .lanesWorst)" "SU-39f: the inherited section is not counted as a lane"
+  assert_eq "1" "$(jqr "$again" '[.body | split("\n")[] | select(startswith("Health: onTrack — inherited"))] | length')" "SU-39g: its Health line now reads onTrack"
+  assert_not_contains "offTrack" "$(jqr "$again" .body)" "SU-39h: and no stale offTrack is left in the body"
+  # control: a project section with signals of its own is a reading, not inherited, so it stands
+  out=$(jq -n --arg b "$(jqr "$first" .body)" '{wave:"W",project:"Orch",projectLevel:true,lane:{tldr:"x",gates:"green",direction:"rescoped",blocked:"no",mustFixOpen:0},existing:[{id:"u1",body:$b}]}' | run_wu project)
+  again=$(jq -n --arg b "$(jqr "$out" .body)" --argjson lane "$(lane1 no)" '{wave:"W",project:"Orch",lane:$lane,existing:[{id:"u1",body:$b}]}' | run_wu project)
+  assert_eq "atRisk" "$(jqr "$again" .health)" "SU-39i control: a derived project section keeps its own atRisk"
+}
+
+# SU-40 — round 2 S2: unattended, a body file is read only from the session directory; the
+# filesystem root, $HOME (or a parent of it) and a repository toplevel are refused as roots.
+test_s2_roots_narrowed() {
+  local repo sess home secret out
+  repo="$SCRATCH/repo"; sess="$repo/sessions/S"; home="$SCRATCH/home"
+  mkdir -p "$repo/.git" "$sess" "$home"
+  secret="$repo/.env.local.bak"; printf 'OPENAI_API_KEY=sk-live-RR2SECRETMARKER\n' >"$secret"
+  out=$(wu_unatt "$secret" "$(jq -cn --arg s "$sess" '{allowedRoots:[$s]}')")
+  assert_eq "decline" "$(jqr "$out" .action)" "SU-40: a secret at the repo root, outside the session root, declines"
+  assert_not_contains "sk-live" "$out" "SU-40b: and the secret is not in the result"
+  out=$(wu_unatt "$secret" "$(jq -cn --arg s "$sess" --arg r "$repo" '{allowedRoots:[$s,$r]}')")
+  assert_eq "decline" "$(jqr "$out" .action)" "SU-40c: naming the repository toplevel as a root declines"
+  assert_contains "repository" "$(jqr "$out" .reason)" "SU-40d: saying the root is refused as a repository"
+  assert_not_contains "sk-live" "$out" "SU-40e: and the secret is not in the result"
+  out=$(wu_unatt "$secret" '{"allowedRoots":["/"]}')
+  assert_eq "decline" "$(jqr "$out" .action)" "SU-40f: the filesystem root as a root declines"
+  printf 'secret\n' >"$home/notes.md"
+  out=$(jq -n --arg f "$home/notes.md" --arg s "$(sha "$home/notes.md")" --arg r "$home" --argjson lane "$PLANE" \
+    '{wave:"W",project:"Docs",projectLevel:true,unattended:true,bodyFile:$f,bodySha256:$s,allowedRoots:[$r],lane:$lane,existing:[]}' | HOME="$home" node "$WU" project 2>/dev/null)
+  assert_eq "decline" "$(jqr "$out" .action)" "SU-40g: \$HOME as a root declines"
+  out=$(jq -n --arg f "$home/notes.md" --arg s "$(sha "$home/notes.md")" --arg r "$SCRATCH" --argjson lane "$PLANE" \
+    '{wave:"W",project:"Docs",projectLevel:true,unattended:true,bodyFile:$f,bodySha256:$s,allowedRoots:[$r],lane:$lane,existing:[]}' | HOME="$home" node "$WU" project 2>/dev/null)
+  assert_eq "decline" "$(jqr "$out" .action)" "SU-40h: a parent of \$HOME as a root declines"
+  printf '%s' "$APPROVED" >"$sess/approved.md"
+  out=$(wu_unatt "$sess/approved.md" "$(jq -cn --arg s "$sess" '{allowedRoots:[$s]}')")
+  assert_eq "create" "$(jqr "$out" .action)" "SU-40i control: a file in the session directory, with the session as its root, posts"
+}
+
+# SU-41 — round 2 N2/N3/N4: die() writes stderr whole; a lone CR is LF; the file is fstat'd first.
+test_round2_nits() {
+  local n f out
+  n=$(printf '{"wave":"W","project":"Engine","lane":%s,"existing":[],"since":"%s"}' "$LANE_GREEN" "$(head -c 300000 /dev/zero | tr '\0' 'x')" \
+    | node "$WU" project 2>&1 >/dev/null | { sleep 1; wc -c; })
+  assert_eq "1" "$([ "${n// /}" -gt 300000 ] && echo 1 || echo 0)" "SU-41: a 300 KB die() message reaches a slow pipe whole (got ${n// /} bytes)"
+  f="$SCRATCH/cr.md"; printf 'a\rb\r' >"$f"
+  out=$(jq -n --arg f "$f" --argjson lane "$PLANE" '{wave:"W",project:"Docs",projectLevel:true,bodyFile:$f,lane:$lane,existing:[]}' | run_wu project)
+  assert_eq "$(printf 'a\nb\n\n— wave W')" "$(jqr "$out" .body)" "SU-41b: a lone CR becomes LF"
+  f="$SCRATCH/over.md"; head -c 65525 /dev/zero | tr '\0' 'a' >"$f"
+  out=$(jq -n --arg f "$f" --argjson lane "$PLANE" '{wave:"W",project:"Docs",projectLevel:true,bodyFile:$f,lane:$lane,existing:[]}' | run_wu project)
+  assert_eq "decline" "$(jqr "$out" .action)" "SU-41c: one byte more than 64 KiB as sent declines"
+  f="$SCRATCH/crlfbig.md"; for _ in $(seq 1 20000); do printf 'ab\r\n'; done >"$f"
+  out=$(jq -n --arg f "$f" --argjson lane "$PLANE" '{wave:"W",project:"Docs",projectLevel:true,bodyFile:$f,lane:$lane,existing:[]}' | run_wu project)
+  assert_eq "create" "$(jqr "$out" .action)" "SU-41d: an 80 KB CRLF file that sends under 64 KiB posts"
+  out=$(jq -n --argjson lane "$PLANE" '{wave:"W",project:"Docs",projectLevel:true,bodyFile:"/dev/zero",lane:$lane,existing:[]}' | perl -e 'alarm 5; exec @ARGV' node "$WU" project 2>/dev/null)
+  assert_eq "decline" "$(jqr "$out" .action)" "SU-41e: /dev/zero under a confirm declines instead of hanging"
+  assert_contains "regular file" "$(jqr "$out" .reason)" "SU-41f: saying it is not a regular file"
+  out=$(jq -n --arg f "$SCRATCH" --argjson lane "$PLANE" '{wave:"W",project:"Docs",projectLevel:true,bodyFile:$f,lane:$lane,existing:[]}' | run_wu project)
+  assert_eq "decline" "$(jqr "$out" .action)" "SU-41g: a directory declines as not a regular file"
 }
 
 # SU-35 — F5: projectLevel beside a ticket renders the ticket's lane, key and state move kept.
@@ -674,7 +747,7 @@ test_text_flags() {
   has_fixed "--project <name>" "$wave" "SU-30d: the wave section defines --project"
   has_fixed "--body-file <path>" "$wave" "SU-30e: the wave section defines --body-file"
   has_fixed "requires --wave" "$(grep -F -- '--project <name>' <<<"$wave")" "SU-30f: --project requires --wave"
-  has_fixed "a BOM stripped, CRLF line endings turned into LF" "$wave" "SU-30g: the wave section says exactly what is sent (F3)"
+  has_fixed "a BOM stripped, CRLF line endings and a lone CR turned into LF" "$wave" "SU-30g: the wave section says exactly what is sent (F3)"
   has_fixed "exactly one project update" "$wave" "SU-30h: --body-file needs exactly one project update to carry"
   has_fixed "never the roll-up" "$wave" "SU-30i: --body-file never replaces the roll-up body"
   has_fixed "approvedSha256" "$wave" "SU-30j: the renderer reads the file itself and names its sha"
@@ -697,7 +770,14 @@ test_text_fix_round() {
   has_fixed "the ticket's lane renders as usual" "$pb" "SU-38e: F5 — with a key for the same project, the ticket's lane renders"
   has_fixed "--body-sha256 <hex>" "$bb" "SU-38f: F2 — the approver's hash flag"
   has_fixed "required under --yes" "$bb" "SU-38g: F2 — required unattended"
-  has_fixed "outside the session directory and the repository" "$bb" "SU-38h: F2 — the realpath roots"
+  has_fixed "outside the session directory" "$bb" "SU-38h: F2 — the realpath root"
+  has_fixed "copied from the approval record" "$bb" "SU-38n: round 2 S2 — the hash comes from the approval record"
+  has_fixed "never computed from the file by the run that posts" "$bb" "SU-38o: round 2 S2 — never by the posting run"
+  has_fixed "refuses the filesystem root, \$HOME or a parent of it, and a repository toplevel" "$bb" "SU-38p: round 2 S2 — the refused roots"
+  has_fixed "allowedRoots: [<sessionDir>])" "$(grep -m1 -F -- '**[6] Project update(s)** (if approved' "$SKILL")" "SU-38q: round 2 S2 — [6] passes only the session directory"
+  if grep -qF -- 'repository toplevel>]' "$SKILL"; then fail "SU-38r: round 2 S2 — no root list names the repository toplevel" "absent" "present"; else pass "SU-38r: round 2 S2 — no root list names the repository toplevel"; fi
+  has_fixed "lone CR" "$bb" "SU-38s: round 2 N3 — a lone CR is named"
+  has_fixed "over 64 KiB as sent" "$bb" "SU-38t: round 2 N3 — the cap counts the body sent"
   has_fixed "sentBodySha256" "$bb" "SU-38i: F2 — the sent body's hash is named apart"
   has_fixed "every later worker lane in that wave declines" "$bb" "SU-38j: F6a — later worker lanes decline"
   has_fixed "a manager's --override of that project declines" "$bb" "SU-38k: F6b — no override on an approved body"

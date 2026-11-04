@@ -13,18 +13,21 @@
 // `projectLevel: true` (a --project run) lets the lane carry no ticket: it renders as the project's
 // own section, "### Project · <name>", beside any ticket lanes. `bodyFile: <path>` (--body-file)
 // makes the approved text in that file the whole body: the renderer reads the bytes itself, so no
-// caller retypes them, normalises it (a BOM stripped, CRLF turned into LF, trailing whitespace at
-// the end dropped; invalid UTF-8 or more than 64 KiB declines), appends only the wave marker, and
-// still derives the health from the lane's signals. approvedSha256 is the hash of the file bytes
-// as approved; sentBodySha256 is the hash of the body sent. `bodySha256` (--body-sha256) is the
-// approver's hash: a mismatch declines, and an unattended run requires it, plus `allowedRoots`
-// (the session directory and the repository toplevel) that the file's realpath must sit inside.
+// caller retypes them, normalises it (a BOM stripped, CRLF and a lone CR turned into LF, trailing
+// whitespace at the end dropped; a file that is not a regular file, invalid UTF-8, or a body over
+// 64 KiB as sent declines), appends only the wave marker, and still derives the health from the
+// lane's signals. approvedSha256 is the hash of the file bytes as approved; sentBodySha256 is the
+// hash of the body sent. `bodySha256` (--body-sha256) is the approver's hash: a mismatch declines,
+// and an unattended run requires it, plus `allowedRoots` (the session directory) that the file's
+// realpath must sit inside; "/", $HOME or a parent of it, and a repository toplevel are refused.
 // A project-level lane with no signals of its own takes the worst health of this wave's posted
-// lanes (healthSource "lanes"); with a ticket, projectLevel is ignored and the ticket lane renders.
+// lanes (healthSource "lanes"). That section is marked inherited and recomputed on every render,
+// so a lane re-posting moves it. With a ticket, projectLevel is ignored and the ticket lane renders.
 // Tests: engine/scripts/tests/test-snapshot-update-sh.sh.
 
-import { readFileSync, realpathSync, writeSync } from "node:fs";
-import { sep } from "node:path";
+import { readFileSync, realpathSync, writeSync, openSync, fstatSync, closeSync, existsSync } from "node:fs";
+import { sep, join } from "node:path";
+import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 
 const HEALTHS = ["onTrack", "atRisk", "offTrack"];
@@ -39,18 +42,22 @@ const BODY_CAP = 64 * 1024; // bytes; an approved body above this declines befor
 const SIGNALS = ["gates", "direction", "blocked", "mustFixOpen"];
 const LAPSE_PREFIX = "**Override lapsed:**";
 const PROJECT_KEY = "Project"; // the section key of a --project run's own section
+// An inherited project health (healthSource "lanes") is a copy of the lanes' worst, not a reading:
+// its Health line carries this mark, it is left out of the worst-of, and every render rewrites it.
+const INHERITED = "inherited from this wave's lanes";
+const INHERITED_RE = new RegExp(`^Health: (onTrack|atRisk|offTrack) — ${INHERITED}\\b`, "m");
 const OVERRIDE_RE = /^\*\*Health set to (onTrack|atRisk|offTrack) by the (.+?) manager \(was (onTrack|atRisk|offTrack)\):\*\* /;
 
-const die = (msg) => { process.stderr.write(`wave-update: ${msg}\n`); process.exit(1); };
-// Written synchronously: process.stdout.write to a pipe is asynchronous, and process.exit() right
-// after it cut a result larger than the pipe buffer (a 64 KiB body arrived as unparseable JSON).
-const out = (obj) => {
-  const buf = Buffer.from(JSON.stringify(obj, null, 2) + "\n", "utf8");
+// Written synchronously: process.stdout/stderr.write to a pipe is asynchronous, and process.exit()
+// right after it cut anything larger than the pipe buffer (a 64 KiB body arrived as unparseable JSON).
+const writeAll = (fd, text) => {
+  const buf = Buffer.from(text, "utf8");
   for (let off = 0; off < buf.length;) {
-    try { off += writeSync(1, buf, off); } catch (e) { if (e.code !== "EAGAIN") throw e; }
+    try { off += writeSync(fd, buf, off); } catch (e) { if (e.code !== "EAGAIN") throw e; }
   }
-  process.exit(0);
 };
+const die = (msg) => { writeAll(2, `wave-update: ${msg}\n`); process.exit(1); };
+const out = (obj) => { writeAll(1, JSON.stringify(obj, null, 2) + "\n"); process.exit(0); };
 
 // Worst of a set of healths. An empty or invalid set returns null, never an implicit onTrack.
 function worst(hs) {
@@ -119,7 +126,8 @@ function parseBody(body) {
   const parsed = sections.map((s) => {
     const text = s.lines.join("\n").trim();
     const hm = text.match(/^Health: (onTrack|atRisk|offTrack)\b/m);
-    return { key: s.key, text, health: hm ? hm[1] : null };
+    const inherited = s.key === PROJECT_KEY && INHERITED_RE.test(text);
+    return { key: s.key, text, health: hm ? hm[1] : null, ...(inherited ? { inherited: true } : {}) };
   });
   if (!parsed.length || parsed.some((s) => !s.health)) return null;
   return { sections: parsed, overrides };
@@ -149,8 +157,12 @@ function renderLane(lane, health, reason, projectName) {
 // red. While it stands, the field and the lead carry its health; once a lane is worse, it lapses,
 // the lanes' worst posts, and a regenerated line says so. Every override note is carried forward
 // (they stack, so the history of rulings stays readable); the lanes keep their own Health lines.
-function renderProjectBody(wave, sections, overrides) {
-  const lanesWorst = worst(sections.map((s) => s.health));
+function renderProjectBody(wave, sectionsIn, overrides) {
+  // S1 (round 2): an inherited section is not counted; it is re-stamped with the lanes' worst now.
+  const counted = sectionsIn.filter((s) => !s.inherited);
+  const lanesWorst = worst((counted.length ? counted : sectionsIn).map((s) => s.health));
+  const sections = sectionsIn.map((s) => (s.inherited && lanesWorst
+    ? { ...s, health: lanesWorst, text: s.text.replace(INHERITED_RE, `Health: ${lanesWorst} — ${INHERITED}`) } : s));
   const ov = overrides.length ? overrides[overrides.length - 1] : null;
   const stands = !!ov && RANK[lanesWorst] <= RANK[ov.was];
   const health = stands ? ov.health : lanesWorst;
@@ -203,7 +215,7 @@ function project(input) {
     const posted = postedLanesWorst(input);
     if (!posted) return out({ action: "decline", reason: "health could not be derived: the project-level run carries no signals of its own and no lane has posted for this wave in this project" });
     health = posted; healthSource = "lanes";
-    reason = "the worst of this wave's lanes posted for the project";
+    reason = `${INHERITED}: the worst of them posted for the project, recomputed on every render`;
   } else {
     const d = deriveHealth(lane);
     if (d.health === "underivable") return out({ action: "decline", reason: `health could not be derived: ${d.reason}` });
@@ -239,7 +251,7 @@ function project(input) {
     for (const s of p.sections) { const i = sections.findIndex((x) => x.key === s.key); if (i >= 0) sections[i] = s; else sections.push(s); }
     overrides.push(...p.overrides);
   }
-  const mine = { key: laneKey, text: laneText, health };
+  const mine = { key: laneKey, text: laneText, health, ...(healthSource === "lanes" ? { inherited: true } : {}) };
   const idx = sections.findIndex((s) => s.key === laneKey);
   if (idx >= 0) sections[idx] = mine; else sections.push(mine);
 
@@ -247,7 +259,7 @@ function project(input) {
   return finish(input, {
     action: canonical ? "edit" : "create",
     ...(canonical ? { id: canonical.id } : {}),
-    type: "project", project: proj, health: r.health, laneHealth: health, lanesWorst: r.lanesWorst,
+    type: "project", project: proj, health: r.health, laneHealth: healthSource === "lanes" ? r.lanesWorst : health, lanesWorst: r.lanesWorst,
     overrideStands: r.overrideStands, healthSource, reason, body: r.body,
     ...(retire.length ? { retire } : {}), ...(duplicates.length ? { duplicates } : {}),
     ...(otherWaves.length ? { ignoredOtherWaves: otherWaves.map((u) => u.id) } : {}),
@@ -267,7 +279,7 @@ function postedLanesWorst(input) {
 }
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
-const normalise = (text) => text.replace(/\r\n/g, "\n");
+const normalise = (text) => text.replace(/\r\n?/g, "\n");
 const isInside = (p, root) => p === root || p.startsWith(root.endsWith(sep) ? root : root + sep);
 
 // --body-file: the approved text is the body as written. Only trailing whitespace at the very end
@@ -279,19 +291,37 @@ function approvedBody(input, { health, reason, healthSource }) {
   let real;
   try { real = realpathSync(file); } catch (e) { die(`body file ${JSON.stringify(file)} cannot be read: ${e.code ?? e.message}`); }
   if (input.unattended) {
-    // F2: unattended, the file must sit inside the session or the repository, after symlinks.
+    // F2: unattended, the file must sit inside the session directory, after symlinks. Round 2 S2: a
+    // root wide enough to hold secrets is refused outright — "/", $HOME or a parent of it, and a
+    // repository toplevel (a directory holding .git), whose root keeps .env files beside the code.
     const roots = Array.isArray(input.allowedRoots) ? input.allowedRoots.filter(Boolean) : [];
-    if (!roots.length) return out({ action: "decline", reason: "an unattended run reads a body file only inside the session directory or the repository, and no roots were given (allowedRoots)" });
+    if (!roots.length) return out({ action: "decline", reason: "an unattended run reads a body file only inside the session directory, and no roots were given (allowedRoots)" });
     const realRoots = roots.map((r) => { try { return realpathSync(String(r)); } catch { return null; } }).filter(Boolean);
-    if (!realRoots.some((r) => isInside(real, r))) return out({ action: "decline", reason: `the body file resolves outside the session directory and the repository (${realRoots.length} root(s) checked); an unattended run does not post it` });
+    let home = null; try { home = realpathSync(homedir()); } catch { /* no home: nothing to compare */ }
+    for (const [i, r] of realRoots.entries()) {
+      const kind = r === sep ? "the filesystem root"
+        : home && isInside(home, r) ? "$HOME or a parent of it"
+        : existsSync(join(r, ".git")) ? "a repository toplevel" : null;
+      if (kind) return out({ action: "decline", reason: `allowedRoots[${i}] is ${kind}, which is refused as a root; an unattended run reads a body file only from the session directory` });
+    }
+    if (!realRoots.some((r) => isInside(real, r))) return out({ action: "decline", reason: `the body file resolves outside the session directory (${realRoots.length} root(s) checked); an unattended run does not post it` });
   }
-  let raw;
-  try { raw = readFileSync(real); } catch (e) { die(`body file ${JSON.stringify(file)} cannot be read: ${e.code ?? e.message}`); }
+  // N4 (round 2): fstat the opened file before reading it, so /dev/zero, a FIFO or a directory
+  // declines instead of hanging or failing, and a file too large to send under the cap even after
+  // CRLF halves it is declined unread.
+  let raw, fd;
+  try { fd = openSync(real, "r"); } catch (e) { die(`body file ${JSON.stringify(file)} cannot be read: ${e.code ?? e.message}`); }
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile()) return out({ action: "decline", reason: "the body file is not a regular file" });
+    if (st.size > 2 * BODY_CAP + 3) return out({ action: "decline", reason: `the approved body file is ${st.size} bytes, so its body would be over the 64 KiB cap as sent` });
+    raw = readFileSync(fd);
+  } catch (e) { die(`body file ${JSON.stringify(file)} cannot be read: ${e.code ?? e.message}`); }
+  finally { try { closeSync(fd); } catch { /* already closed */ } }
   const approvedSha256 = sha256(raw);
   const given = input.bodySha256 == null ? null : String(input.bodySha256).trim().toLowerCase();
   if (given === null && input.unattended) return out({ action: "decline", reason: "an unattended run posts an approved body only with the approver's hash (--body-sha256 <hex>)", approvedSha256 });
   if (given !== null && given !== approvedSha256) return out({ action: "decline", reason: `the body file's sha256 ${approvedSha256} does not match the approved ${given}; the file changed since it was approved, or the wrong file was named`, approvedSha256 });
-  if (raw.length > BODY_CAP) return out({ action: "decline", reason: `the approved body is ${raw.length} bytes, over the 64 KiB cap`, approvedSha256 });
   let text;
   try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(raw); } catch { return out({ action: "decline", reason: "the approved body is not valid UTF-8", approvedSha256 }); }
   // TextDecoder strips a leading BOM with ignoreBOM false.
@@ -302,6 +332,9 @@ function approvedBody(input, { health, reason, healthSource }) {
   if (!core) return out({ action: "decline", reason: "the approved body is empty", approvedSha256 });
   if (LOCAL_PATH.test(core)) return out({ action: "decline", reason: "the approved body carries a local file path; a project update must read cold, and an approved body is posted as written, so fix the file and re-approve it", approvedSha256 });
   const body = `${core}\n\n${marker(wave)}`;
+  // N3 (round 2): the cap counts the body as sent, the wave marker included, after normalisation.
+  const sentBytes = Buffer.byteLength(body, "utf8");
+  if (sentBytes > BODY_CAP) return out({ action: "decline", reason: `the approved body is ${sentBytes} bytes as sent, over the 64 KiB cap`, approvedSha256 });
   const sentBodySha256 = sha256(Buffer.from(body, "utf8"));
 
   const { ours, foreign, otherWaves } = partition(input.existing, wave, input.since);
