@@ -10,7 +10,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseAskFile } from "../src/lib/format.ts";
 import { parseRef, refList } from "../src/client/askrefs.ts";
-import { briefFor } from "../src/client/related.ts";
+import { briefFor, proofLinks } from "../src/client/related.ts";
 
 const head = (extra = "") =>
   `---\nid: b1\nto: operator\nfrom: idealic:kernel\nstatus: open\nrevision: 1\ncreated: 2026-11-04T10:00:00.000Z\n${extra}---\n\n`;
@@ -44,12 +44,40 @@ describe("parsing one entry", () => {
     expect(refList("[c](https://x.test/2;v=1)")[0]).toMatchObject({ kind: "url", href: "https://x.test/2;v=1" });
     expect(refList(undefined)).toEqual([]);
     expect(refList("   ")).toEqual([]);
+    // Critique M1: an unclosed `[` BEFORE a complete link must not swallow that link.
+    expect(refList("[broken; [Good](https://g.test)")).toEqual([
+      { kind: "text", label: "[broken" },
+      { kind: "url", label: "Good", href: "https://g.test" },
+    ]);
+    expect(refList("[half(https://x; [Good](https://g.test)").map((r) => [r.kind, r.label])).toEqual([
+      ["text", "[half(https://x"],
+      ["url", "Good"],
+    ]);
   });
 
   it("briefFor reads the markdown form of brief: as the brief", () => {
     expect(briefFor(stored(head("brief: [Release brief](http://127.0.0.1:9440/proofs/b.html)\n") + BODY))).toEqual({ url: "http://127.0.0.1:9440/proofs/b.html", source: "brief" });
     // A brief that is a path cannot open in the pane, so the pane falls back as before.
     expect(briefFor(stored(head("brief: [Local](/home/dev/b.md)\n") + BODY))).toBeUndefined();
+  });
+
+  it("the related pane and the proof chips read the header's proofs and reading (critique S1)", () => {
+    const ask = stored(head(ALL3.replace(/^brief:.*\n/, "")) + BODY);
+    expect(proofLinks(ask)).toEqual([
+      { url: "https://proofs.example.com/proofs/gate.html", label: "Gate run" },
+      { url: "http://127.0.0.1:9440/proofs/bench.html", label: "Bench" },
+    ]);
+    // With no brief: the pane falls back to the first proof the header names.
+    expect(briefFor(ask)).toEqual({ url: "https://proofs.example.com/proofs/gate.html", source: "first proof link" });
+    // A proof page listed under reading: counts too; a non-proof page and a path do not.
+    expect(proofLinks(stored(head("reading: [Note](https://example.com/n.html); [Log](/home/dev/LOG.md)\n") + BODY))).toEqual([
+      { url: "https://example.com/n.html", label: "Note" },
+    ]);
+  });
+
+  it("a URL named in the header and again in the body is one chip, not two", () => {
+    const ask = stored(head("proofs: [Gate run](https://proofs.example.com/proofs/gate.html)\n") + "## ¶ASK_GO: Choose one: Ship it?\nEvidence: [gate again](https://proofs.example.com/proofs/gate.html)\n- [ ] [YES] Yes, ship\n- [ ] [NO] No, hold\n");
+    expect(proofLinks(ask).map((p) => p.url)).toEqual(["https://proofs.example.com/proofs/gate.html"]);
   });
 });
 

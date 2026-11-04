@@ -30,12 +30,17 @@ export function isLocalOnly(href: string): boolean {
   }
 }
 
-/** The ask's text in reading order: header context and evidence, the preamble, then each fork. */
+/**
+ * The ask's text in reading order: header context, evidence, proofs and reading (IDE-337), the
+ * preamble, then each fork. proofLinks keeps the first label for a URL named in more than one place.
+ */
 function sources(ask: ParsedAsk): string[] {
   const h = ask.header;
   return [
     h.context ?? "",
     h.evidence ?? "",
+    h.proofs ?? "",
+    h.reading ?? "",
     ask.preamble,
     ...ask.questions.flatMap((q) => [q.meta.context ?? "", ...q.evidence, q.prose ?? "", q.proseAfter ?? ""]),
   ];

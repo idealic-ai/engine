@@ -14,7 +14,7 @@ export type AskRef =
   | { kind: "path"; label: string; href: string }
   | { kind: "text"; label: string };
 
-const LINK_RE = /^\[([^\]]*)\]\(([^()\s]*(?:\([^()\s]*\)[^()\s]*)*)\)$/;
+const LINK_RE = /^\[([^\[\]]*)\]\(([^()\s]*(?:\([^()\s]*\)[^()\s]*)*)\)$/;
 const URL_RE = /^https?:\/\/\S+$/i;
 /** A scheme such as `javascript:` or `data:`; a Windows drive letter is not one we expect here. */
 const SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
@@ -35,12 +35,14 @@ export function parseRef(entry: string): AskRef {
 }
 
 /** A whole `[label](target)` anywhere in a list, so a `;` inside one does not split it. */
-const LINK_SPAN_RE = /\[[^\]]*\]\([^()\s]*(?:\([^()\s]*\)[^()\s]*)*\)/g;
+const LINK_SPAN_RE = /\[[^\[\]]*\]\([^()\s]*(?:\([^()\s]*\)[^()\s]*)*\)/g;
 
 /**
  * A `;`-separated list. A `;` inside a complete `[label](target)` belongs to the label or the URL,
- * so it does not split; an unclosed bracket protects nothing, so one bad entry cannot swallow the
- * entries after it. Empty entries are dropped; every other entry is kept, readable or not.
+ * so it does not split. A label may not contain `[`, so an unclosed `[` protects nothing and cannot
+ * swallow an entry before or after it. Only `[label](url)` protects a `;`: a bare URL that contains
+ * one, such as `https://a.test/x;y=1`, is split there. Empty entries are dropped; every other entry
+ * is kept, readable or not.
  */
 export function refList(value: string | undefined): AskRef[] {
   if (!value?.trim()) return [];
