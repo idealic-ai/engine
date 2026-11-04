@@ -28,16 +28,16 @@ The status-line `Context: X%` is **already normalized so 100% = the dehydration 
 
 ### Step 1: Set Lifecycle
 ```bash
-engine session phase [SESSION_DIR] "[CURRENT_PHASE]"
+engine session phase "[SESSION_DIR]" "[CURRENT_PHASE]"
 ```
-This saves the current phase so the rehydrated agent knows where to resume. `[SESSION_DIR]` is the session directory's absolute path, as `engine session find` prints it; the commands below use it too.
+This saves the current phase so the rehydrated agent knows where to resume. `[SESSION_DIR]` is the session directory's absolute path, as `engine session find` prints it; the commands below use it too, always in double quotes, because an absolute path can hold spaces.
 
 ### Step 2: Gather Context (From Memory Only)
 
 [!!!] DO NOT call Read tool to load files. Use what's already loaded.
 
 **Minimal I/O Allowed**:
-1. `ls -F [SESSION_DIR]/` — see what artifacts exist
+1. `ls -F "[SESSION_DIR]/"` — see what artifacts exist
 2. Review chat history for `§CMD_PARSE_PARAMETERS` output to recall `contextPaths`
 
 **Collect**:
@@ -80,7 +80,7 @@ Briefly announce in chat, then pipe JSON to `engine session dehydrate`. The dehy
 > - **Files preserved**: [N] required files
 
 ```bash
-engine session dehydrate [SESSION_DIR] <<'EOF'
+engine session dehydrate "[SESSION_DIR]" <<'EOF'
 {
   "summary": "[Big picture — goal, strategy, status percentage]",
   "lastAction": "[What you were doing, outcome, code state]",

@@ -6,7 +6,7 @@
 
 1.  **Scan**: Search the current session directory for bare inline `#needs-X` tags:
     ```bash
-    engine tag find '#needs-*' --context [SESSION_DIR]
+    engine tag find '#needs-*' --context "[SESSION_DIR]"
     ```
     *   This finds tags in session artifacts (log, plan, details, debrief draft).
     *   Filter to inline tags only -- skip Tags-line entries on REQUEST files (those are already delegated).

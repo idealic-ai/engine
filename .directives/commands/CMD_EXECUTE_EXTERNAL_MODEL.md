@@ -54,7 +54,7 @@
 
 6.  **Log**: Append to the active log:
     ```bash
-    engine log sessions/[SESSION]/[LOG].md <<'EOF'
+    engine log "[SESSION_DIR]/[LOG].md" <<'EOF'
     ## 🤖 External Model Execution
     *   **Model**: [externalModel]
     *   **Context files**: [count] files

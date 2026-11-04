@@ -12,8 +12,8 @@
 Run `engine session continue`. This single command handles everything: auto-detects the session (fleet pane ID in tmux, PID fallback outside tmux), registers PID, sets lifecycle=active, clears loading, resets heartbeat, checks for completed sessions, and outputs rich context.
 
 ```bash
-# With explicit path (when session dir is known):
-engine session continue sessions/[SESSION_DIR]
+# With explicit path (when session dir is known; [SESSION_DIR] is its absolute path):
+engine session continue "[SESSION_DIR]"
 
 # Without path (auto-detect):
 engine session continue
@@ -42,7 +42,7 @@ Determine what was accomplished and what remains:
 ### Step 3: Log the Restart
 
 ```bash
-engine log sessions/[SESSION_DIR]/[SKILL_UPPER]_LOG.md <<'EOF'
+engine log "[SESSION_DIR]/[SKILL_UPPER]_LOG.md" <<'EOF'
 ## ♻️ Session Resume
 *   **Resumed At**: [PHASE]
 *   **Last Action**: [from dehydrated context or log scan]
