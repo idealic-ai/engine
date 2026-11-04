@@ -560,4 +560,63 @@ assert_eq 0 "$rc" "L47 the kit/main holder passes its own check"
 out="$(run check packages:schemistry --repo kit --branch main 2>&1)"; rc=$?
 assert_eq 3 "$rc" "L47 another seat's kit/main check is refused"
 
+# L48 — `engine lease check`'s stdout wording is an interface. kit's pre-push hook (core:ops, ops/leasehold) tells a
+# free lease from the seat's own by these exact strings, and fails closed when they change, so a reword here must
+# redden this case before it breaks the hook. Pinned: "lease: free" (a present store nobody holds), "lease: free ("
+# (an absent store), and "lease: held by <holder> (…), so <seat> may push" (the seat's own lease). A refusal (exit 3)
+# writes nothing on stdout, so the hook can never read "may push" for another seat's lease.
+reset; mkdir -p "$DIR"
+out="$(run check core:world --repo kit --branch main 2>/dev/null)"; rc=$?
+assert_eq 0 "$rc" "L48 check on an empty store exits 0"
+assert_eq "lease: free" "$out" "L48 check on an empty store prints exactly 'lease: free'"
+reset
+out="$(run check core:world --repo kit --branch main 2>/dev/null)"; rc=$?
+assert_eq 0 "$rc" "L48 check on an absent store exits 0"
+assert_eq "lease: free (" "${out:0:13}" "L48 check on an absent store starts with 'lease: free ('"
+assert_eq "lease: free ($DIR is absent, so nobody has taken a lease)" "$out" "L48 the absent-store line is pinned whole"
+reset; run take core:world --repo kit --branch main --what "PR 9" >/dev/null 2>&1
+out="$(run check core:world --repo kit --branch main 2>/dev/null)"; rc=$?
+assert_eq 0 "$rc" "L48 check by the holder exits 0"
+held_re='^lease: held by core:world \(repo=kit branch=main taken=[0-9T:-]+Z expires=[0-9T:-]+Z, [0-9]+s left\) PR 9, so core:world may push$'
+if [[ "$out" =~ $held_re ]]; then m=1; else m=0; fi
+assert_eq 1 "$m" "L48 check by the holder prints 'lease: held by <holder> (…), so <seat> may push' (got: $out)"
+out="$(run check ui --repo kit --branch main 2>/dev/null)"; rc=$?
+assert_eq 3 "$rc" "L48 check by another seat exits 3"
+assert_eq "" "$out" "L48 and prints nothing on stdout"
+# On exit 3 the hook reads the holder's time left from stderr as ", <N>s left)".
+err="$(run check ui --repo kit --branch main 2>&1 >/dev/null)"
+left_re=', [0-9]+s left\)'
+if [[ "$err" =~ $left_re ]]; then m=1; else m=0; fi
+assert_eq 1 "$m" "L48 exit 3's stderr carries ', <N>s left)' (got: $err)"
+# On exit 2 the hook tells a stale engine by "unknown argument: --repo" or "unknown subcommand: check" on stderr,
+# so the two usage errors keep the form "lease: unknown argument: <arg>" and "lease: unknown subcommand: <cmd>".
+err="$(run check ui --bogus x 2>&1 >/dev/null)"; rc=$?
+assert_eq 2 "$rc" "L48 check with an unknown argument exits 2"
+assert_eq "lease: unknown argument: --bogus" "${err:0:32}" "L48 and its stderr starts 'lease: unknown argument: <arg>'"
+err="$(run nosuch 2>&1 >/dev/null)"; rc=$?
+assert_eq 2 "$rc" "L48 an unknown subcommand exits 2"
+assert_eq "lease: unknown subcommand: nosuch" "${err:0:33}" "L48 and its stderr starts 'lease: unknown subcommand: <cmd>'"
+
+# L49 — a take that cannot create or write the store takes no lease and says not to push (exit 2). It used to say
+# "fail open: land anyway", which under the operator's 00:21 rule (core:ops/leasegate-holder: a push needs the seat to
+# HOLD the lease) told a seat to do the one thing the rule forbids.
+reset; mkdir -p "$TMP_DIR/ro"; chmod 555 "$TMP_DIR/ro"
+out="$(LANDING_LEASE_DIR="$TMP_DIR/ro/.landing-lease" bash "$LEASE" take core:world --repo kit --branch main 2>&1)"; rc=$?
+chmod 755 "$TMP_DIR/ro"
+assert_eq 2 "$rc" "L49 take on a store it cannot create is exit 2"
+assert_contains "so no lease was taken; do not push, ask the operator" "$out" "L49 and says no lease was taken and not to push"
+assert_not_contains "land anyway" "$out" "L49 and never tells anyone to land anyway"; assert_not_contains "fail open" "$out" "L49 nor to fail open"
+reset; mkdir -p "$DIR"; chmod 555 "$DIR"
+out="$(run take core:world --repo kit --branch main 2>&1)"; rc=$?
+chmod 755 "$DIR"
+assert_eq 2 "$rc" "L49 take on a store it cannot write is exit 2"
+assert_contains "so no lease was taken; do not push, ask the operator" "$out" "L49 and says no lease was taken and not to push"
+assert_not_contains "land anyway" "$out" "L49 and never tells anyone to land anyway"; assert_not_contains "fail open" "$out" "L49 nor to fail open"
+assert_file_not_exists "$DIR/core_world@kit@main.lease" "L49 and leaves no lease file"
+# The source carries no "land anyway" anywhere: the lock-timeout and write-failure paths take a minute or a race to
+# reach, so this line is their guard.
+assert_eq 0 "$(grep -c -i 'land anyway' "$LEASE")" "L49 lease.sh tells nobody to land anyway, on any path"
+# Every take failure after the store check names the no-push tail: lock timeout, write failure, read-back failure.
+assert_eq 5 "$(grep -c 'NO_TAKE"' "$LEASE")" "L49 all five take failure messages end in the no-push tail"
+
 exit_with_results

@@ -6,10 +6,13 @@
 #   engine lease take <seat> [--repo R] [--branch B] [--what "one line"]
 #   engine lease release <seat> [--repo R] [--branch B]
 #   engine lease check <seat> [--repo R] [--branch B]
-#                                  may <seat> push to R's B now? 0 yes (nobody holds a live lease that covers it,
-#                                  or <seat> does); 3 no (another seat holds one; the holder and its time left go
-#                                  to stderr). A lease covers R/B when its repo= is empty or R, and its branch= is
-#                                  empty or B; a check that names no --repo (or --branch) counts every lease.
+#                                  who holds R's B now? 0 with "lease: free" on stdout (nobody holds a live lease
+#                                  that covers it) or "lease: held by …, so <seat> may push" (<seat> does); 3 when
+#                                  another seat holds one (the holder and its time left go to stderr). Exit 0 is
+#                                  not a permit: only the "held by" line means <seat> holds the lease, and a push
+#                                  needs that (core:ops/leasegate-holder). A lease covers R/B when its repo= is
+#                                  empty or R, and its branch= is empty or B; a check that names no --repo (or
+#                                  --branch) counts every lease.
 #                                  Repo is matched case-folded (Kit is kit) and branch without refs/heads/, on
 #                                  take and on check alike.
 #
@@ -48,7 +51,11 @@
 #     them); nothing here truncates or reads it back, and `show` does not report it as a stray file
 # It blocks through kit's pre-push hook, not through this script. By the operator's ruling of 2026-10-30
 # (leasegate, reversing the 2026-10-28 "advisory" ruling), kit's .husky/pre-push runs
-# `engine lease check <seat> --repo kit --branch main` on a push to refs/heads/main and refuses the push on exit 3.
+# `engine lease check <seat> --repo kit --branch main` on a push to refs/heads/main. By the operator's ruling of
+# 2026-10-31 00:21 (ask core:ops/leasegate-holder), a push needs the pushing seat to HOLD the lease: a free lease
+# does not permit a push, so the hook refuses on exit 3 and on "lease: free" alike, and lets the push through only
+# on "lease: held by …, so <seat> may push". The hook reads check's stdout to tell those apart, so that wording is
+# an interface (pinned by test-lease-sh.sh L48); a reword here breaks the hook closed.
 # `check` itself stays read-only: it reads the lease files and writes nothing, so it neither takes nor renews a
 # lease. Where a seat is named and this script cannot answer (any exit but 0 or 3, or `engine` off PATH), the hook
 # refuses with exit 2 unless KIT_LEASE_CHECK_OVERRIDE carries a reason it can append to history.log; a pusher with
@@ -93,6 +100,9 @@ take_take_lock() {
 }
 
 die() { printf 'lease: %s\n' "$1" >&2; exit 2; }
+# NO_TAKE — what a take that cannot write the store says. Under the 00:21 rule a seat without the lease may not push,
+# so a failed take is a stop and never a licence to land.
+NO_TAKE="so no lease was taken; do not push, ask the operator"
 [ -n "$LEASE_DIR" ] || die "cannot find the lease store: HOME and LANDING_LEASE_DIR are both unset"
 now_epoch() { date -u +%s; }
 epoch_to_iso() { date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
@@ -153,7 +163,7 @@ lease_history() {
 # live_rows — one line per live lease: "<taken_epoch> <expires_epoch> <file>", earliest taken first, ties by path.
 # A row is live only while taken <= now + SKEW and now < min(expires, taken + CEILING): the ceiling is enforced on
 # read, not trusted from expires=. A row with an unreadable, non-UTC, future or over-ceiling stamp is not a lease
-# (fail open), and is reported by `show`.
+# (it counts for nobody, so under the hold-to-push rule it lets no seat push), and is reported by `show`.
 live_rows() {
   local f t e now
   now="$(now_epoch)"
@@ -196,8 +206,8 @@ lease_show() {
     printf 'lease: %s is absent. That says nothing about who holds a lease (ABSENT is not EMPTY); `engine lease take` creates it.\n' "$LEASE_DIR"
     return 0
   fi
-  [ -d "$LEASE_DIR" ] || die "$LEASE_DIR exists but is not a directory (fail open: land anyway and note it in the landing record)"
-  [ -r "$LEASE_DIR" ] && [ -x "$LEASE_DIR" ] || die "cannot read $LEASE_DIR (fail open: land anyway and note it in the landing record)"
+  [ -d "$LEASE_DIR" ] || die "$LEASE_DIR exists but is not a directory, so the lease cannot be read; do not push, ask the operator"
+  [ -r "$LEASE_DIR" ] && [ -x "$LEASE_DIR" ] || die "cannot read $LEASE_DIR, so the lease cannot be read; do not push, ask the operator"
   local f g paths others=0 shown=0 seen
   paths="$(live_rows | cut -d' ' -f3-)"
   for f in "$LEASE_DIR"/* "$LEASE_DIR"/.[!.]*; do
@@ -259,12 +269,14 @@ lease_take() {
   local lock=""
   [ -n "$repo" ] && [ -n "$branch" ] && lock="$(scope_suffix "$repo" "$branch")"
   if [ ! -d "$LEASE_DIR" ]; then
-    mkdir -p "$LEASE_DIR" 2>/dev/null || die "cannot create $LEASE_DIR (fail open: land anyway and note it in the landing record)"
+    mkdir -p "$LEASE_DIR" 2>/dev/null || die "the lease store $LEASE_DIR could not be created, $NO_TAKE"
     printf 'lease: created %s (say so in the landing record)\n' "$LEASE_DIR"
   fi
+  # A store that exists but cannot be written fails here, at once, rather than spinning a minute on the take lock.
+  [ -d "$LEASE_DIR" ] && [ -w "$LEASE_DIR" ] && [ -x "$LEASE_DIR" ] || die "the lease store $LEASE_DIR could not be written, $NO_TAKE"
   local mine h
   mine="$(seat_file "$seat" "$repo" "$branch")"
-  take_take_lock "$lock" || die "another take has held $LEASE_DIR/.take.lock$lock for over a minute (fail open: land anyway and note it in the landing record)"
+  take_take_lock "$lock" || die "another take has held $LEASE_DIR/.take.lock$lock for over a minute, $NO_TAKE"
   h="$(holder_file "$repo" "$branch")"
   if [ -n "$h" ]; then
     if [ "$(field seat "$h")" = "$seat" ]; then
@@ -277,10 +289,10 @@ lease_take() {
   fi
   local t; t="$(now_epoch)"
   printf 'seat=%s\nrepo=%s\nbranch=%s\ntaken=%s\nexpires=%s\nwhat=%s\n' "$seat" "$repo" "$branch" \
-    "$(epoch_to_iso "$t")" "$(epoch_to_iso $((t + CEILING)))" "$what" > "$mine" || die "cannot write $mine"
+    "$(epoch_to_iso "$t")" "$(epoch_to_iso $((t + CEILING)))" "$what" > "$mine" || die "the lease file $mine could not be written, $NO_TAKE"
   sleep "$SETTLE"
   h="$(holder_file "$repo" "$branch")"
-  [ -n "$h" ] || { rm -f "$mine"; die "wrote $mine but cannot read it back as a lease"; }
+  [ -n "$h" ] || { rm -f "$mine"; die "wrote $mine but cannot read it back as a lease, $NO_TAKE"; }
   if [ "$h" != "$mine" ]; then
     rm -f "$mine"
     printf 'lease: refused, lost the tiebreak (earlier taken= wins) to %s\n' "$(describe "$h")" >&2
@@ -324,8 +336,11 @@ lease_release() {
 }
 
 # lease_check — the read-only question a push gate asks. The holder is found exactly as `take` finds it, so a
-# seat `check` lets through is a seat `take` would not have refused. It writes nothing; an absent directory
-# means nobody holds a lease. Whether a caller fails open on exit 2 is the caller's choice, not this command's.
+# seat `check` names as holder is a seat `take` would not have refused. It writes nothing; an absent directory
+# means nobody holds a lease and prints "lease: free (…)", and an unreadable one is exit 2. Neither is changed by
+# the 00:21 rule (core:ops/leasegate-holder), and neither needs to be: the hook permits a push only on the "held by
+# …, so <seat> may push" line, so an absent or unwritable store reads as free (or as an error) and the push is
+# refused. A store `take` could not write therefore fails in the safe direction, with no lease and no push.
 # With --repo/--branch it counts only the leases that cover that trunk: a lease taken for another
 # repo's trunk does not stop this one. Its holder is holder_file's for the asked scope, the earliest live lease that
 # covers it, which is the lease a take of that scope waits on.
@@ -357,6 +372,6 @@ case "$cmd" in
   take) lease_take "$@" ;;
   release) lease_release "$@" ;;
   check) lease_check "$@" ;;
-  -h|--help|help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' ;;
+  -h|--help|help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown subcommand: $cmd (take|release|show|check)" ;;
 esac
