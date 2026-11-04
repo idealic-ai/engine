@@ -28,16 +28,16 @@ The status-line `Context: X%` is **already normalized so 100% = the dehydration 
 
 ### Step 1: Set Lifecycle
 ```bash
-engine session phase sessions/[CURRENT_SESSION] "[CURRENT_PHASE]"
+engine session phase [SESSION_DIR] "[CURRENT_PHASE]"
 ```
-This saves the current phase so the rehydrated agent knows where to resume.
+This saves the current phase so the rehydrated agent knows where to resume. `[SESSION_DIR]` is the session directory's absolute path, as `engine session find` prints it; the commands below use it too.
 
 ### Step 2: Gather Context (From Memory Only)
 
 [!!!] DO NOT call Read tool to load files. Use what's already loaded.
 
 **Minimal I/O Allowed**:
-1. `ls -F sessions/[CURRENT_SESSION]/` — see what artifacts exist
+1. `ls -F [SESSION_DIR]/` — see what artifacts exist
 2. Review chat history for `§CMD_PARSE_PARAMETERS` output to recall `contextPaths`
 
 **Collect**:
@@ -68,6 +68,8 @@ This saves the current phase so the rehydrated agent knows where to resume.
   Resolves To: Project root
   Contains: Source code
 
+The project-root forms (`.claude/`, `sessions/`, `packages/`, `apps/`, `src/`) resolve against whatever directory the restarting hook runs in, so a session kept outside that directory's `sessions/` (a symlinked or shared-drive root, or a `WORKSPACE` subtree) loads from the wrong place. Write session artifacts and source files as absolute paths; an absolute path is used as written.
+
 ### Step 3: Announce and Dehydrate
 
 Briefly announce in chat, then pipe JSON to `engine session dehydrate`. The dehydrate command stores the content AND triggers restart — it is the LAST command you execute.
@@ -78,7 +80,7 @@ Briefly announce in chat, then pipe JSON to `engine session dehydrate`. The dehy
 > - **Files preserved**: [N] required files
 
 ```bash
-engine session dehydrate sessions/[CURRENT_SESSION] <<'EOF'
+engine session dehydrate [SESSION_DIR] <<'EOF'
 {
   "summary": "[Big picture — goal, strategy, status percentage]",
   "lastAction": "[What you were doing, outcome, code state]",
@@ -90,9 +92,9 @@ engine session dehydrate sessions/[CURRENT_SESSION] <<'EOF'
   "handoverInstructions": "[Specific guidance for next agent]",
   "userHistory": "[Sentiment, key directives, recent feedback — see Constraints]",
   "requiredFiles": [
-    "sessions/[SESSION]/IMPLEMENTATION_LOG.md",
-    "sessions/[SESSION]/IMPLEMENTATION_PLAN.md",
-    "sessions/[SESSION]/DIALOGUE.md",
+    "[SESSION_DIR]/IMPLEMENTATION_LOG.md",
+    "[SESSION_DIR]/IMPLEMENTATION_PLAN.md",
+    "[SESSION_DIR]/DIALOGUE.md",
     "~/.claude/skills/[SKILL]/SKILL.md"
   ]
 }

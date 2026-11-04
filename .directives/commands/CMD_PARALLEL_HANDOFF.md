@@ -151,17 +151,16 @@ Execute `AskUserQuestion` (multiSelect: false):
     [taskSummary] — Chunk [X]: [chunk description]
     ```
 
-3.  **Launch Agents**: For each chunk in the current wave, call the `Task` tool with:
+3.  **Launch Agents**: For each chunk in the current wave, call the `Agent` tool with:
     *   `subagent_type`: `[agentName]` (e.g., `"builder"`)
-    *   `run_in_background`: `true`
     *   `prompt`: The per-chunk task prompt constructed above
     *   `description`: `"Chunk [X]: [brief]"`
 
-    Launch ALL agents in the same wave simultaneously (parallel tool calls in a single message).
+    Launch ALL agents in the same wave simultaneously (parallel tool calls in a single message). Each agent runs in the background, so there is no flag to set.
 
-4.  **Poll Status**: After launching, periodically check agent status:
-    *   Use `TaskOutput` with `block: false` to check each agent's progress.
-    *   Report progress to user: "Chunk A: in progress, Chunk B: complete"
+4.  **Track Status**: The harness notifies you as each agent completes, so do not poll:
+    *   Wait for the completion notifications rather than checking each agent in a loop.
+    *   Report progress to user as they arrive: "Chunk A: in progress, Chunk B: complete"
     *   Wait for all agents in the current wave to complete before launching the next wave.
 
 5.  **Wave Sequencing**: If there are multiple waves:

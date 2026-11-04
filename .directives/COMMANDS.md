@@ -122,7 +122,7 @@ Start a background watcher that blocks until a specific tag appears on a file or
 3.  **Effect**: Maintain this persona for the duration of the session.
 
 ### ¶CMD_INIT_LOG
-**Definition**: Establates or reconnects to a session log.
+**Definition**: Creates or reconnects to a session log.
 **Algorithm**:
 1.  **Check**: Does the destination log file already exist?
 2.  **Action**: 

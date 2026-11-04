@@ -71,7 +71,7 @@ The `post-tool-use-templates.sh` hook auto-preloads the resumed skill's SKILL.md
 1. DO the next phase's work first
 2. THEN transition with proof via `engine session phase`
 
-### Step 6: Check Phase Completion
+### Step 5: Check Phase Completion
 
 After resuming, check if the current phase's work is already complete:
 1. **Read the log** — are all planned work items done?
@@ -80,7 +80,7 @@ After resuming, check if the current phase's work is already complete:
 
 **Constraint**: "Ready to proceed when you give the word" is NEVER a valid substitute for §CMD_EXECUTE_PHASE_STEPS. If you're at a boundary, use the tool.
 
-### Step 7: Announce Resume
+### Step 6: Announce Resume
 
 > **Resuming `[SKILL]`** at `[PHASE]`
 >

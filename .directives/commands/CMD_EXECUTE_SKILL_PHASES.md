@@ -90,7 +90,7 @@ If context overflows mid-skill:
 - **Boot sector position**: This must be the first instruction in SKILL.md (`¶INV_BOOT_SECTOR_AT_TOP`).
 - **No phase skipping**: Execute phases in order. The only exception is user-approved skips via `§CMD_EXECUTE_PHASE_STEPS` gate options.
 - **No backward jumps without approval**: Moving to an earlier phase requires `--user-approved` flag on `engine session phase`.
-- **Utility-tier skills don't use this**: Only protocol-tier skills (with phases arrays) use the boot sector. Sessionless utilities (do, session, engine, fleet, etc.) have no phases.
+- **Skills without phases don't use this**: Only protocol-tier skills (with phases arrays) use the boot sector. Sessionless skills such as session, engine and fleet (`tier: lightweight`) have no phases. `/do` is protocol-tier: it opens with this command and runs Setup, Work and Synthesis.
 - **`¶INV_PROTOCOL_IS_TASK`**: The protocol defines the task — do not skip phases or steps.
 
 ---
