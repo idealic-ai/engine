@@ -2133,5 +2133,7 @@ test_tree_parity() {
   assert_eq "$b" "$a" "S7: broadcast's live_tree() body equals hop.sh's"
 }
 
+# TELL: test-tell.sh sources this file for its fixtures and helpers, and runs only its own tests.
+[ -n "${BROADCAST_HARNESS_ONLY:-}" ] && return 0
 run_discovered_tests
 exit_with_results

@@ -10,6 +10,8 @@
  *   GET  /api/proofs   (token required) published proof pages in the local proof store, newest first
  *                      (?fresh skips the cache, and joins a listing already running rather than starting one)
  *   GET  /api/broadcasts  (token required) broadcasts newest first, with acks; read-only, BROADCAST_DIR overrides the dir
+ *   GET  /api/comms   (token required) ?seat=&tier=&kind=&since=&limit= → {rows}: every tell, broadcast and ask,
+ *                      newest first (src/lib/comms.ts, CommsRow); read-only
  *   GET  /api/search   (token required) ?q=<text>&limit=<1-100, default 20>&kind=<ask|proof|broadcast|local[,…]>
  *                      &minScore=<0-1.1> → 200 [{kind, seat, id, title, status, score, excerpt, url, appPath, section}],
  *                      best first, one per item, none under the floor (IDE-334, SEARCHFIX). Semantic: the query is
@@ -83,6 +85,7 @@ import { AnsweredByOperatorError, AskFormatError, dialogueHistory, FollowupClose
 import { computeBuildId, recordedBuildId } from "./build-id.ts";
 import { listProofs } from "./lib/proofs.ts";
 import { listBroadcasts } from "./lib/broadcasts.ts";
+import { listComms } from "./lib/comms.ts";
 import { createLocalEmbeddingClient, INDEXER_EMBED_RETRY, resolveEmbedConfig } from "../../embed-local/src/index.ts";
 import { openSearchDb, searchDbPath, type SearchDb } from "./search/db.ts";
 import { createRefresher, type Refresher } from "./search/refresher.ts";
@@ -225,6 +228,19 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === "/api/broadcasts" && req.method === "GET") {
       if (req.headers["x-ask-token"] !== token) return send(res, 403, { error: "missing or wrong ask token" });
       return send(res, 200, { broadcasts: listBroadcasts() });
+    }
+    // TELL: the Comms feed, one row per tell, broadcast or ask, newest first. Read-only; token-checked
+    // like /api/broadcasts. ?seat=&tier=<t[,t]>&kind=<tell|broadcast|ask[,…]>&since=<ISO>&limit=<1-1000>.
+    if (url.pathname === "/api/comms" && req.method === "GET") {
+      if (req.headers["x-ask-token"] !== token) return send(res, 403, { error: "missing or wrong ask token" });
+      const q = url.searchParams;
+      const since = q.get("since") ?? undefined;
+      if (since !== undefined && !Number.isFinite(Date.parse(since))) return send(res, 400, { error: "since is not a date" });
+      const limitRaw = q.get("limit");
+      const limit = limitRaw === null ? undefined : Number(limitRaw);
+      if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= 1000)) return send(res, 400, { error: "limit is 1 to 1000" });
+      const rows = listComms(listAsks(root), { seat: q.get("seat") || undefined, tier: q.get("tier") || undefined, kind: q.get("kind") || undefined, since, limit });
+      return send(res, 200, { rows });
     }
     // IDE-334: semantic search over asks, broadcasts and proofs. Gated like /api/proofs: GET, the page's
     // token, no foreign Origin (a query costs an embedding, and the index holds every ask's text).
