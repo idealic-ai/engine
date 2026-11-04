@@ -143,7 +143,7 @@ The reads go in `Panel:` lines, never only in prose. The app draws a panel only 
 - Any panel runner may use it, for example `/ask-council` or a seat that ran `/council` for someone else.
 - It is append-only. It writes a ```json panels``` record and leaves the question, the options, any answer and the revision unchanged, so an answer in flight is not refused.
 - It records who attached the reads and when, and it tells the asker.
-- `--council` must be the published report's http(s) URL. Publish the report first with `skills/ask-council/assets/council-page.py`, then `publish-s3.sh`.
+- `--council` must be the published report's http(s) URL. Publish the report `.md` first with `publish-s3.sh`, which renders it into a page.
 - A `--panel` pick must be one of the fork's codes. An option the panel proposes (the design-off angle) goes in `--proposed`. Proposals are stored in the record and listed by `engine ask read`; the app does not show them yet. Only the asker can turn a proposal into a real option, with `revise`.
 - It names the fork by its `¶ASK_` name. On an ask with more than one fork, a fork with no name is refused, because a position (`q0`) can point at a different question after a revise. Each entry also keeps the fork's title, and a fork retitled since does not show the reads; `revise` warns about that, and about an attached read whose option was removed.
 - Attaching the same report (`--council` URL) to the same fork again changes nothing and prints `already attached`, so a re-run is safe.

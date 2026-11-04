@@ -55,30 +55,50 @@ set -euo pipefail
 
 proofPath="${1:?usage: publish-s3.sh <proofPath> [slug]}"
 [ -f "$proofPath" ] || { echo "publish-s3: file not found: $proofPath" >&2; exit 1; }
-slug="${2:-$(basename "$proofPath" | sed -E 's/\.(html?|md|markdown)$//')}"
+srcBase="$(basename "$proofPath")"
+srcExt=""
+case "$srcBase" in *.*) srcExt="$(printf '%s' "${srcBase##*.}" | tr '[:upper:]' '[:lower:]')" ;; esac
+case "$srcExt" in
+  html|htm|md|markdown) slug="${2:-${srcBase%.*}}" ;;
+  *) slug="${2:-$srcBase}" ;;
+esac
 
-# --- A markdown file is rendered to a page before anything else reads it ---
-# Every object goes up as text/html, so a raw .md would show as one unformatted run of text (HTML
-# collapses its line breaks). A .md / .markdown input is therefore rendered by _md-page.py into a
-# self-contained page (headings, lists, tables, fenced code, links; every character escaped, so a
-# report quoting <script> shows it as text) and THAT page is what the checks below and the upload
-# see. The source file is never modified. The temp dir is removed by the single EXIT trap set below.
+# --- Only HTML goes up as it is: everything else is rendered or shown as text first ---
+# Every object is uploaded as text/html. A file that is not HTML must therefore never go up
+# verbatim: a raw .md shows as one unformatted run of text (HTML collapses its line breaks), and ANY
+# file that quotes <script> (a build log, a JSON dump, a .txt) would run it in the reader's browser.
+# So the extension, case-insensitive, decides:
+#   .html .htm         → published as authored
+#   .md .markdown      → rendered by _md-page.py `page` (headings, lists, tables, code, links)
+#   anything else      → wrapped by _md-page.py `text` as an escaped <pre class="language-text"> page
+#                        (a file with no extension included)
+# Wrapping rather than refusing: a caller publishing a log still gets a readable page and a URL,
+# rather than a run that stops with nothing to hand over; escaping makes the wrap exactly as safe
+# as a refusal. Every character is escaped in both renders. The source file is never modified, and
+# the temp dir is removed by the single EXIT trap set below.
 mdWork=""
-case "$proofPath" in
-  *.md|*.MD|*.markdown)
-    if [ ! -f "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_md-page.py" ]; then
-      echo "publish-s3: REFUSED — $proofPath is markdown and _md-page.py is missing beside publish-s3.sh, so it cannot be rendered. Land the helper." >&2
+case "$srcExt" in
+  html|htm) ;;
+  *)
+    mdHelper="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_md-page.py"
+    if [ ! -f "$mdHelper" ]; then
+      echo "publish-s3: REFUSED — $srcBase is not HTML and _md-page.py is missing beside publish-s3.sh, so it cannot be rendered safely. Land the helper." >&2
       exit 5
     fi
+    mdMode=text; mdWhat="as escaped text"
+    case "$srcExt" in md|markdown) mdMode=page; mdWhat="markdown" ;; esac
     mdWork="$(mktemp -d -t prove-md)"
     trap 'rm -rf "$mdWork"' EXIT
-    mdSource="$proofPath"
-    python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_md-page.py" page "$mdSource" "$mdWork/$slug.html" || {
-      echo "publish-s3: REFUSED — could not render markdown $mdSource; nothing was uploaded" >&2
+    python3 "$mdHelper" "$mdMode" "$proofPath" "$mdWork/page.html" || {
+      echo "publish-s3: REFUSED — could not render $srcBase ($mdWhat); nothing was uploaded" >&2
       exit 5
     }
-    proofPath="$mdWork/$slug.html"
-    echo "publish-s3: rendered markdown $(basename "$mdSource") → HTML page before upload" >&2
+    proofPath="$mdWork/page.html"
+    if [ "$mdMode" = page ]; then
+      echo "publish-s3: rendered markdown $srcBase → HTML page before upload" >&2
+    else
+      echo "publish-s3: $srcBase is not HTML or markdown — uploaded as an escaped text page" >&2
+    fi
     ;;
 esac
 
@@ -807,7 +827,7 @@ fi
 # replaces each marked block with the rendered markdown plus one scoped stylesheet. Unmarked
 # language-markdown blocks stay source on purpose. Runs before the highlighter, so fenced code inside
 # the markdown is coloured too. A page with no marked block is untouched.
-if grep -q 'data-md-render' "$upload"; then
+if grep -qi 'data-md-render' "$upload"; then
   if [ ! -f "$here/_md-page.py" ]; then
     echo "publish-s3: REFUSED — the page marks markdown for rendering (data-md-render) and _md-page.py is missing beside publish-s3.sh; nothing was uploaded" >&2
     exit 5

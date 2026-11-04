@@ -3,17 +3,21 @@
 
 Usage:
   _md-page.py page  <in.md> <out.html> [<fallback title>]   write a self-contained page
+  _md-page.py text  <in.any> <out.html>                     write the file as an escaped text page
   _md-page.py embed <page.html>                             print the page with every
                                                             <pre data-md-render> block rendered
 
-publish-s3.sh uploads every object as text/html. A raw .md uploaded that way shows as one
-unformatted block, because HTML collapses its line breaks. So publish-s3.sh renders a .md input
-with `page` before anything else looks at it, and runs `embed` on every HTML page it publishes.
+publish-s3.sh uploads every object as text/html, so a file that is not HTML must not go up as it
+is: a raw .md shows as one unformatted block (HTML collapses its line breaks), and any file quoting
+`<script>` would run it. So publish-s3.sh renders a .md/.markdown input with `page`, wraps every
+other non-HTML input (.log, .txt, .json, no extension, …) with `text`, and runs `embed` on every
+HTML page it publishes.
 
 `page` renders the slice of markdown the engine's reports use: headings, paragraphs, block quotes,
-lists, tables, fenced code, horizontal rules, inline code, bold, italic and http(s) links. The page
-has light and dark themes, loads no script and no remote asset, and every fenced block names its
-language (`language-text` when the fence has none), so publish-s3.sh's fence check passes it.
+lists, tables, fenced code, horizontal rules, inline code, bold, italic and links. The page has light
+and dark themes, loads no script and no remote asset, and every fenced block names its language
+(`language-text` when the fence has none), so publish-s3.sh's fence check passes it. CRLF line
+endings in the markdown are normalised to LF.
 
 `embed` is the opt-in for a markdown file shown INSIDE a proof page. The author writes the file
 HTML-escaped in a block marked for rendering:
@@ -22,12 +26,16 @@ HTML-escaped in a block marked for rendering:
 
 Opened from builds/, that block is readable source, and the fence check accepts it. At publish it is
 replaced by a <div class="md-render"> holding the rendered markdown, with one scoped stylesheet
-that takes its colours from the host page's text colour, so it suits the page's own theme. A
-<pre class="language-markdown"> WITHOUT the attribute is left alone, because a page may want to
-show markdown source as source. A page with no marked block is printed byte-identical.
+that takes its colours from the host page's text colour, so it suits the page's own theme. Only a
+real <pre> element carrying the attribute counts: a marker inside an attribute value, a comment, or
+a script/style/textarea/title body is data and is left alone. A <pre class="language-markdown"> WITHOUT
+the attribute stays source, because a page may want to show markdown as source. A page with no
+marked block is printed byte-identical, CRLF line endings included; the rendered blocks themselves
+use LF.
 
-Every character of the markdown is HTML-escaped, so a report that quotes `<script>` shows it as
-text, and a link renders only when its target is http(s). Nothing is ever executed.
+Every character of the markdown is HTML-escaped, quotes included, so a report quoting `<script>`
+shows it as text and no text can close an attribute. A link renders only when its target is
+http(s); a javascript:, data: or any other target stays literal text. Nothing is ever executed.
 
 ask-council's council-page.py renders a Council Report through this module.
 """
@@ -89,13 +97,30 @@ def inline(text: str) -> str:
     return "".join(out)
 
 
-def _marks(text: str) -> str:
-    t = html.escape(text, quote=False)
-    t = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
-               lambda m: f'<a href="{m.group(2).replace(chr(34), "&quot;")}">{m.group(1)}</a>', t)
+LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
+SAFE_HREF = re.compile(r"^https?://", re.I)
+
+
+def _emph(t: str) -> str:
     t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
-    t = re.sub(r"(?<![\w*])\*([^*\s][^*]*?)\*(?![\w*])", r"<em>\1</em>", t)
-    return t
+    return re.sub(r"(?<![\w*])\*([^*\s][^*]*?)\*(?![\w*])", r"<em>\1</em>", t)
+
+
+def _marks(text: str) -> str:
+    """Escape (quotes included), then links and emphasis. Links are cut out of the RAW text first,
+    so emphasis never runs inside an href, and only an http(s) target becomes a link: any other
+    scheme (javascript:, data:, …) stays literal text."""
+    out, i = [], 0
+    for m in LINK_RE.finditer(text):
+        out.append(_emph(html.escape(text[i:m.start()], quote=True)))
+        label, url = m.group(1), m.group(2)
+        if SAFE_HREF.match(url):
+            out.append(f'<a href="{html.escape(url, quote=True)}">{_emph(html.escape(label, quote=True))}</a>')
+        else:
+            out.append(html.escape(m.group(0), quote=True))
+        i = m.end()
+    out.append(_emph(html.escape(text[i:], quote=True)))
+    return "".join(out)
 
 
 def render(md: str) -> tuple[str, str]:
@@ -128,7 +153,7 @@ def render(md: str) -> tuple[str, str]:
             out.append(f'<pre class="language-{lang}"><code class="language-{lang}">'
                        f'{html.escape(chr(10).join(body))}</code></pre>')
             continue
-        hm = re.match(r"^(#{1,6})\s+(.*?)\s*#*\s*$", line)
+        hm = re.match(r"^(#{1,6})\s+(.*?)(?:\s+#+)?\s*$", line)
         if hm:
             flush()
             level = len(hm.group(1))
@@ -204,56 +229,118 @@ def page(md: str, src_name: str, fallback_title: str = "") -> str:
     )
 
 
-EMBED_RE = re.compile(r"<pre\b[^>]*\bdata-md-render\b[^>]*>\s*(?:<code\b[^>]*>)?(.*?)(?:</code>\s*)?</pre>",
-                      re.S | re.I)
+# The embed pass walks the page's real markup: comments and the contents of raw-text elements
+# (script, style, textarea, title, …) are data, not markup, and a tag runs to the first '>' outside
+# its quoted attributes. So a marker inside an attribute value, a script string or a comment is never
+# taken for a block.
+TAG_RE = re.compile(r"<!--.*?(?:-->|$)|<![^>]*>|<(/?)([A-Za-z][A-Za-z0-9-]*)((?:[^>\"']|\"[^\"]*\"|'[^']*')*)>",
+                    re.S)
+ATTR_NAME_RE = re.compile(r"""([^\s"'>/=]+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?""")
+RAW_TEXT = ("script", "style", "textarea", "title", "xmp", "iframe", "noembed", "noframes", "noscript", "plaintext")
+PRE_BODY_RE = re.compile(r"\s*(?:<code\b(?:[^>\"']|\"[^\"]*\"|'[^']*')*>)?(.*?)(?:</code\s*>\s*)?</pre\s*>", re.S | re.I)
 EMBED_CSS_RE = re.compile(r"<style data-md-render-css>.*?</style>\n?", re.S)
 
 
+def _attr_names(attrs: str) -> set:
+    return {m.group(1).lower() for m in ATTR_NAME_RE.finditer(attrs)}
+
+
+def marked_blocks(text: str):
+    """Yield (start, end, inner) for every real <pre data-md-render> block, and the offset of the
+    real </head> (or None) as the final item."""
+    blocks, head_end, pos = [], None, 0
+    while True:
+        m = TAG_RE.search(text, pos)
+        if not m:
+            break
+        pos = m.end()
+        if m.group(2) is None:
+            continue  # comment, doctype
+        closing, name = m.group(1), m.group(2).lower()
+        if closing:
+            if name == "head" and head_end is None:
+                head_end = m.start()
+            continue
+        if name in RAW_TEXT:
+            c = re.compile(rf"</{name}\s*>", re.I).search(text, pos)
+            pos = c.end() if c else len(text)
+            continue
+        if name == "pre" and "data-md-render" in _attr_names(m.group(3)):
+            b = PRE_BODY_RE.match(text, pos)
+            if b:
+                blocks.append((m.start(), b.end(), b.group(1)))
+                pos = b.end()
+    return blocks, head_end
+
+
 def embed(text: str) -> tuple[str, int]:
-    """Replace each marked block with its rendering. Returns (page, blocks rendered)."""
-    count = 0
-
-    def repl(m):
-        nonlocal count
-        count += 1
-        _, body = render(html.unescape(m.group(1)))
-        return f'<div class="md-render">\n{body}\n</div>'
-
-    out = EMBED_RE.sub(repl, text)
-    if not count:
+    """Replace each marked block with its rendering. Returns (page, blocks rendered). With no
+    marked block the page comes back unchanged, byte for byte."""
+    blocks, head_end = marked_blocks(text)
+    if not blocks:
         return text, 0
-    out = EMBED_CSS_RE.sub("", out)
+    out, last = [], 0
+    for start, end, inner in blocks:
+        out.append(text[last:start])
+        _, body = render(html.unescape(inner))
+        out.append(f'<div class="md-render">\n{body}\n</div>')
+        last = end
+    out.append(text[last:])
+    # where the real </head> sits after the substitutions (blocks are in the body, so it does not move)
+    page_out = "".join(out)
+    page_out = EMBED_CSS_RE.sub("", page_out)
     style = f"<style data-md-render-css>{EMBED_CSS}</style>\n"
-    m = re.search(r"</head\s*>", out, re.I)
-    if m:
-        out = out[:m.start()] + style + out[m.start():]
-    else:
-        out = style + out
-    return out, count
+    _, head_end = marked_blocks(page_out)
+    if head_end is not None:
+        return page_out[:head_end] + style + page_out[head_end:], len(blocks)
+    return style + page_out, len(blocks)
+
+
+def text_page(raw: str, src_name: str) -> str:
+    """A non-HTML, non-markdown file (a log, JSON, plain text) as an escaped text page."""
+    return (
+        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        f"<title>{html.escape(src_name)}</title><style>{PAGE_CSS}</style></head>\n"
+        f"<body><main>\n<p class=\"src\">Shown as text: {html.escape(src_name)}</p>\n"
+        f'<pre class="language-text"><code class="language-text">{html.escape(raw, quote=True)}</code></pre>\n'
+        "</main></body></html>\n"
+    )
+
+
+def _read(path: str, strict: bool = True):
+    # newline="" keeps CRLF as written, so an unchanged page goes back out byte for byte
+    with open(path, encoding="utf-8", errors="strict" if strict else "replace", newline="") as f:
+        return f.read()
+
+
+def _write(path: str, text: str) -> None:
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write(text)
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) >= 4 and argv[1] == "page":
+    mode = argv[1] if len(argv) > 1 else ""
+    if mode in ("page", "text") and len(argv) >= 4:
         src, dst = argv[2], argv[3]
-        fallback = argv[4] if len(argv) > 4 else ""
         try:
-            with open(src, encoding="utf-8") as f:
-                md = f.read()
+            raw = _read(src, strict=(mode == "page"))
         except (OSError, UnicodeDecodeError) as e:
             print(f"_md-page: cannot read {src}: {e}", file=sys.stderr)
             return 1
-        with open(dst, "w", encoding="utf-8") as f:
-            f.write(page(md, os.path.basename(src), fallback))
+        if mode == "page":
+            _write(dst, page(raw, os.path.basename(src), argv[4] if len(argv) > 4 else ""))
+        else:
+            _write(dst, text_page(raw, os.path.basename(src)))
         return 0
-    if len(argv) == 3 and argv[1] == "embed":
+    if mode == "embed" and len(argv) == 3:
         try:
-            with open(argv[2], encoding="utf-8") as f:
-                text = f.read()
+            text = _read(argv[2])
         except (OSError, UnicodeDecodeError) as e:
             print(f"_md-page: cannot read {argv[2]}: {e}", file=sys.stderr)
             return 1
         out, n = embed(text)
-        sys.stdout.write(out)
+        sys.stdout.buffer.write(out.encode("utf-8"))
         print(f"_md-page: rendered {n} markdown block(s)", file=sys.stderr)
         return 0
     print(__doc__.split("\n\n")[1], file=sys.stderr)

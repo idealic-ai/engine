@@ -468,7 +468,7 @@ if mdPublish "$tmp/fixture-report.md" md1; then
   grep -q '<td>a root again</td>' "$obj" && ok "table rendered" || no "table rendered" "no <td>"
   grep -q '<a href="https://linear.app/idealic/issue/IDE-1?a=1&amp;b=2">the ticket</a>' "$obj" \
     && ok "link rendered, query escaped once" || no "link rendered" "$(grep -o '<a [^>]*>' "$obj" | head -3)"
-  grep -q "&lt;script&gt;alert('md')&lt;/script&gt;" "$obj" && ok "a <script> line in the markdown is escaped to text" \
+  grep -q "&lt;script&gt;alert(&#x27;md&#x27;)&lt;/script&gt;" "$obj" && ok "a <script> line in the markdown is escaped to text" \
     || no "a <script> line is escaped" "escaped form missing"
   grep -q "<script>alert('md')" "$obj" && no "no raw <script> from the markdown reaches the page" "found it" \
     || ok "no raw <script> from the markdown reaches the page"
@@ -529,12 +529,109 @@ if mdPublish "$tmp/embedpage.html" emb1; then
   grep -q '<h2>Embedded verdict</h2>' "$obj" && grep -q '<li>point one</li>' "$obj" \
     && ok "the embedded markdown's heading and list render" || no "embedded heading/list" "missing"
   grep -q 'data-md-render>' "$obj" && no "no marked <pre> is left" "still there" || ok "no marked <pre> is left"
-  grep -q "&lt;script&gt;alert('e')&lt;/script&gt;" "$obj" && ! grep -q "<script>alert('e')" "$obj" \
+  grep -q "&lt;script&gt;alert(&#x27;e&#x27;)&lt;/script&gt;" "$obj" && ! grep -q "<script>alert('e')" "$obj" \
     && ok "a <script> inside embedded markdown stays escaped" || no "embedded script escaped" "raw or missing"
   grep -c '<style data-md-render-css>' "$obj" | grep -qx 1 && ok "one scoped stylesheet" || no "one scoped stylesheet" "count wrong"
 else
   no "an embedding page publishes" "$(tail -5 "$tmp/emb1.err")"
 fi
+
+echo "== publish-s3.sh: link schemes, quotes, markup context, headings, other file types =="
+# Hostile links, in BOTH modes: only http(s) becomes a link, and a quote in an href never closes it.
+cat > "$tmp/links.md" <<'MD'
+# Links
+
+[js](javascript:alert(1)) [jsup](JavaScript:alert(2)) [dt](data:text/html,<b>x</b>) [q](http://a/"onmouseover="x) [ok](https://example.com/a?b=1)
+
+It's a "quoted" line with ' onmouseover=alert(4) x='
+
+## Using C#
+### Closed heading ###
+MD
+linkChecks() { # linkChecks <file> <mode label>
+  local f="$1" m="$2"
+  grep -qi 'href="javascript' "$f" && no "$m: no javascript: href" "found one" || ok "$m: no javascript: href"
+  grep -qi 'href="data' "$f" && no "$m: no data: href" "found one" || ok "$m: no data: href"
+  grep -q '"on' "$f" && no "$m: no raw \"on… attribute from a quote in a URL" "$(grep -o '.\{20\}"on.\{20\}' "$f" | head -2)" \
+    || ok "$m: no raw \"on… attribute from a quote in a URL"
+  grep -q '<a href="http://a/&quot;onmouseover=&quot;x">q</a>' "$f" && ok "$m: the quote in an http href is &quot;" \
+    || no "$m: the quote in an http href is &quot;" "$(grep -o '<a [^>]*>q' "$f")"
+  grep -q '<a href="https://example.com/a?b=1">ok</a>' "$f" && ok "$m: an https link still renders" || no "$m: an https link still renders" "missing"
+  grep -q '\[js\](javascript:alert(1))' "$f" && ok "$m: a javascript: link stays literal text" || no "$m: javascript: link literal" "missing"
+  grep -q "It&#x27;s a &quot;quoted&quot; line with &#x27; onmouseover=alert(4) x=&#x27;" "$f" \
+    && ok "$m: quotes in text are escaped (no attribute can be closed)" || no "$m: quotes in text escaped" "$(grep -o "It.\{0,60\}" "$f" | head -1)"
+  grep -q '<h2>Using C#</h2>' "$f" && ok "$m: a heading keeps a trailing # that is part of the text (C#)" \
+    || no "$m: heading keeps C#" "$(grep -o '<h2>Using[^<]*' "$f")"
+  grep -q '<h3>Closed heading</h3>' "$f" && ok "$m: a closing # run after a space is dropped" || no "$m: closing # run dropped" "$(grep -o '<h3>[^<]*' "$f")"
+}
+if mdPublish "$tmp/links.md" lk1; then linkChecks "$(mdStored lk1)" "page mode"; else no "links.md publishes" "$(tail -3 "$tmp/lk1.err")"; fi
+python3 - "$tmp/links.md" > "$tmp/linkembed.html" <<'PY'
+import html, sys
+md = open(sys.argv[1], encoding="utf-8").read()
+print('<!doctype html><html><head><title>e</title></head><body>'
+      f'<pre data-md-render><code class="language-markdown">{html.escape(md)}</code></pre></body></html>')
+PY
+if mdPublish "$tmp/linkembed.html" lk2; then linkChecks "$(mdStored lk2)" "embed mode"; else no "the link embed page publishes" "$(tail -3 "$tmp/lk2.err")"; fi
+
+# A marker that is NOT a real <pre> element is data: inside an attribute, a comment, a script.
+cat > "$tmp/ctx.html" <<'HTML'
+<!doctype html><html><head><title>ctx</title></head><body>
+<div title='<pre data-md-render>'>attr</div><p>' onmouseover=alert(1) x='</p></pre>
+<!-- <pre data-md-render><code>in a comment</code></pre> --><p>after the comment</p>
+<script>var s = '<pre data-md-render>';</script>
+<pre data-md-render-css class="language-text">not a marker either</pre>
+</body></html>
+HTML
+if mdPublish "$tmp/ctx.html" ctx1; then
+  obj="$(mdStored ctx1)"
+  grep -q 'md-render">' "$obj" && no "a marker outside markup context is not rendered" "$(grep -o '.\{30\}md-render">.\{30\}' "$obj" | head -2)" \
+    || ok "a marker outside markup context is not rendered (attribute, comment, script, -css name)"
+  grep -q "<div title='<pre data-md-render>'>attr</div>" "$obj" && ok "the critic's title-attribute repro is left as authored" \
+    || no "title-attribute repro left as authored" "changed"
+  grep -q '<p>after the comment</p>' "$obj" && ok "a marker in a comment does not swallow the rest of the page" || no "comment marker swallows page" "text after the comment is gone"
+else
+  no "the context page publishes" "$(tail -3 "$tmp/ctx1.err")"
+fi
+# The marker is matched case-insensitively as a real attribute.
+printf '<!doctype html><html><head><title>u</title></head><body><PRE DATA-MD-RENDER><code class="language-markdown">## Upper case marker</code></PRE></body></html>\n' > "$tmp/upper.html"
+if mdPublish "$tmp/upper.html" up1; then
+  grep -q '<h2>Upper case marker</h2>' "$(mdStored up1)" && ok "an upper-case <PRE DATA-MD-RENDER> renders" || no "upper-case marker renders" "not rendered"
+else no "the upper-case page publishes" "$(tail -3 "$tmp/up1.err")"; fi
+# A page that only MENTIONS the marker keeps CRLF line endings byte for byte.
+printf '<!doctype html>\r\n<html><head><title>c</title></head><body>\r\n<p>mentions data-md-render in text</p>\r\n</body></html>\r\n' > "$tmp/crlf.html"
+python3 "$assets/_md-page.py" embed "$tmp/crlf.html" > "$tmp/crlf.out" 2>/dev/null
+cmp -s "$tmp/crlf.html" "$tmp/crlf.out" && ok "embed prints an unmarked CRLF page byte-identical" || no "embed keeps CRLF" "bytes differ"
+
+# Any other file type: escaped into a text page, never uploaded as HTML verbatim.
+printf 'build started\n<script>alert("log")</script>\n<img src=x onerror=alert(5)>\ndone\n' > "$tmp/build.log"
+if mdPublish "$tmp/build.log" log1; then
+  obj="$(mdStored log1)"
+  grep -q '^http://127.0.0.1:9/proofs/proofs/t/build.log-[0-9a-f]\{8\}\.html$' "$tmp/log1.out" && ok "a .log keys as <name>.log-<rand>.html" || no "log key" "$(cat "$tmp/log1.out")"
+  grep -q 'uploaded as an escaped text page' "$tmp/log1.err" && ok "the publisher says it wrapped the .log as text" || no "says it wrapped" "$(head -3 "$tmp/log1.err")"
+  grep -q '&lt;script&gt;alert(&quot;log&quot;)&lt;/script&gt;' "$obj" && ok "a <script> in a .log is escaped to text" || no "script in log escaped" "missing"
+  grep -q '<script>alert("log")' "$obj" && no "no raw <script> from the .log reaches the page" "found it" || ok "no raw <script> from the .log reaches the page"
+  grep -q '<img src=x' "$obj" && no "no raw <img onerror> from the .log" "found it" || ok "no raw <img onerror> from the .log"
+  grep -q '<pre class="language-text"><code class="language-text">build started' "$obj" && ok "the .log shows as a language-text block" || no "log as language-text" "missing"
+else
+  no "a .log publishes (exit 0)" "$(tail -5 "$tmp/log1.err")"
+fi
+printf 'no extension, <script>x</script>\n' > "$tmp/NOTES"
+if mdPublish "$tmp/NOTES" noext; then
+  grep -q '<script>x</script>' "$(mdStored noext)" && no "a file with no extension is escaped too" "raw script" || ok "a file with no extension is escaped too"
+else no "an extensionless file publishes" "$(tail -3 "$tmp/noext.err")"; fi
+# Case-insensitive extensions: .MD renders and its slug drops .MD; .Html goes up as HTML.
+cp "$tmp/fixture-report.md" "$tmp/UPPER.MD"
+if mdPublish "$tmp/UPPER.MD" mdup; then
+  grep -q '^http://127.0.0.1:9/proofs/proofs/t/UPPER-[0-9a-f]\{8\}\.html$' "$tmp/mdup.out" && ok "the slug drops an upper-case .MD" || no "slug drops .MD" "$(cat "$tmp/mdup.out")"
+  grep -q '<h1>Council Report — fixture</h1>' "$(mdStored mdup)" && ok "an upper-case .MD renders" || no "upper .MD renders" "not rendered"
+else no ".MD publishes" "$(tail -3 "$tmp/mdup.err")"; fi
+cp "$tmp/plainpage.html" "$tmp/Mixed.Html"
+if mdPublish "$tmp/Mixed.Html" mixh; then
+  grep -q '<h1>Plain page</h1>' "$(mdStored mixh)" && ! grep -q 'Shown as text' "$(mdStored mixh)" \
+    && ok "a mixed-case .Html still goes up as HTML" || no "mixed-case .Html as HTML" "wrapped or changed"
+else no ".Html publishes" "$(tail -3 "$tmp/mixh.err")"; fi
+# An explicit slug with a / no longer breaks the render (fixed temp name).
+if mdPublish "$tmp/fixture-report.md" slash "team/report"; then ok "an explicit slug containing / still renders"; else no "slug with /" "$(tail -3 "$tmp/slash.err")"; fi
 
 printf '\n%s\n' "-------------------------------------"
 printf 'passed %d   failed %d\n' "$pass" "$fail"

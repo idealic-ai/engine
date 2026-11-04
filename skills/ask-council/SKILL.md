@@ -88,12 +88,13 @@ For an approved scrutinize run, run `/scrutinize` over the work the asks are abo
 
 ## 5. Publish, then attach — so `Council:` is always a URL
 
-`attach-panel` refuses anything but an http(s) URL. A council report is markdown, so publish it first:
+`attach-panel` refuses anything but an http(s) URL, so publish the report first. `publish-s3.sh` renders a `.md` into a page itself (headings, lists, tables, code, links, every character escaped), so hand it the report as it is:
 
 ```bash
-python3 ~/.claude/engine/skills/ask-council/assets/council-page.py <report.md> <report.html>
-~/.claude/engine/skills/prove/assets/publish-s3.sh <report.html> council-<set-slug>   # prints the URL on stdout
+~/.claude/engine/skills/prove/assets/publish-s3.sh <report.md> council-<set-slug>   # prints the URL on stdout
 ```
+
+`assets/council-page.py <report.md> <out.html>` writes the same page to disk, for when you want the file before publishing.
 
 Take the URL from stdout and the destination it states on stderr. Do not guess the store. Then attach each fork's block:
 
