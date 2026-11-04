@@ -720,6 +720,71 @@ arm_stale_head() {
 
 test_b_31_stale_head() { arm_stale_head "$DS"; }
 
+# bounded <secs> <cmd…> — the arm's own outer bound, so a planted defect that removes the script's
+# bound fails the arm (rc 142) instead of hanging the suite.
+bounded() {
+  perl -e 'my $t = shift; my $p = fork; die "fork: $!" unless defined $p;
+    if (!$p) { setpgrp(0, 0); exec @ARGV or exit 127 }
+    $SIG{ALRM} = sub { kill "KILL", -$p; exit 142 }; alarm $t; waitpid($p, 0); alarm 0;
+    exit($? & 127 ? 128 + ($? & 127) : $? >> 8)' "$@"
+}
+
+# M1: an origin that never answers. The fake ssh records its arguments and sleeps; detect must
+# give up inside DOC_SIGNALS_NET_TIMEOUT, report the range unread, and run ssh non-interactively.
+arm_hanging_origin() {
+  local ds="$1" d="$WORK/hang.$RANDOM" base c1 c2 r rc err t0 t1 fake
+  read -r base c1 c2 < <(stale_fixture "$d")
+  r="$d/stale"; fake="$d/fake-ssh"
+  printf '#!/bin/bash\nprintf "%%s\\n" "$*" >>"%s/ssh-args"\nexec sleep 600\n' "$d" >"$fake"; chmod +x "$fake"
+  git -C "$r" remote set-url origin "ssh://git@example.invalid/org/fixture.git"
+  t0=$(date +%s)
+  GIT_SSH_COMMAND="$fake" DOC_SIGNALS_NET_TIMEOUT=3 bounded 30 bash "$ds" detect --repo "$r" --since "$base" --base main >/dev/null 2>"$WORK/hang.err"; rc=$?
+  t1=$(date +%s); err=$(cat "$WORK/hang.err")
+  assert_eq "2" "$rc" "33 hang: a fetch that never answers exits 2 (not 142: the script's own bound fired)"
+  assert_contains "unread — could not fetch origin/main: fetch timed out after 3s" "$err" "33 hang: and says it timed out"
+  assert_not_contains "detect: range" "$err" "33 hang: and reports no range"
+  assert_gt "20" "$((t1 - t0))" "33 hang: inside the bound ($((t1 - t0))s)"
+  assert_contains "BatchMode=yes" "$(cat "$d/ssh-args" 2>/dev/null)" "33 hang: ssh runs with BatchMode, so it cannot prompt"
+  assert_contains "ConnectTimeout=10" "$(cat "$d/ssh-args" 2>/dev/null)" "33 hang: and a connect timeout"
+  git -C "$r" remote set-head origin -d >/dev/null 2>&1
+  GIT_SSH_COMMAND="$fake" DOC_SIGNALS_NET_TIMEOUT=3 bounded 30 bash "$ds" detect --repo "$r" --since "$base" >/dev/null 2>"$WORK/hang.err"; rc=$?
+  err=$(cat "$WORK/hang.err")
+  assert_eq "2" "$rc" "33 hang: an ls-remote that never answers exits 2"
+  assert_contains "unread — could not reach origin: ls-remote timed out after 3s" "$err" "33 hang: and says origin could not be reached, not 'pass --base'"
+}
+
+# M2: the run's own unpushed commit is read; the marker stays the upstream tip.
+arm_unpushed() {
+  local ds="$1" d="$WORK/unpushed.$RANDOM" base c1 c2 r out rc err
+  read -r base c1 c2 < <(stale_fixture "$d")
+  r="$d/fresh"; git clone -q "$d/fixture.git" "$r" >/dev/null 2>&1
+  git -C "$r" config user.email t@t; git -C "$r" config user.name t
+  mkdir -p "$r/skills/local"; printf '# local\n' >"$r/skills/local/SKILL.md"; commit_all "$r" "checkpoint, not pushed"
+  out=$(bash "$ds" detect --repo "$r" --since "$c2" 2>"$WORK/unpushed.err"); rc=$?; err=$(cat "$WORK/unpushed.err")
+  assert_eq "3" "$rc" "34 unpushed: the run's own unpushed commit is read (exit 3)"
+  assert_contains "fixture:skills/local/SKILL.md" "$out" "34 unpushed: its new skill fires"
+  assert_contains "detect: range $c2..$c2" "$err" "34 unpushed: the range line still ends at the upstream tip (the marker)"
+  assert_contains "detect: also unpushed $c2..$(git -C "$r" rev-parse HEAD)" "$err" "34 unpushed: the unpushed pass is reported apart"
+  if [ -e "$r/.git/FETCH_HEAD" ]; then fail "34 S1: the fetch wrote no FETCH_HEAD" "no .git/FETCH_HEAD" "$(cat "$r/.git/FETCH_HEAD")"; else pass "34 S1: the fetch wrote no FETCH_HEAD"; fi
+  out=$(bash "$ds" detect --repo "$r" --since "$c2" --head HEAD~1 2>/dev/null); rc=$?
+  assert_eq "0" "$rc" "34 --head: an explicit end takes no unpushed pass"
+}
+
+# S8: arm 16's unreachable and non-ancestor markers, through the default (fetched) path.
+arm_marker_default_path() {
+  local ds="$1" d="$WORK/m16.$RANDOM" base c1 c2 r rc err
+  read -r base c1 c2 < <(stale_fixture "$d")
+  r="$d/stale"
+  bash "$ds" detect --repo "$r" --since deadbeefdeadbeefdeadbeefdeadbeefdeadbeef >/dev/null 2>"$WORK/m16.err"; rc=$?; err=$(cat "$WORK/m16.err")
+  assert_neq "2" "$rc" "16b default path: an unknown since-sha does not fail detect"
+  assert_contains "not a commit here; falling back" "$err" "16b default path: it falls back with a warning"
+  assert_contains "detect: range" "$err" "16b default path: and still reads a range"
+}
+
+test_b_33_hanging_origin() { arm_hanging_origin "$DS"; }
+test_b_34_unpushed()       { arm_unpushed "$DS"; }
+test_b_16b_marker_default(){ arm_marker_default_path "$DS"; }
+
 # DOCSINCE scope addition: owners-from-doc reads the Ownership line from the upstream tip. The
 # stale checkout holds a line with no lane → project list (the parser refuses it); upstream holds
 # the current one. Read off disk, the map is unread; read from the tip, it parses.
@@ -825,9 +890,12 @@ PLANT_TRAP='s|^  trap .rm -f "\$tmp"; rmdir "\$lock" 2>/dev/null. EXIT$|  :|;s|^
 PLANT_STALE='s|if \[ -n "\$(find "\$lock" -maxdepth 0 -mmin +5 2>/dev/null)" \]; then|if false; then|'
 PLANT_LANDEDCASE='s|tolower(\$1) == k \&\& tolower(\$2) == f {hit = 1}|$1 == k \&\& $2 == f {hit = 1}|'
 PLANT_NOANCHOR='s|      if (!anchor) {|      if (0) {|'
-PLANT_HEADSTALE='s#^  \[ -n "\$headrev" \] || headrev=\$(upstream_ref "\$repo" "\$base" "\$nofetch") || exit 2#  [ -n "$headrev" ] || headrev=HEAD#'
+PLANT_HEADSTALE='s#^  if \[ -z "\$headrev" \]; then headrev=\$(upstream_ref .*$#  [ -n "$headrev" ] || headrev=HEAD#'
 PLANT_UNREAD='s#^      return 2$#      echo HEAD; return 0#'
 PLANT_OWNDISK='s#^  if \[ -z "\$rev" \]; then$#  if false; then rev=HEAD#;s#^  \[ -f "\$file" \] || die "\$usage"$#  [ -n "$rev" ] || rev=HEAD; [ -f "$file" ] || die "$usage"#'
+PLANT_NOBOUND='s#"\${DOC_SIGNALS_NET_TIMEOUT:-30}" \\$#600 \\#'
+PLANT_NOBATCH='s# -o BatchMode=yes -o ConnectTimeout=10"#"#'
+PLANT_NOUNPUSHED='s#^  if \[ "\$fromup" = 1 \]; then$#  if false; then#'
 PLANT_FLAGS='s|grep -oE .\\\$\\{?\[0-9A-Za-z_@\]+\\}?"?\[\[:space:\]\]\*==?\[\[:space:\]\]\*"?--\[a-z\]\[a-z0-9-\]\*. 2>/dev/null|true|'
 
 test_control_1_new_skill()       { control "1 (skill branch never matches)"            arm_new_skill          "$PLANT_1"; }
@@ -876,6 +944,9 @@ test_control_n2_noanchor()       { control "N2 (the anchor exit removed)" arm_ow
 test_control_31_stale_head()     { control "31 (detect reads the checkout's HEAD again)" arm_stale_head  "$PLANT_HEADSTALE"; }
 test_control_31_unread()         { control "31 (a failed fetch falls back to HEAD)"   arm_stale_head         "$PLANT_UNREAD"; }
 test_control_32_owners_disk()    { control "32 (owners-from-doc reads the line off disk)" arm_owners_stale "$PLANT_OWNDISK"; }
+test_control_33_bound()          { control "33 (the network call has no bound)"      arm_hanging_origin     "$PLANT_NOBOUND"; }
+test_control_33_batch()          { control "33 (ssh may prompt)"                      arm_hanging_origin     "$PLANT_NOBATCH"; }
+test_control_34_unpushed()       { control "34 (the unpushed pass is skipped)"        arm_unpushed           "$PLANT_NOUNPUSHED"; }
 test_control_flags()             { control "flags (test expressions not read)"         arm_flags              "$PLANT_FLAGS"; }
 
 # ---------------------------------------------------------------- text contract
@@ -907,6 +978,9 @@ test_t_skill_wiring() {
   skill_has "every 🟦 channel a row routes to" "N7 open comments come from every channel a row routes to"
   skill_has "Where it ends: the upstream tip, never the checkout's HEAD" "DOCSINCE SKILL says the range ends at the fetched upstream tip"
   skill_has "never as an empty range, and do not run \`apply\`" "DOCSINCE SKILL says an unfetchable upstream is unread and moves no marker"
+  skill_has "detect: also unpushed" "DOCSINCE M2 SKILL says the run's unpushed checkpoint is read"
+  skill_has "with the PR base branch from the project's Tracker config" "DOCSINCE S3 SKILL passes --base from the Tracker config"
+  skill_has "The first run after this rule landed may read a large range" "DOCSINCE S7 SKILL warns about the first run's range"
   local bad
   bad=$(grep -F -- "notice --mode all" "$SKILL" | grep -vF -- "--lost" || true)
   if [ -z "$bad" ]; then pass "S2 every notice --mode all invocation passes --lost"

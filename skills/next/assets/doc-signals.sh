@@ -18,8 +18,13 @@
 #       origin/HEAD's branch, else the remote's HEAD. --no-fetch reads the tracking ref as it is.
 #       A repository with no `origin` reads HEAD and says so. A fetch that fails, or a branch it
 #       cannot name, exits 2 with `unread — <why>` and no range line: unread, never empty.
+#       When HEAD holds commits not upstream (this run's checkpoint, unpushed), they are read too,
+#       as merge-base(tip, HEAD)..HEAD, reported on stderr as `detect: also unpushed <mb>..<head>`;
+#       the marker is still the upstream tip. Every network call is bounded: ssh BatchMode and a
+#       10 s connect timeout, https low-speed limits, and DOC_SIGNALS_NET_TIMEOUT (default 30 s)
+#       overall, after which the call is killed and the range is `unread — … timed out`.
 #       --head names the end explicitly (HEAD to read the checkout, or a past tip to re-label a
-#       range) and skips the fetch. Nothing else is read: not untracked
+#       range) and skips the fetch and the unpushed pass. Nothing else is read: not untracked
 #       files (another seat's half-written work is not this run's diff). Prints:
 #         signal<TAB>kind<TAB>repo-id:path<TAB>subject
 #       and, on stderr, `detect: range <rev>..<head>` (the head is the marker `apply` records).
@@ -150,16 +155,41 @@ not_feature_source() {
 }
 
 # ---------------------------------------------------------------- detect
+# net_git <repo> <git args…> — a git network call that cannot hang and cannot prompt (DOCSINCE M1).
+# ssh runs with BatchMode (no passphrase or host-key prompt) and a 10 s connect timeout, appended
+# to the caller's own ssh command (GIT_SSH_COMMAND, else core.sshCommand, else ssh); https gives up
+# below 1 KB/s for 15 s; and the whole call is killed, with its process group, after
+# DOC_SIGNALS_NET_TIMEOUT seconds (default 30), exiting 142. macOS has no timeout(1), hence perl.
+net_git() {
+  local repo="$1"; shift
+  local sshcmd="${GIT_SSH_COMMAND:-}"
+  [ -n "$sshcmd" ] || sshcmd=$(git -C "$repo" config --get core.sshCommand 2>/dev/null)
+  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${sshcmd:-ssh} -o BatchMode=yes -o ConnectTimeout=10" \
+  perl -e 'my $t = shift; my $p = fork; die "fork: $!" unless defined $p;
+    if (!$p) { setpgrp(0, 0); exec @ARGV or exit 127 }
+    $SIG{ALRM} = sub { kill "KILL", -$p; kill "KILL", $p; exit 142 }; alarm $t; waitpid($p, 0); alarm 0;
+    exit($? & 127 ? 128 + ($? & 127) : $? >> 8)' "${DOC_SIGNALS_NET_TIMEOUT:-30}" \
+    git -C "$repo" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 "$@"
+}
+
+# net_why <rc> <output> <what> → the reason a network call failed, for an `unread — …` line
+net_why() {
+  if [ "$1" = 142 ]; then echo "$3 timed out after ${DOC_SIGNALS_NET_TIMEOUT:-30}s"
+  else echo "$3 failed: $(printf '%s\n' "$2" | grep -v '^[[:space:]]*$' | tail -1)"; fi
+}
+
 # upstream_ref <repo> <base> <nofetch> [<who>] → prints the ref whose commits the range ends at: the
 # fetched tip of origin/<base>. The checkout's own HEAD is not it: a primary checkout can sit far
-# behind origin, and a range ending there is empty and misses everything the seat landed
+# behind origin, and a range ending there is empty and misses every commit that has landed
 # (DOCSINCE, ¶PTF_THE_DEFAULT_CHECKOUT_IS_THE_STALE_ONE_AND_EVERY_CASUAL_READ_LANDS_THERE).
-# <base> defaults to origin/HEAD's branch, else the remote's HEAD branch. A repository with no
-# `origin` has nothing upstream to be behind and reads HEAD, said on stderr. Any other failure
-# (no base, a failed fetch, a missing tracking ref) returns 2 with `unread — <why>`: the caller
-# reports the step unread, never an empty range.
+# <base> is --base (/next passes the project's PR base branch), else origin/HEAD's branch, else the
+# remote's HEAD branch. A repository with no `origin` has nothing upstream to be behind and reads
+# HEAD, said on stderr. Any other failure (origin unreachable or slow, no base, a failed fetch, a
+# missing tracking ref) returns 2 with `unread — <why>`: the caller reports the step unread, never
+# an empty range. The fetch updates refs/remotes/origin/<base> and nothing else: no FETCH_HEAD, no
+# gc --auto, no submodules. A lost race for the ref's lock is retried once.
 upstream_ref() {
-  local repo="$1" base="$2" nofetch="$3" who="${4:-detect}" out
+  local repo="$1" base="$2" nofetch="$3" who="${4:-detect}" out rc
   if ! git -C "$repo" remote get-url origin >/dev/null 2>&1; then
     warn "$who: no remote 'origin', so nothing upstream to be behind; reading HEAD"
     echo HEAD; return 0
@@ -168,16 +198,26 @@ upstream_ref() {
     base=$(git -C "$repo" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null); base="${base#origin/}"
   fi
   if [ -z "$base" ] && [ "$nofetch" = 0 ]; then
-    base=$(GIT_TERMINAL_PROMPT=0 git -C "$repo" ls-remote --symref origin HEAD 2>/dev/null |
-           awk '$1 == "ref:" && $3 == "HEAD" {sub("^refs/heads/", "", $2); print $2; exit}')
+    rc=0; out=$(net_git "$repo" ls-remote --symref origin HEAD 2>&1) || rc=$?
+    if [ "$rc" != 0 ]; then
+      warn "$who: unread — could not reach origin: $(net_why "$rc" "$out" "ls-remote")"; return 2
+    fi
+    base=$(printf '%s\n' "$out" | awk '$1 == "ref:" && $3 == "HEAD" {sub("^refs/heads/", "", $2); print $2; exit}')
   fi
   if [ -z "$base" ]; then
     warn "$who: unread — cannot tell which branch origin publishes (no origin/HEAD; pass --base)"; return 2
   fi
   if [ "$nofetch" = 0 ]; then
-    if ! out=$(GIT_TERMINAL_PROMPT=0 git -C "$repo" fetch --quiet --no-tags origin \
-                 "+refs/heads/$base:refs/remotes/origin/$base" 2>&1); then
-      warn "$who: unread — could not fetch origin/$base: $(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -1)"
+    local try
+    for try in 1 2; do
+      rc=0; out=$(net_git "$repo" fetch --quiet --no-tags --no-write-fetch-head --no-auto-maintenance \
+                    --no-recurse-submodules origin "+refs/heads/$base:refs/remotes/origin/$base" 2>&1) || rc=$?
+      [ "$rc" = 0 ] && break
+      case "$out" in *"cannot lock ref"*) [ "$try" = 1 ] && { sleep 1; continue; } ;; esac
+      break
+    done
+    if [ "$rc" != 0 ]; then
+      warn "$who: unread — could not fetch origin/$base: $(net_why "$rc" "$out" "fetch")"
       return 2
     fi
   fi
@@ -205,8 +245,30 @@ cmd_detect() {
   git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || die "detect: not a git repository: $repo"
   [ ${#excludes[@]} -gt 0 ] || excludes=("sessions/*" "*/fixtures/*" "fixtures/*" "node_modules/*")
   repo=$(canon "$repo")
-  [ -n "$headrev" ] || headrev=$(upstream_ref "$repo" "$base" "$nofetch") || exit 2
+  local fromup=0
+  if [ -z "$headrev" ]; then headrev=$(upstream_ref "$repo" "$base" "$nofetch") || exit 2; [ "$headrev" = HEAD ] || fromup=1; fi
   local rid head; rid=$(repo_id "$repo"); head=$(git -C "$repo" rev-parse --verify -q "$headrev^{commit}") || die "detect: cannot resolve --head $headrev"
+
+  # M2: the run's own work is read even before it lands. When the range ends at the upstream tip
+  # and HEAD holds commits that are not upstream (this run's checkpoint, unpushed), those commits
+  # are read too, as merge-base(tip, HEAD)..HEAD, in a second pass. The marker stays the upstream
+  # tip: the first `detect: range` line names it; the second pass reports `detect: also unpushed`.
+  if [ "$fromup" = 1 ]; then
+    local lhead mb
+    lhead=$(git -C "$repo" rev-parse --verify -q "HEAD^{commit}" 2>/dev/null)
+    mb=$(git -C "$repo" merge-base "$head" HEAD 2>/dev/null)
+    if [ -n "$lhead" ] && [ -n "$mb" ] && [ "$mb" != "$lhead" ]; then
+      local self="${BASH_SOURCE[0]}" ex o1 o2 r1=0 r2=0 e2 exargs=()
+      for ex in "${excludes[@]}"; do exargs+=(--exclude "$ex"); done
+      e2=$(mktemp "${TMPDIR:-/tmp}/doc-signals.XXXXXX")
+      o1=$(bash "$self" detect --repo "$repo" ${since:+--since "$since"} --head "$head" "${exargs[@]}") || r1=$?
+      o2=$(bash "$self" detect --repo "$repo" --since "$mb" --head "$lhead" "${exargs[@]}" 2>"$e2") || r2=$?
+      sed 's/^detect: range /detect: also unpushed /' "$e2" >&2; rm -f "$e2"
+      [ "$r1" = 2 ] || [ "$r2" = 2 ] && exit 2
+      { [ -z "$o1" ] || printf '%s\n' "$o1"; [ -z "$o2" ] || printf '%s\n' "$o2"; } | awk '!seen[$0]++' | grep . && return 3
+      return 0
+    fi
+  fi
 
   local fallback
   fallback=$(git -C "$repo" rev-list -n1 --before='24 hours ago' "$head" 2>/dev/null)
@@ -823,6 +885,7 @@ cmd_owners_from_doc() {
             relf="${relf#"$(canon "$repo")"/}" ;;
       esac
       relf="${relf#./}"
+      case "$relf" in /*) die "owners-from-doc: FILE must be inside --repo ($file is not under $(canon "$repo"))" ;; esac
       fromrev=$(mktemp "${TMPDIR:-/tmp}/doc-owners.XXXXXX")
       git -C "$repo" show "$rev:$relf" >"$fromrev" 2>/dev/null ||
         { rm -f "$fromrev"; die "owners-from-doc: unread — no $relf at ${rev#refs/remotes/}"; }
@@ -1095,8 +1158,9 @@ cmd_upstream() {
   done
   [ -n "$repo" ] || die "upstream: --repo is required"
   git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || die "upstream: not a git repository: $repo"
-  local ref; ref=$(upstream_ref "$(canon "$repo")" "$base" "$nofetch" upstream) || exit 2
-  git -C "$repo" rev-parse --verify -q "$ref^{commit}" | sed "s|\$| $ref|"
+  local ref sha; ref=$(upstream_ref "$(canon "$repo")" "$base" "$nofetch" upstream) || exit 2
+  sha=$(git -C "$repo" rev-parse --verify -q "$ref^{commit}") || die "upstream: unread — cannot resolve $ref"
+  printf '%s %s\n' "$sha" "$ref"
 }
 
 sub="${1:-}"; [ $# -gt 0 ] && shift

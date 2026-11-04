@@ -1026,7 +1026,7 @@ TIP_TEXT="" TIP_SRC="" BASE_TEXT="" BASE_SRC="" HAVE_BASE=0 BASE_NOTE=""
 # range's tip and base are the commits the seat cut, and a checkout far behind origin cuts them from
 # a line that no longer stands; the owners the change lands over are the upstream's. A failed fetch
 # refuses; a repository with no origin has no upstream side.
-UP_TEXT="" UP_SRC="" HAVE_UP=0
+UP_TEXT="" UP_SRC="" UP_TIP="" HAVE_UP=0
 # load_owners <repo> <rev> [<side>] — fills OWNERS_TEXT and OWNERS_SRC from the map at that rev
 # (the side, "tip" or "base", names it), plus OWN_BLOCK (the doc's "Ownership is fixed" block) and
 # HB_ROWS (the handbook table's "# hb <dir> <seat>" lines). At the tip a missing doc or an unusable
@@ -1052,6 +1052,7 @@ load_owners() {
     if [ "$rc" != 0 ]; then
       local why; why=$(sed 's/^owners-from-doc: //' "$err" | tr '\n' ';' | sed 's/;$//; s/;/; /g')
       rm -f "$doc" "$err"
+      [ "$side" != upstream ] || why+="; this is the line as it stands on origin now, so a PR that fixes it refuses too until the fix lands upstream: land the line fix first, or pass --owners"
       die 2 "go-request: no owners map from $OWNERS_DOC at the $side $tip: $why"
     fi
     rm -f "$doc" "$err"
@@ -1099,6 +1100,7 @@ ask_for() {
     if [ "$rc" != 0 ]; then
       # A base-side tie or guard also blocks the PR that fixes the line (R6-N1).
       [ "$side" != base ] || WHY+="; it is at the base, so a PR that fixes the line refuses too: land the line fix first, or pass --owners"
+      [ "$side" != upstream ] || WHY+="; it is at the upstream tip (the line as it stands on origin now), so a PR that fixes the line refuses too until the fix lands upstream: land the line fix first, or pass --owners"
       return 1
     fi
     if [ "$seat" = shared ]; then
@@ -1320,13 +1322,14 @@ cmd_go_request() {
     # No origin (nothing upstream), or an upstream that is the range's own tip or base, adds no side.
     if [ "$up_ref" != HEAD ] && [ "$up_sha" != "$tip" ] && [ "$up_sha" != "$base" ] &&
        load_owners "$repo" "$up_sha" upstream; then
-      UP_TEXT=$OWNERS_TEXT UP_SRC="$OWNERS_DOC at the upstream ${up_ref#refs/remotes/} $up_sha" HAVE_UP=1
+      UP_TIP="${up_ref#refs/remotes/} ${up_sha:0:12}"
+      UP_TEXT=$OWNERS_TEXT UP_SRC="$OWNERS_DOC at the upstream $UP_TIP" HAVE_UP=1
     fi
     OWN_BLOCK=$base_block HB_ROWS=$base_hb
   fi
   LANE_SEATS=$({ lane_seats_of "$TIP_TEXT"; [ "$HAVE_BASE" = 0 ] || lane_seats_of "$BASE_TEXT"; [ "$HAVE_UP" = 0 ] || lane_seats_of "$UP_TEXT"; } | awk 'NF && !seen[$0]++' | sort | tr '\n' ' ' | sed 's/ $//')
   UNCOVERED=$({ awk '$1 == "#" && $2 == "uncovered" { print $3 }' <<<"$TIP_TEXT"; [ "$HAVE_BASE" = 0 ] || awk '$1 == "#" && $2 == "uncovered" { print $3 }' <<<"$BASE_TEXT"; [ "$HAVE_UP" = 0 ] || awk '$1 == "#" && $2 == "uncovered" { print $3 }' <<<"$UP_TEXT"; } | sort -u | tr '\n' ' ' | sed 's/ $//')
-  UNCOVERED_GIVES=$({ awk '$1 == "#" && $2 == "uncovered" && NF > 3 { s = $3; $1 = $2 = $3 = ""; sub(/^ +/, ""); print s " (" $0 ")" }' <<<"$TIP_TEXT"; [ "$HAVE_BASE" = 0 ] || awk '$1 == "#" && $2 == "uncovered" && NF > 3 { s = $3; $1 = $2 = $3 = ""; sub(/^ +/, ""); print s " (" $0 ")" }' <<<"$BASE_TEXT"; } | awk '!seen[$1]++' | awk 'NR > 1 { printf " · " } { printf "%s", $0 }')
+  UNCOVERED_GIVES=$({ awk '$1 == "#" && $2 == "uncovered" && NF > 3 { s = $3; $1 = $2 = $3 = ""; sub(/^ +/, ""); print s " (" $0 ")" }' <<<"$TIP_TEXT"; [ "$HAVE_BASE" = 0 ] || awk '$1 == "#" && $2 == "uncovered" && NF > 3 { s = $3; $1 = $2 = $3 = ""; sub(/^ +/, ""); print s " (" $0 ")" }' <<<"$BASE_TEXT"; [ "$HAVE_UP" = 0 ] || awk '$1 == "#" && $2 == "uncovered" && NF > 3 { s = $3; $1 = $2 = $3 = ""; sub(/^ +/, ""); print s " (" $0 ")" }' <<<"$UP_TEXT"; } | awk '!seen[$1]++' | awk 'NR > 1 { printf " · " } { printf "%s", $0 }')
   if [ "$HAVE_BASE" = 1 ]; then
     # An edit of the Ownership line is a change to who owns what: every lane of base ∪ tip is asked
     # for the doc. An edit of the handbook folder table asks the seats of each row it changes.
@@ -1446,17 +1449,19 @@ cmd_go_request() {
     else owners_line+="The owners map is the \"Ownership is fixed\" line of $TIP_SRC (with the \"Who owns each folder\" table of handbook/README.md there). $BASE_NOTE"$'\n'; fi
     # Only a side that can change who is asked is named: the message is cut at the inline cap, and
     # a note that changes nothing would push the receipts and the forward line past it.
-    [ "$HAVE_UP" = 0 ] || owners_line+="Each path is also asked of its owner in $UP_SRC, the line as it stands upstream now."$'\n'
   fi
-  [ -z "$line_seats" ] || owners_line+="The range edits the \"Ownership is fixed\" line, so every lane seat of the base and the tip is asked for $OWNERS_DOC: $line_seats."$'\n'
+  [ -z "$line_seats" ] || owners_line+="The range edits the \"Ownership is fixed\" line, so every lane seat of the base, the tip$([ "$HAVE_UP" = 0 ] || echo " and the upstream") is asked for $OWNERS_DOC: $line_seats."$'\n'
   [ -z "$hb_seats" ] || owners_line+="The range edits the \"Who owns each folder\" table, so the seats of each changed row are asked for handbook/README.md: $hb_seats."$'\n'
   [ -z "$shared_hit" ] || owners_line+="Shared ground (${shared_hit% }) asks every lane seat: $LANE_SEATS."$'\n'
   # Last, after the receipts, so a long list cannot push a seat's receipts past the inline cap.
-  local unc_line=""
+  # The upstream side's note goes after even that: it changes nothing a seat must act on (its
+  # receipt is already above), so on a long request it is the part the inline cut drops.
+  local unc_line="" up_line=""
+  [ "$HAVE_UP" = 0 ] || up_line=$'\n\n'"Each path is also asked of its owner at the upstream tip $UP_TIP, the line as it stands on origin now."
   [ -z "$UNCOVERED" ] || unc_line=$'\n\n'"The line names lane(s) the owners parser reads no path for, so no change is routed to them: ${UNCOVERED_GIVES:-$UNCOVERED}. If this change is theirs, forward this request to them."
 
   text=$(printf 'GO request: PR %s\n%scommits: %s (%s, in %s; merge commits skipped)\n%sEach receipt is a --text, path-scoped `git patch-id --stable` id per commit (LANDING.md step 2).\nAnswer without prose. GO: engine broadcast ack %s  ·  decline: engine broadcast decline %s --reason "<one line>"\n\n%s' \
-    "$pr" "$covers" "$range" "$n commits" "$repo" "$owners_line" "$id" "$id" "${receipts%$'\n'}")$unc_line
+    "$pr" "$covers" "$range" "$n commits" "$repo" "$owners_line" "$id" "$id" "${receipts%$'\n'}")$unc_line$up_line
   local rec="$BDIR/$id.md" extra
   extra=$(printf 'kind: go-request\npr: %s\n%srepo: %s\ncommits: %s' "$pr" "$covers" "$repo" "$range")$'\n'
   [ -z "$WAKE_REASON" ] || extra+="wake-reason: $WAKE_REASON"$'\n'
