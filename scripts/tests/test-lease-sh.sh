@@ -825,7 +825,8 @@ c_until="$(awk -F'\t' '$2=="turn" && $3=="seat=c:live"{sub(/^until=/,"",$6); pri
 assert_eq "$(( $(ep "$resv_exp") + 2 ))" "$(ep "${c_until:-1970-01-01T00:00:00Z}")" "L61 c:live's first turn starts where b:dead's ended (its own later turns lapse too: it never takes)"
 out="$(rg wait b:dead --repo kit --branch main 2>&1)"
 assert_contains "was dropped from the kit/main queue at $resv_exp" "$out" "L61 the dropped seat's next wait says it was dropped, and when"
-assert_contains "position 2" "$out" "L61 and it rejoins at the end"
+# The end of the queue, whatever its length: on a loaded machine c:live's own 2 s turn can lapse first too.
+assert_eq "b:dead" "$(awk -F'\t' '$1=="entry"{s=$3} END{print s}' "$qfile")" "L61 and it rejoins at the end of the queue"
 
 # L62 — critique M1, the chain: three missed heads in a row, one of whose turns was written, put the turn on the
 # fourth waiter; no turn is counted twice.
