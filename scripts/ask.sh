@@ -20,7 +20,7 @@
 #                  on a reserved ask, answer --decline by anyone but the operator passes it up to your parent
 #                  (past the asker, else operator; it stays open); draft --decline there is refused
 #                  --grant A|B|C|D   the asker's manager records its answer's grant class (refused unless
-#                  FLEET_MANAGES lists the asker, for the operator, on a reserved-for ask, and on draft;
+#                  the asker's live @pane_parent is you, for the operator, on a reserved-for ask, and on draft;
 #                  the browser never writes one)
 #   engine ask revise <seat>/<id> [card flags as for new] [--keep-body]   the asker revises an open ask
 #                     [--answers-followup <n>[,<n>]]   …and records which operator follow-ups the revision answers
@@ -58,7 +58,9 @@
 #      default --to its live @pane_parent (none → "operator"); FLEET_PANE / FLEET_PARENT, run.sh's
 #      launch-time cache, are used only when tmux cannot be read, and a stale one is warned about
 #      (hop.sh's rule). ASK_LIVE_PANES / ASK_TMUX_SOCKET: test seams for that read.
-#      FLEET_MANAGES (the panes whose silent asks you may forward as their parent),
+#      FLEET_MANAGES (run.sh's launch-time cache of the panes you manage; every "manager of" check —
+#      forward, relay, grant class, supersede, withdraw, rename-seat — reads the seat's live
+#      @pane_parent instead, and uses this list only when tmux cannot be read, with a warning),
 #      ASK_LINEAR_ENV (an env file holding LINEAR_API_KEY, for ticket tooltips; default: the working
 #      project's .env.local, then .env, resolved as scripts/env-lib.sh does — the server reads it,
 #      never argv, the page or its own environment), PROVE_S3_ENV (the env file naming the proof

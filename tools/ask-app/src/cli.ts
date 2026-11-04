@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { askUrl } from "./lib/url.ts";
+import { edgeOf, liveManages, readLiveTree } from "./lib/manages.ts";
 import { noticeHolder, type HolderNoticeKind } from "./lib/holder-notice.ts";
 import { actedAsk, answerAsk, defaultAskRoot, discardDraft, forwardAsk, listAsks, newAsk, pickupUnread, readAsk, renameSeat, repushPending, reviseAsk, saveDraft, sendBatch, supersedeAsk, withdrawAsk, attachPanel } from "./lib/store.ts";
 import { answeredByText, authorWarnings, noteLine, parsePanelArg, parseProposalArg, GRANT_CLASSES, HEADER_FIELDS, parseAskFile, seatEq, UntaggedFenceError, type AnswerMap, type AskAnswer, type AskFollowup, type GrantClass } from "./lib/format.ts";
@@ -131,23 +132,8 @@ export function liveIdentity(env: NodeJS.ProcessEnv = process.env, warn: (m: str
  * has no parent or cannot be found; the pass-up then ends at the operator.
  */
 export function parentOfSeat(seat: string, env: NodeJS.ProcessEnv = process.env): string {
-  if (!env.TMUX_PANE) return "";
-  try {
-    let lines: string[];
-    if (env.ASK_LIVE_PANES) {
-      lines = fs.readFileSync(env.ASK_LIVE_PANES, "utf8").split("\n").map((l) => {
-        const [s, , parent] = l.trim().split(/\s+/);
-        return `${s ?? ""} ${parent ?? "-"}`;
-      });
-    } else {
-      const sock = env.ASK_TMUX_SOCKET ? ["-L", env.ASK_TMUX_SOCKET] : [];
-      lines = execFileSync("tmux", [...sock, "list-panes", "-a", "-F", "#{window_name}:#{@pane_label} #{?@pane_parent,#{@pane_parent},-}"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 2000 }).split("\n");
-    }
-    const hit = lines.map((l) => l.trim().split(/\s+/)).find(([s]) => s === seat);
-    return !hit || !hit[1] || hit[1] === "-" ? "" : hit[1];
-  } catch {
-    return "";
-  }
+  const edge = edgeOf(readLiveTree(env), seat);
+  return edge.readable && edge.present ? edge.parent : "";
 }
 
 async function main() {
@@ -156,8 +142,12 @@ async function main() {
   const root = opt.root || defaultAskRoot();
   const live = liveIdentity();
   const pane = live.pane;
-  /** The panes this seat manages (FLEET_MANAGES): standing to forward a silent child's ask, or to relay onto it. */
-  const manages = (process.env.FLEET_MANAGES ?? "").split(/[\s,]+/).filter(Boolean);
+  /**
+   * Standing as a manager of a seat — to forward its ask, relay onto it, give a grant class, supersede,
+   * withdraw or rename it: the seat's LIVE @pane_parent must be this seat (hop.sh's edge). FLEET_MANAGES,
+   * cached at launch, is used only when the live tree cannot be read (manages.ts).
+   */
+  const manages = liveManages({ self: pane, env: (process.env.FLEET_MANAGES ?? "").split(/[\s,]+/).filter(Boolean), tree: () => readLiveTree() });
   const splitRef = (ref: string | undefined, usage: string) => {
     if (!ref) die(usage);
     const slash = ref.lastIndexOf("/");

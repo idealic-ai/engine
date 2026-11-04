@@ -1748,7 +1748,7 @@ cmd_tell() {
 }
 
 # cmd_withdraw <id> --reason WHY [--by operator] — take a broadcast or tell back. Its sender, the
-# sender's manager (its live parent in the tmux tree; /ask's withdraw reads FLEET_MANAGES instead),
+# sender's manager (its live parent in the tmux tree, as /ask's withdraw reads it too),
 # or the operator (from a shell that is not a seat, with --by operator) may. An unseen queued copy
 # leaves the queue; a shown one is marked withdrawn in place; an align tell's notice is withdrawn with
 # it; each seat that had acked it and is still in the tree gets a lazy tell from the withdrawer.

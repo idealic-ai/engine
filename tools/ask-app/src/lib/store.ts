@@ -82,6 +82,8 @@ import {
   type ParsedAsk,
 } from "./format.ts";
 import { leftRefs, rewriteSeatRefs, type LeftRef, type SeatChange } from "./rename-seat.ts";
+import { listNames, type Manages } from "./manages.ts";
+export type { Manages } from "./manages.ts";
 
 export type StoredAsk = ParsedAsk & { seat: string; file: string; mtimeMs: number };
 
@@ -411,8 +413,8 @@ export async function answerAsk(
       passUpTo?: string;
       /** A seat's parent ("" when none), to climb past the asker when the pass-up would land on it. */
       parentOf?: (seat: string) => string;
-      /** The answerer's FLEET_MANAGES: a grant class is accepted only when it lists the asker (MUST-1). */
-      answererManages?: string[];
+      /** The answerer's manager standing (`managesSeat`): a grant class is accepted only when it covers the asker (MUST-1). */
+      answererManages?: Manages;
     },
 ): Promise<{ file: string; revision: number; delivery: DeliveryResult; passedUpTo?: string }> {
   const file = resolveAskPath(root, seat, id);
@@ -577,17 +579,17 @@ export function answerersOf(ask: ParsedAsk): string[] {
 }
 
 /**
- * Round 3 (MUST-1): FLEET_MANAGES, exported by run.sh from tmux `@pane_manages`, holds pane LABELS
- * (`ideas,writer,deploy` for manager:app; `idealic,app,domain` for manager:director), while asks
- * name full seats (`app:writer`, `manager:app`). A list entry names `seat` when it is the seat
- * itself, or the seat's label (the part after its window, `window:label`).
+ * Every "is a manager of" decision in the store goes through here. `manages` is either a label list
+ * in FLEET_MANAGES' shape (round 3, MUST-1: `kernel` names `idealic:kernel`; see `listNames`) or, from
+ * the CLI, `liveManages` in manages.ts, which reads the seat's live `@pane_parent` first and falls back
+ * to FLEET_MANAGES only when the live tree cannot be read (FLEET_MANAGES is a launch-time cache).
  */
-export function managesSeat(list: string[], seat: string): boolean {
-  return list.some((m) => !!m && (m === seat || seat.endsWith(`:${m}`)));
+export function managesSeat(manages: Manages, seat: string): boolean {
+  return typeof manages === "function" ? manages(seat) : listNames(manages, seat);
 }
 
 /** Who may RELAY the operator's answer onto `ask`: proof of a seat's standing to relay. */
-export type RelayStanding = { relayerManages?: string[] };
+export type RelayStanding = { relayerManages?: Manages };
 
 /**
  * Round 2: a relay is recorded only by a seat in the ask's chain — the addressee, a forwarder — or
@@ -653,7 +655,7 @@ function assertHistoryReadable(ask: ParsedAsk, file: string) {
  * (MUST-1): only by a MANAGER of the asker — the answerer's FLEET_MANAGES must list the asker's seat
  * or label — so a peer addressee cannot record an authority it does not hold.
  */
-function assertGrant(ask: ParsedAsk, a: AskAnswer, answererManages: string[] = []) {
+function assertGrant(ask: ParsedAsk, a: AskAnswer, answererManages: Manages = []) {
   if (a.grantClass === undefined) return;
   const id = ask.header.id ?? "";
   if (!(GRANT_CLASSES as readonly unknown[]).includes(a.grantClass)) throw new AskFormatError(`a grant class is A, B, C or D, not ${String(a.grantClass)}`);
@@ -661,7 +663,7 @@ function assertGrant(ask: ParsedAsk, a: AskAnswer, answererManages: string[] = [
   if (reservedOf(ask)) throw new AskFormatError(`ask ${id} is reserved for ${reservedOf(ask)}: a reserved ask's answer carries no grant class`);
   const asker = ask.header.from ?? "";
   if (!asker || !managesSeat(answererManages, asker)) {
-    throw new AskFormatError(`${a.answeredBy || "an unnamed answerer"} is not a manager of ${asker || "the asker"}: only the asker's manager (its FLEET_MANAGES lists the asker) gives a grant class on ${id}`);
+    throw new AskFormatError(`${a.answeredBy || "an unnamed answerer"} is not a manager of ${asker || "the asker"}: only the asker's manager (its live @pane_parent, or FLEET_MANAGES when the live tree cannot be read) gives a grant class on ${id}`);
   }
 }
 
@@ -1048,7 +1050,7 @@ const SEAT_RE = /^[A-Za-z0-9][A-Za-z0-9_.:@-]*$/;
  * so the parent hears the answer too), and the revision moves, so a draft saved before the move is
  * stale (S4).
  */
-export async function forwardAsk(root: string, seat: string, id: string, o: { to: string; by: string; manages?: string[]; now?: string }): Promise<void> {
+export async function forwardAsk(root: string, seat: string, id: string, o: { to: string; by: string; manages?: Manages; now?: string }): Promise<void> {
   if (!o.by) throw new AskFormatError("forward must name who is forwarding");
   const file = resolveAskPath(root, seat, id);
   await withFileLock(file, () => {
@@ -1062,7 +1064,7 @@ export async function forwardAsk(root: string, seat: string, id: string, o: { to
  * check (the holder, or the holder's parent), the hops appended to `forwards:` (with the decline's
  * reason on the last one, when there is one), the new `to:` and the revision moved.
  */
-function forwardedText(text: string, ask: ParsedAsk, ref: string, o: { to: string; by: string; manages?: string[]; at: string; reason?: string }): string {
+function forwardedText(text: string, ask: ParsedAsk, ref: string, o: { to: string; by: string; manages?: Manages; at: string; reason?: string }): string {
   if (!o.to || !SEAT_RE.test(o.to) || o.to.includes("..")) throw new AskFormatError(`invalid recipient: ${o.to}`);
   if (ask.header.status !== "open") throw new AskFormatError(`${ref} is ${ask.header.status}; only an open ask moves`);
   const holder = ask.header.to ?? "";
@@ -1259,7 +1261,7 @@ export async function supersedeAsk(
   root: string,
   old: AskRef,
   by: AskRef,
-  o: DeliverOptions & NoticeOpts & { by: string; manages?: string[]; push?: typeof pushToSeat; now?: string },
+  o: DeliverOptions & NoticeOpts & { by: string; manages?: Manages; push?: typeof pushToSeat; now?: string },
 ): Promise<SupersedeResult> {
   if (!o?.by) throw new AskFormatError("supersede must name who is superseding");
   const oldRef = `${old.seat}/${old.id}`;
@@ -1330,7 +1332,7 @@ export async function supersedeAsk(
  * operator. Not the holder: retracting changes what the asker asked. One rule for both verbs, so an
  * operator ruling that narrows WHO changes them together. `verb` and `ref` only word the refusal.
  */
-export function assertMayRetract(ask: { header: { from?: string } }, o: { by: string; manages?: string[] }, verb: "supersedes" | "withdraws", ref: string): void {
+export function assertMayRetract(ask: { header: { from?: string } }, o: { by: string; manages?: Manages }, verb: "supersedes" | "withdraws", ref: string): void {
   const asker = ask.header.from ?? "";
   // ASKCASE (meta:engine's ruling on the merge): the asker is matched case folded, an identity check, for
   // supersede and withdraw alike; the operator name and managesSeat stay exact.
@@ -1359,7 +1361,7 @@ export type WithdrawResult = { file: string; revision: number; draftOf?: string;
 export async function withdrawAsk(
   root: string,
   ref: AskRef,
-  o: DeliverOptions & NoticeOpts & { by: string; reason: string; manages?: string[]; push?: typeof pushToSeat; now?: string },
+  o: DeliverOptions & NoticeOpts & { by: string; reason: string; manages?: Manages; push?: typeof pushToSeat; now?: string },
 ): Promise<WithdrawResult> {
   if (!o?.by) throw new AskFormatError("withdraw must name who is withdrawing");
   const reason = (o.reason ?? "").replace(/\s+/g, " ").trim();
@@ -1441,7 +1443,7 @@ export type RenameSeatOptions = {
   dryRun?: boolean;
   /** Who is renaming (S4): the operator, or a manager of `old` (FLEET_MANAGES), as for supersede. A dry run needs neither. */
   by?: string;
-  manages?: string[];
+  manages?: Manages;
   /** How long to wait for a write in flight inside the staged folder before refusing (default: the stale-lock age plus 5 s). */
   waitMs?: number;
   /** Test seam: called at each step (`ledger`, `staged`, `waited`, `linked:<file>`, `moved`); a throw stands for a crash. */
