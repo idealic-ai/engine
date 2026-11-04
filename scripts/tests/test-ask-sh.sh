@@ -16,13 +16,17 @@ ENGINE_SH="$ENGINE_DIR/scripts/engine.sh"
 # The served client is built ONCE into a throwaway dir: no test ever builds into (or serves) the
 # app's own dist/, which a live server may be reading.
 # NOTIFYQ: revise, supersede, withdraw and attach-panel queue a notice in the broadcast queue. Every test
-# points BROADCAST_DIR at its own scratch dir (setup); the fleet's live queue is counted here and again
-# by the last test, which fails if this run left a digest in it.
+# points BROADCAST_DIR at its own scratch dir (setup); the last test fails if this run left a digest in
+# the fleet's live queue. It asks by provenance, never by count: live seats write and prune their own
+# notices there while the suite runs, so a count moves either way on its own. Every test's scratch dir
+# carries RUN_TOKEN, and a notice records its ask's file path, so a notice this run wrote names it.
 LIVE_BCAST_DIR="$HOME/.claude/data/yarik/broadcasts"
-live_notice_count() { find "$LIVE_BCAST_DIR" -name 'ask-notice-*' 2>/dev/null | wc -l | tr -d ' '; }
-LIVE_NOTICES_BEFORE=$(live_notice_count)
+RUN_TOKEN="askcli-run$$x$RANDOM"
+LIVE_MARK=$(mktemp /tmp/askcli-mark-XXXXXX)
+# notices_from_this_run <dir> — the ask-notice files under <dir> newer than the mark that name RUN_TOKEN.
+notices_from_this_run() { find "$1" -name 'ask-notice-*' -type f -newer "$LIVE_MARK" -exec grep -l -F -e "$RUN_TOKEN" {} + 2>/dev/null; }
 ASK_TEST_DIST_DIR=$(mktemp -d /tmp/askdist-XXXXXX)
-trap 'rm -rf "$ASK_TEST_DIST_DIR"' EXIT
+trap 'rm -rf "$ASK_TEST_DIST_DIR" "$LIVE_MARK"' EXIT
 (cd "$ENGINE_DIR/tools/ask-app" && npx vite build --logLevel error --outDir "$ASK_TEST_DIST_DIR/dist" --emptyOutDir) >/dev/null 2>&1 \
   || { echo "could not build the test client" >&2; exit 1; }
 
@@ -38,7 +42,7 @@ Context: the build is green on main, so this decides whether `release.sh` runs t
   Elegance: nothing changes'
 
 setup() {
-  TMP=$(mktemp -d /tmp/askcli-XXXXXX)
+  TMP=$(mktemp -d "/tmp/${RUN_TOKEN}-XXXXXX")
   export ASK_ROOT="$TMP/asks"
   export ASK_SESSIONS_DIR="$TMP/sessions"
   export BROADCAST_DIR="$TMP/broadcasts"
@@ -1158,7 +1162,13 @@ test_notifyq_unset_broadcast_dir_queues_beside_the_ask_root_and_writes_nothing_u
 
 # Named to run last (tests run in name order): this run left no digest in the fleet's live queue.
 test_zz_notifyq_the_live_broadcast_queue_gained_no_digest() {
-  assert_eq "$LIVE_NOTICES_BEFORE" "$(live_notice_count)" "no ask-notice record or entry was added under $LIVE_BCAST_DIR"
+  # Control first: the same instrument finds a notice this run wrote, and passes over one it did not.
+  local ctl="$TMP/ctl"
+  mkdir -p "$ctl/queued/x"
+  printf 'notice-events: [{"file":"%s/asks/a/b.md"}]\n' "$TMP" > "$ctl/queued/x/ask-notice-ours.md"
+  printf 'notice-events: [{"file":"/elsewhere/asks/a/b.md"}]\n' > "$ctl/queued/x/ask-notice-theirs.md"
+  assert_eq "$ctl/queued/x/ask-notice-ours.md" "$(notices_from_this_run "$ctl")" "the provenance check finds this run's notice and only it (control)"
+  assert_eq "" "$(notices_from_this_run "$LIVE_BCAST_DIR")" "no ask-notice naming this run ($RUN_TOKEN) was added under $LIVE_BCAST_DIR"
 }
 
 run_discovered_tests

@@ -5,9 +5,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
 import { askUrl } from "./lib/url.ts";
-import { edgeOf, liveManages, readLiveTree } from "./lib/manages.ts";
+import { liveManages, parentIn, readLiveTree, type LiveTree } from "./lib/manages.ts";
 import { noticeHolder, type HolderNoticeKind } from "./lib/holder-notice.ts";
 import { actedAsk, answerAsk, defaultAskRoot, discardDraft, forwardAsk, listAsks, newAsk, pickupUnread, readAsk, renameSeat, repushPending, reviseAsk, saveDraft, sendBatch, supersedeAsk, withdrawAsk, attachPanel } from "./lib/store.ts";
 import { answeredByText, authorWarnings, noteLine, parsePanelArg, parseProposalArg, GRANT_CLASSES, HEADER_FIELDS, parseAskFile, seatEq, UntaggedFenceError, type AnswerMap, type AskAnswer, type AskFollowup, type GrantClass } from "./lib/format.ts";
@@ -97,28 +96,15 @@ function defaultId(body: string): string {
  * still carries its old names there ("domain:domain is not a recipient"). With TMUX_PANE set, the
  * pane's `#{window_name}:#{@pane_label}` and `#{@pane_parent}` (`-` = no parent, i.e. the operator)
  * win, with a warning when the cache differs; the cache is used only when tmux cannot be read.
- * Test seam: ASK_LIVE_PANES names a file of `seat pane_id parent` lines read instead of tmux, and
- * ASK_TMUX_SOCKET a `tmux -L` socket.
+ * The pane's row is read from the live tree main() reads once per command (readLiveTree: the
+ * ASK_LIVE_PANES seam, else `tmux list-panes -a`; ASK_TMUX_SOCKET a `tmux -L` socket), so identity,
+ * manager standing and the pass-up all judge one snapshot.
  */
-export function liveIdentity(env: NodeJS.ProcessEnv = process.env, warn: (m: string) => void = (m) => process.stderr.write(`${m}\n`)): { pane: string; parent: string } {
+export function liveIdentity(env: NodeJS.ProcessEnv = process.env, warn: (m: string) => void = (m) => process.stderr.write(`${m}\n`), tree: LiveTree = readLiveTree(env)): { pane: string; parent: string } {
   const cachedPane = env.FLEET_PANE || "";
   const cachedParent = env.FLEET_PARENT || "";
-  let line = "";
-  if (env.TMUX_PANE) {
-    try {
-      if (env.ASK_LIVE_PANES) {
-        line = fs.readFileSync(env.ASK_LIVE_PANES, "utf8").split("\n").find((l) => l.trim().split(/\s+/)[1] === env.TMUX_PANE) ?? "";
-        const [seat, , parent] = line.trim().split(/\s+/);
-        line = seat ? `${seat} ${parent ?? "-"}` : "";
-      } else {
-        const sock = env.ASK_TMUX_SOCKET ? ["-L", env.ASK_TMUX_SOCKET] : [];
-        line = execFileSync("tmux", [...sock, "display", "-p", "-t", env.TMUX_PANE, "#{window_name}:#{@pane_label} #{?@pane_parent,#{@pane_parent},-}"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 2000 }).trim();
-      }
-    } catch {
-      line = "";
-    }
-  }
-  const [liveSeat, liveParentRaw] = line.split(/\s+/);
+  const row = tree.state === "read" && env.TMUX_PANE ? tree.rows.find(([, p]) => p === env.TMUX_PANE) : undefined;
+  const [liveSeat, , liveParentRaw] = row ?? [];
   if (!liveSeat || liveSeat === ":" || liveSeat.startsWith(":") || liveSeat.endsWith(":")) return { pane: cachedPane, parent: cachedParent };
   const liveParent = !liveParentRaw || liveParentRaw === "-" ? "" : liveParentRaw;
   if (cachedPane && cachedPane !== liveSeat) warn(`ask: FLEET_PANE '${cachedPane}' is stale; using the live pane label '${liveSeat}'`);
@@ -127,27 +113,28 @@ export function liveIdentity(env: NodeJS.ProcessEnv = process.env, warn: (m: str
 }
 
 /**
- * S2 (round 2): another seat's parent, read live the way liveIdentity reads this seat's — the
- * ASK_LIVE_PANES seam, else tmux — and only when this shell is in tmux (TMUX_PANE). "" when the seat
- * has no parent or cannot be found; the pass-up then ends at the operator.
+ * S2 (round 2): another seat's parent, read live the way liveIdentity reads this seat's. "" when the
+ * seat has no parent, cannot be found, is named by more than one pane, or the tree cannot be read;
+ * the pass-up then ends at the operator.
  */
-export function parentOfSeat(seat: string, env: NodeJS.ProcessEnv = process.env): string {
-  const edge = edgeOf(readLiveTree(env), seat);
-  return edge.readable && edge.present ? edge.parent : "";
+export function parentOfSeat(seat: string, env: NodeJS.ProcessEnv = process.env, tree: LiveTree = readLiveTree(env)): string {
+  return parentIn(tree, seat);
 }
 
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const { pos, opt } = flags(rest);
   const root = opt.root || defaultAskRoot();
-  const live = liveIdentity();
+  /** S7: one live-tree read per command, shared by identity, manager standing and the pass-up. */
+  const tree = readLiveTree();
+  const live = liveIdentity(process.env, undefined, tree);
   const pane = live.pane;
   /**
    * Standing as a manager of a seat — to forward its ask, relay onto it, give a grant class, supersede,
    * withdraw or rename it: the seat's LIVE @pane_parent must be this seat (hop.sh's edge). FLEET_MANAGES,
    * cached at launch, is used only when the live tree cannot be read (manages.ts).
    */
-  const manages = liveManages({ self: pane, env: (process.env.FLEET_MANAGES ?? "").split(/[\s,]+/).filter(Boolean), tree: () => readLiveTree() });
+  const manages = liveManages({ tmuxPane: process.env.TMUX_PANE, actingAs: pane, env: (process.env.FLEET_MANAGES ?? "").split(/[\s,]+/).filter(Boolean), tree });
   const splitRef = (ref: string | undefined, usage: string) => {
     if (!ref) die(usage);
     const slash = ref.lastIndexOf("/");
@@ -299,7 +286,7 @@ async function main() {
       }
       // A decline of a reserved ask by a seat is passed up to the decliner's own parent (live, as for
       // the default --to; none → operator) instead of closing it.
-      const res = await answerAsk(root, seat, id, input, { expectedRevision: Number(opt.revision), relayerManages: manages, answererManages: manages, passUpTo: live.parent || "operator", parentOf: (s) => parentOfSeat(s) });
+      const res = await answerAsk(root, seat, id, input, { expectedRevision: Number(opt.revision), relayerManages: manages, answererManages: manages, passUpTo: live.parent || "operator", parentOf: (s) => parentIn(tree, s) });
       if (res.passedUpTo) {
         console.log(`passed up, not declined\t${seat}/${id} → ${res.passedUpTo}\trevision ${res.revision}\t(it is reserved; a decline by anyone else moves it one rung up, with the reason)`);
         console.log(`notice ${res.passedUpTo} ${res.delivery.status}${res.delivery.reason ? `: ${res.delivery.reason}` : ""}`);

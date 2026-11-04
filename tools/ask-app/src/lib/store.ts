@@ -588,12 +588,17 @@ export function managesSeat(manages: Manages, seat: string): boolean {
   return typeof manages === "function" ? manages(seat) : listNames(manages, seat);
 }
 
+/** rename-seat's standing over `old` → `neu`: the check's `renamed` rule when it has one (manages.ts), else `old`'s. */
+export function managesRename(manages: Manages, old: string, neu: string): boolean {
+  return typeof manages === "function" && manages.renamed ? manages.renamed(old, neu) : managesSeat(manages, old);
+}
+
 /** Who may RELAY the operator's answer onto `ask`: proof of a seat's standing to relay. */
 export type RelayStanding = { relayerManages?: Manages };
 
 /**
  * Round 2: a relay is recorded only by a seat in the ask's chain — the addressee, a forwarder — or
- * by a manager of the asker (its FLEET_MANAGES lists the asker). Never by the asker, never by a
+ * by a manager of the asker (its manager standing (`Manages`; live edge first, see manages.ts)). Never by the asker, never by a
  * bystander, and only ever for the operator.
  */
 function assertMayRelay(ask: ParsedAsk, a: AskAnswer, standing: RelayStanding = {}) {
@@ -652,8 +657,8 @@ function assertHistoryReadable(ask: ParsedAsk, file: string) {
 /**
  * IDE-339: a grant class is A–D, written by the answering manager (`engine ask answer --grant`): never
  * on the operator's answer (relayed or not), and never on an ask reserved for someone. Round 2
- * (MUST-1): only by a MANAGER of the asker — the answerer's FLEET_MANAGES must list the asker's seat
- * or label — so a peer addressee cannot record an authority it does not hold.
+ * (MUST-1): only by a MANAGER of the asker — the answerer's manager standing (`Manages`; live edge first, see manages.ts)
+ * must cover the asker — so a peer addressee cannot record an authority it does not hold.
  */
 function assertGrant(ask: ParsedAsk, a: AskAnswer, answererManages: Manages = []) {
   if (a.grantClass === undefined) return;
@@ -1045,7 +1050,7 @@ const SEAT_RE = /^[A-Za-z0-9][A-Za-z0-9_.:@-]*$/;
 /**
  * Move an open ask's `to:` one rung. The current holder (the `to:` seat) may move it; so may the
  * holder's own parent, when the holder is silent (the operator's ruling) — the caller proves that
- * with `manages`, its FLEET_MANAGES. The asker may re-ping the holder but never moves its own ask.
+ * with `manages`, its manager standing (`Manages`; live edge first, see manages.ts). The asker may re-ping the holder but never moves its own ask.
  * Each hop is appended to `forwards:` (a parent's move is recorded as holder→parent, then onward,
  * so the parent hears the answer too), and the revision moves, so a draft saved before the move is
  * stale (S4).
@@ -1245,7 +1250,7 @@ export type SupersedeResult = { file: string; revision: number; pushes: { seat: 
  * copy and its original were, and a ticket flip-flopped — IDE-261). Prefer `revise`; supersede is
  * for when the replacement had to be a new ask.
  *
- * - Who: the old ask's asker (`from:`), a manager of that asker (`manages`, its FLEET_MANAGES —
+ * - Who: the old ask's asker (`from:`), a manager of that asker (`manages`, its manager standing (`Manages`; live edge first, see manages.ts) —
  *   forward's standing rule), or the operator. Not the holder: it changes what the asker asked. A
  *   reserved ask may be superseded, since it settles no decision.
  * - The old ask: `status: superseded`, `superseded-by: <seat>/<id>`, `superseded-at`,
@@ -1328,7 +1333,7 @@ export async function supersedeAsk(
 
 /**
  * Who may take an open ask out of play, by supersede or by withdraw (ASKWITHDRAW Q2): the asker
- * (`from:`), a manager of the asker (`manages`, its FLEET_MANAGES — forward's standing rule), or the
+ * (`from:`), a manager of the asker (`manages`, its manager standing (`Manages`; live edge first, see manages.ts) — forward's standing rule), or the
  * operator. Not the holder: retracting changes what the asker asked. One rule for both verbs, so an
  * operator ruling that narrows WHO changes them together. `verb` and `ref` only word the refusal.
  */
@@ -1347,7 +1352,7 @@ export type WithdrawResult = { file: string; revision: number; draftOf?: string;
  * left to answer, and nobody is asked to confirm the withdrawal (the operator, 2026-10-30: "confirm
  * withdrawal" asks were left in the queue).
  *
- * - Who: supersede's set — the asker (`from:`), a manager of the asker (`manages`, its FLEET_MANAGES),
+ * - Who: supersede's set — the asker (`from:`), a manager of the asker (`manages`, its manager standing (`Manages`; live edge first, see manages.ts)),
  *   or the operator. Pending an operator ruling on WHO.
  * - The ask: `status: withdrawn`, `withdrawn-at`, `withdrawn-actor`, `withdrawn-reason` (one line);
  *   its revision moves and `revisions:` records it, so an answer or draft in flight is stale, and
@@ -1441,7 +1446,7 @@ export type RenameSeatResult = {
 
 export type RenameSeatOptions = {
   dryRun?: boolean;
-  /** Who is renaming (S4): the operator, or a manager of `old` (FLEET_MANAGES), as for supersede. A dry run needs neither. */
+  /** Who is renaming (S4): the operator, or a manager of `old` — manager standing (`Manages`; live edge first, see manages.ts); after a tmux rename, `renamed` (old in the launch-time list, new under the caller live). A dry run needs neither. */
   by?: string;
   manages?: Manages;
   /** How long to wait for a write in flight inside the staged folder before refusing (default: the stale-lock age plus 5 s). */
@@ -1537,8 +1542,8 @@ export async function renameSeat(root: string, old: string, neu: string, o: Rena
   for (const s of [old, neu]) if (!SAFE.test(s) || s.includes("..")) throw new AskFormatError(`invalid seat: ${s}`);
   if (old === neu) throw new AskFormatError(`${old} and ${neu} are the same seat: nothing to rename`);
   if (old === "operator" || neu === "operator") throw new AskFormatError("the operator is not a seat; it is never renamed");
-  if (!o.dryRun && o.by !== "operator" && !managesSeat(o.manages ?? [], old)) {
-    throw new AskFormatError(`only the operator or ${old}'s manager renames ${old}; ${o.by || "an unnamed caller"} is neither`);
+  if (!o.dryRun && o.by !== "operator" && !managesRename(o.manages ?? [], old, neu)) {
+    throw new AskFormatError(`only the operator or ${old}'s manager renames ${old}; ${o.by || "an unnamed caller"} is neither (the operator can: --by operator from a bare shell)`);
   }
   const fromDir = path.join(root, old);
   const toDir = path.join(root, neu);
