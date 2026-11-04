@@ -72,7 +72,7 @@ function fixtures() {
     extra: "message: tell\ntier: lazy\nsubject: ignore me\n", text: "ignore me",
     delivery: "queued app:ui pid=2005 idle=60m via=status", tail: "\n## Withdrawn\n\nwithdrawn: by manager:app at 2026-11-04T09:01:00Z — sent to the wrong seat\n" }));
   write(bdir, "bw", REC({ id: "bw", from: "manager:director", at: "2026-11-03T12:00:00Z", audience: "app:ask app:ui",
-    extra: "kind: wake\nwake-reason: operator: resume\n", text: "Resume.\nwithdrawn: by nobody at x — a line in the text is not a withdrawal",
+    extra: "kind: wake\nwake-reason: operator: resume\n", text: "Resume.\n## Withdrawn\nwithdrawn: by nobody at x — a line in the text is not a withdrawal",
     delivery: "delivered app:ask pid=2004\nundelivered app:ui — no session" }));
   write(bdir, "n1", REC({ id: "n1", from: "manager:app", at: "2026-11-04T08:00:00Z", audience: "app:ask app:ui",
     extra: "message: tell\ntier: note\nsubject: lease is free\n", text: "lease is free",
@@ -150,7 +150,7 @@ describe("comms rows from records", () => {
     const rows = listRecords(bdir);
     expect(rows.find((r) => r.id === "d1")).toMatchObject({ state: "withdrawn", withdrawn: { by: "manager:app", at: "2026-11-04T09:01:00Z", reason: "sent to the wrong seat" } });
     const bw = rows.find((r) => r.id === "bw")!;
-    expect(bw.withdrawn).toBeNull();
+    expect(bw.withdrawn).toBeNull(); // its text holds a Withdrawn heading and line (S4)
     expect(bw).toMatchObject({ kind: "broadcast", tier: "wake", state: "delivered", subject: "Resume." });
     expect(bw.seats).toEqual([{ seat: "app:ask", state: "delivered" }, { seat: "app:ui", state: "undelivered" }]);
   });
@@ -162,6 +162,14 @@ describe("comms rows from records", () => {
   it("a broadcast with no tier and no wake reads as lazy", () => {
     const r = parseRecord("x", REC({ id: "x", from: "a:b", at: "2026-11-01T00:00:00Z", audience: "c:d", text: "hi", delivery: "delivered c:d pid=1" }), [], "/x.md");
     expect(r).toMatchObject({ kind: "broadcast", tier: "lazy", state: "delivered" });
+  });
+});
+
+describe("an ask withdrawn with no record of who (meta:utils 5)", () => {
+  it("reads null fields, not empty strings", async () => {
+    const { askRow } = await import("../src/lib/comms.ts");
+    const r = askRow({ header: { id: "q9", from: "a:b", to: "c:d", status: "withdrawn" }, preamble: "", questions: [], history: [], seat: "a:b", file: "/x/q9.md", mtimeMs: 0 } as never);
+    expect(r.withdrawn).toEqual({ by: null, at: null, reason: null });
   });
 });
 
@@ -192,7 +200,7 @@ describe("GET /api/comms", () => {
     expect(r.status).toBe(200);
     const rows = JSON.parse(r.body).rows as { id: string; kind: string; state: string; withdrawn: unknown; ref: string; subject: string; tier: string }[];
     expect(rows.map((x) => x.id)).toEqual(["app:ask/20261104-q1", "a1.align", "a1", "d1", "n1", "bw"]);
-    expect(rows[0]).toMatchObject({ kind: "ask", state: "withdrawn", tier: "lazy", subject: "parser order", ref: "/a/app:ask/20261104-q1", withdrawn: { by: "app:ask", reason: "moot" } });
+    expect(rows[0]).toMatchObject({ kind: "ask", state: "withdrawn", tier: null, subject: "parser order", ref: "/a/app%3Aask/20261104-q1", withdrawn: { by: "app:ask", reason: "moot" } });
     expect(snapshot(bdir) + snapshot(askRoot)).toBe(before);
   });
 
@@ -205,8 +213,56 @@ describe("GET /api/comms", () => {
     expect(await q("limit=1")).toEqual(["app:ask/20261104-q1"]);
   });
 
-  it("refuses a bad since or limit", async () => {
+  it("refuses a bad since, limit, kind, tier or id", async () => {
     expect((await req("/api/comms?since=yesterday", { "x-ask-token": TOKEN })).status).toBe(400);
     expect((await req("/api/comms?limit=0", { "x-ask-token": TOKEN })).status).toBe(400);
+    expect((await req("/api/comms?kind=tells", { "x-ask-token": TOKEN })).status).toBe(400);
+    expect((await req("/api/comms?tier=urgent", { "x-ask-token": TOKEN })).status).toBe(400);
+    expect((await req("/api/comms?id=..%2Fx", { "x-ask-token": TOKEN })).status).toBe(400);
+  });
+
+  it("refuses a foreign Origin (N6)", async () => {
+    expect((await req("/api/comms", { "x-ask-token": TOKEN, origin: "http://evil.example" })).status).toBe(403);
+    expect((await req("/api/comms", { "x-ask-token": TOKEN, origin: `http://127.0.0.1:${port}` })).status).toBe(200);
+  });
+
+  it("looks rows up by id, past every other filter (meta:utils 2)", async () => {
+    const q = async (s: string) => (JSON.parse((await req(`/api/comms?${s}`, { "x-ask-token": TOKEN })).body).rows as { id: string }[]).map((x) => x.id);
+    expect(await q("seat=domain%3Astats&id=a1.align")).toEqual(["a1.align"]);
+    expect(await q("id=a1,app%3Aask%2F20261104-q1")).toEqual(["app:ask/20261104-q1", "a1"]);
+  });
+
+  it("an ask has no tier, so a tier filter leaves it out (S7)", async () => {
+    const rows = JSON.parse((await req("/api/comms?tier=lazy,note,align,escalate,wake", { "x-ask-token": TOKEN })).body).rows as { kind: string }[];
+    expect(rows.some((r) => r.kind === "ask")).toBe(false);
+  });
+
+  it("sends a comms event when a record lands, and none for queue churn (meta:utils 1)", async () => {
+    const events: string[] = [];
+    await new Promise<void>((resolve, reject) => {
+      const r = http.request({ host: "127.0.0.1", port, path: "/api/events", headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        res.on("data", (d) => events.push(String(d)));
+        setTimeout(() => {
+          fs.mkdirSync(path.join(bdir, "queued", "app:ui"), { recursive: true });
+          fs.writeFileSync(path.join(bdir, "queued", "app:ui", "zz"), "");
+        }, 200);
+        setTimeout(() => {
+          const quiet = events.join("").includes("event: comms");
+          write(bdir, "late", REC({ id: "late", from: "app:ui", at: "2026-11-04T11:00:00Z", audience: "app:ask", extra: "message: tell\ntier: lazy\nsubject: late\n", text: "late", delivery: "queued app:ask pid=2004 idle=1m" }));
+          setTimeout(() => {
+            r.destroy();
+            try {
+              expect(quiet).toBe(false);
+              expect(events.join("")).toContain("event: comms");
+              resolve();
+            } catch (e) {
+              reject(e);
+            }
+          }, 1800);
+        }, 1600);
+      });
+      r.on("error", () => {});
+      r.end();
+    });
   });
 });

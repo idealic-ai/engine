@@ -447,6 +447,20 @@ DRAIN_HOOK="${BROADCAST_DRAIN_HOOK:-$HOME/.claude/hooks/user-prompt-broadcast-qu
 DRAIN_SETTINGS="${BROADCAST_DRAIN_SETTINGS-$HOME/.claude/settings.json:$HOME/.claude/settings.local.json}"
 # drain_missing <pid> → rc 0 and the reason on stdout when the seat cannot drain a queue; rc 1 when
 # it can.
+# busy_now <pid> <seat> — a positive busy reading: status busy, or a tool call in the seat's
+# activity record at most BROADCAST_BUSY_SECS old. idle_for answers 1 both for busy and for no
+# reading; a tell needs the two apart.
+busy_now() {
+  local st sid a last ev
+  st=$(jq -r '.status // ""' "$SESS_DIR/$1.json" 2>/dev/null) || return 1
+  [ "$st" != busy ] || return 0
+  sid=$(jq -r '.sessionId // ""' "$SESS_DIR/$1.json" 2>/dev/null)
+  if a=$(activity_of "${2:-}" "$sid"); then
+    read -r last ev <<<"$a"
+    case "$ev" in tool|tool:*) [ $(( $(date +%s) - last )) -gt "$BROADCAST_BUSY_SECS" ] || return 0 ;; esac
+  fi
+  return 1
+}
 drain_missing() {
   local name="user-prompt-broadcast-queue.sh" f d cwd="" list
   [ -e "$DRAIN_HOOK" ] || { echo "drain hook $DRAIN_HOOK is not installed"; return 0; }
@@ -507,11 +521,17 @@ message() {
   if [ "${#text}" -gt "$BROADCAST_INLINE_MAX" ]; then
     text="${text:0:$BROADCAST_INLINE_MAX}…"$'\n'"full text: $3"
   fi
-  printf '%s%s\nack (from %s): engine broadcast ack %s' "$MSG_PREFIX" "$text" "$4" "$1"
+  local tier="" tfrom=""
+  if [ -r "$3" ] && [ "$(header "$3" message)" = tell ]; then tier=$(header "$3" tier); tfrom=$(header "$3" from)
+  elif [ -n "$TELL_TIER" ]; then tier="$TELL_TIER"; tfrom="$TELL_FROM"; fi
+  if [ -z "$tier" ]; then printf '%s\nack (from %s): engine broadcast ack %s' "$text" "$4" "$1"; return; fi
+  # TELL: a tell says what it is, pushed or drained alike. Only escalate and wake ask for an ack;
+  # note, lazy and align do not (a seat may still `engine tell ack`, which a withdraw reads as acted).
+  case "$tier" in
+    escalate|wake) printf '[tell · %s from %s] %s\nack (from %s): engine tell ack %s' "$tier" "$tfrom" "$text" "$4" "$1" ;;
+    *) printf '[tell · %s from %s] %s' "$tier" "$tfrom" "$text" ;;
+  esac
 }
-# MSG_PREFIX — set by cmd_tell to "[tell · <tier> from <seat>] " so a pushed or drained tell says
-# what it is; empty for a plain broadcast, whose message is unchanged.
-MSG_PREFIX=""
 
 # text_of <record> — the text exactly as cmd_send wrote it: from the first line that is exactly
 # "## Text" to the LAST line that is exactly "## Delivery" (the writer emits it right after the
@@ -537,9 +557,13 @@ ack_key() { tr '[:upper:]' '[:lower:]' <<<"$1"; }
 acked() { [ -e "$BDIR/$1.acks.d/$(ack_key "$2")" ]; }
 # retracted — a sticky broadcast its sender retracted, or any record withdrawn (TELL: retract is
 # withdraw). The withdrawn line is read only after the record's "## Delivery" heading, so a text
-# that happens to hold a "withdrawn: " line is not mistaken for one.
+# that happens to hold a "withdrawn: " line is not mistaken for one. The line must follow a
+# "## Withdrawn" heading that itself follows the LAST "## Delivery" (the writer's, as text_of reads it).
 retracted() { grep -q '^retracted: ' "$1" || withdrawn_line "$1" >/dev/null; }
-withdrawn_line() { awk '$0 == "## Delivery" { d = 1; next } d && /^withdrawn: / { print; f = 1; exit } END { exit !f }' "$1"; }
+withdrawn_line() {
+  awk '{ l[NR] = $0 } $0 == "## Delivery" { d = NR }
+    END { for (i = d + 1; d && i <= NR; i++) { if (l[i] == "## Withdrawn") w = 1; else if (w && l[i] ~ /^withdrawn: /) { print l[i]; exit 0 } } exit 1 }' "$1"
+}
 expired() { local e; e=$(header "$1" expires); [ -n "$e" ] && [ "$e" != "-" ] && [[ "$(now)" > "$e" ]]; }
 
 # write_record <rec> <id> <from> <sent_by> <scope> <sticky> <expires> <audience> <text> <extra>
@@ -565,6 +589,12 @@ SEAT_MSG=""
 # TELL_HEADER is extra header lines; TELL_TEXT, when set, is the text in place of stdin.
 QUEUE_ALL=0 TELL_HEADER=""
 unset TELL_TEXT
+# TELL_TIER/TELL_FROM — the tell being sent in this process (message() reads them before the
+# record exists). TELL_NOPUSH=1 — a tell that is not a wake: an idle seat, or a seat with no busy
+# reading, is queued or left undelivered, never pushed (the plain-broadcast fallback that pushes an
+# idle seat live does not apply). SEND_AS — cmd_withdraw's notice: the sender identity, read in
+# place of the live one (the operator withdraws from a shell that is not a seat).
+TELL_TIER="" TELL_FROM="" TELL_NOPUSH=0 SEND_AS=""
 # fan_out <tree> <id> <rec> <message> <seats…> — deliver, append one line per seat, then done.
 fan_out() {
   local tree="$1" id="$2" rec="$3" msg="$4" s b res m idle qd hold rc=0 ok=0 bad=0 q=0; shift 4
@@ -591,10 +621,23 @@ fan_out() {
       # A seat that visibly cannot drain a queue (no drain hook) is pushed live, with a warning.
       local why="" idle=""
       if [ "$LIVE_ALL" = 0 ] && idle=$(idle_for "$pid" "$s") && why=$(drain_missing "$pid"); then
+        if [ "$TELL_NOPUSH" = 1 ]; then
+          echo "undelivered $s — idle ($(idle_words "$idle")) and cannot drain a queue: $why; a tell is never pushed to an idle seat" | tee -a "$rec"
+          bad=$((bad + 1)); rc=1; continue
+        fi
         echo "warning: $s is idle ($(idle_words "$idle")) but cannot drain a queue: $why; pushed live instead" | tee -a "$rec"
       elif [ "$LIVE_ALL" = 0 ] && [ -n "$idle" ] && mkdir -p "$qd" 2>/dev/null \
          && { [ -f "$qd/$id" ] || : > "$qd/$id"; } 2>/dev/null; then
         echo "queued $s pid=$pid $(idle_words "$idle")" | tee -a "$rec"; q=$((q + 1)); continue
+      elif [ "$TELL_NOPUSH" = 1 ] && { [ -n "$idle" ] || ! busy_now "$pid" "$s"; }; then
+        # TELL: idle with a queue that could not be written, or no reading at all. A seat with no
+        # reading is queued when it can drain one; neither case is pushed.
+        if [ -z "$idle" ] && ! why=$(drain_missing "$pid") && mkdir -p "$qd" 2>/dev/null \
+           && { [ -f "$qd/$id" ] || : > "$qd/$id"; } 2>/dev/null; then
+          echo "queued $s pid=$pid no-reading" | tee -a "$rec"; q=$((q + 1)); continue
+        fi
+        echo "undelivered $s — ${why:-its queue could not be written}; a tell is never pushed to a seat that may be idle" | tee -a "$rec"
+        bad=$((bad + 1)); rc=1; continue
       fi
       m="$msg"; [ -z "$SEAT_MSG" ] || m=$("$SEAT_MSG" "$s")
       # A queue entry is set aside BEFORE the push: the push fires the seat's UserPromptSubmit
@@ -656,9 +699,9 @@ cmd_send() {
   # The tree first: an unreadable tree is exit 4 whatever the identity read then says.
   local tree audience="" skipped="" s b sent_by
   tree=$(live_tree) || exit $?
-  sent_by=$(live_self) || exit $?
+  if [ -n "$SEND_AS" ]; then sent_by="$SEND_AS"; else sent_by=$(live_self) || exit $?; fi
   [ -n "$from" ] || from="$sent_by"
-  in_tree "$tree" "$from" || die 3 "sender '$from' is not in the live tree"
+  [ -n "$SEND_AS" ] && [ "$from" = "$SEND_AS" ] || in_tree "$tree" "$from" || die 3 "sender '$from' is not in the live tree"
   load_bindings
   case "$scope" in
     children) audience=$(children_of "$tree" "$from" | tr '\n' ' '); scope="children:$from" ;;
@@ -666,11 +709,15 @@ cmd_send() {
       in_tree "$tree" "$target" || die 3 "seat '$target' is not in the live tree"
       audience=$(descendants_of "$tree" "$target"); scope="subtree:$target" ;;
     to)
-      for t in ${target//,/ }; do in_tree "$tree" "$t" || die 3 "seat '$t' is not in the live tree"; audience+=" $t"; done
+      for t in ${target//,/ }; do
+        in_tree "$tree" "$t" || die 3 "seat '$t' is not in the live tree"
+        [[ " $audience " == *" $t "* ]] || audience+=" $t"
+      done
       scope="to:$target" ;;
     peers)
       t=$(parent_of "$tree" "$from")
-      [ -n "$t" ] && [ "$t" != - ] && audience=$(children_of "$tree" "$t" | grep -vxF -- "$from" | tr '\n' ' ')
+      [ -n "$t" ] && [ "$t" != - ] || die 3 "'$from' has no parent in the live tree, so it has no peers"
+      audience=$(children_of "$tree" "$t" | grep -vxF -- "$from" | tr '\n' ' ')
       scope="peers:$from" ;;
     parent)
       t=$(parent_of "$tree" "$from")
@@ -1555,22 +1602,30 @@ cmd_go_check() {
 # queue (IDE-352) and one delivery rule. Tiers:
 #   note      queued for every seat, busy or idle; never pushed; withdrawable.
 #   lazy      the default: pushed only to a seat that is busy now (already awake), queued otherwise.
-#   align     the default for a --to that crosses managers: lazy to the recipient, plus a note to
-#             each manager of the pair ("these two are talking: <subject>"), id <id>.align.
+#   align     the default for a --to that crosses managers: lazy to the recipient, plus a lazy
+#             notice to each manager of the pair ("these two are talking: <subject>"), id <id>.align
+#             (lazy by the operator's ALIGN ruling, ask meta:utils/20261030-081221).
 #   escalate  to the sender's manager only, lazy; `for:` names the seats it was meant for.
 #             With --wake-reason it is pushed (a wake).
 #   wake      pushed to every audience seat, idle or not; needs --wake-reason (the operator's order).
+# Every tier but wake (and escalate with --wake-reason) is TELL_NOPUSH: an idle seat, or one with no
+# busy reading, is queued or left undelivered, never pushed live.
 
 # manager_of <tree> <seat> — the seat's parent, or nothing at the top.
 manager_of() { local p; p=$(parent_of "$1" "$2"); [ -n "$p" ] && [ "$p" != - ] && echo "$p"; return 0; }
+# one_line <flag> <value> — refuse a newline or a carriage return: each would start a forged
+# header line in the record.
+one_line() { case "$2" in *$'\n'*|*$'\r'*) die 2 "$1 takes one line (no newline, no carriage return)" ;; esac; }
+# A tell's id leaves room for its notices' suffixes (.align, .withdrawn-xxxx).
+NOTICE_SUFFIX_MAX=".withdrawn-0000"
 
 cmd_tell() {
   local tier="" subject="" sel=() from="" id="" wake="" dry=0 tos="" a
   while [ $# -gt 0 ]; do
     case "$1" in
       --tier) need_val "$1" $# "${2:-}"; tier="$2"; shift 2 ;;
-      --subject) need_val "$1" $# "${2:-}"; subject="$2"; shift 2 ;;
-      --wake-reason) [ $# -ge 2 ] && [ -n "${2//[[:space:]]/}" ] || die 2 "--wake-reason needs a reason"; wake="$2"; shift 2 ;;
+      --subject) need_val "$1" $# "${2:-}"; one_line --subject "$2"; subject="$2"; shift 2 ;;
+      --wake-reason) wake_reason $# "${2-}"; wake="$WAKE_REASON"; WAKE_REASON="" LIVE_ALL=0; shift 2 ;;
       --to) need_val "$1" $# "${2:-}"; tos="$2"; sel+=(--to "$2"); shift 2 ;;
       --subtree) need_val "$1" $# "${2:-}"; sel+=(--subtree "$2"); shift 2 ;;
       --children|--peers|--parent|--all) sel+=("$1"); shift ;;
@@ -1582,11 +1637,13 @@ cmd_tell() {
     esac
   done
   case "$tier" in ""|note|lazy|align|escalate|wake) ;; *) die 2 "--tier is one of note, lazy, align, escalate, wake" ;; esac
-  [[ "$subject" != *$'\n'* ]] || die 2 "--subject is one line"
   local text; text=$(cat)
   [ -n "${text//[[:space:]]/}" ] || die 2 "empty message: pass the text on stdin"
-  [ -n "$subject" ] || subject=$(head -n 1 <<<"$text" | cut -c1-100)
-  if [ -n "$id" ]; then valid_id "$id"; else id="tl-$(date -u +%Y%m%dt%H%M%Sz)-$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')"; fi
+  [ -n "$subject" ] || subject=$(head -n 1 <<<"$text" | tr -d '\r' | cut -c1-100)
+  if [ -n "$id" ]; then
+    valid_id "$id"
+    [[ "$id$NOTICE_SUFFIX_MAX" =~ $ID_RE ]] || die 2 "a tell's id is at most $((64 - ${#NOTICE_SUFFIX_MAX})) characters: its notices add a suffix"
+  else id="tl-$(date -u +%Y%m%dt%H%M%Sz)-$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')"; fi
   [ -z "$from" ] || valid_seat --from "$from"
 
   local tree sent_by; tree=$(live_tree) || exit $?
@@ -1596,10 +1653,12 @@ cmd_tell() {
   local mine; mine=$(manager_of "$tree" "$from")
 
   # The managers a --to crosses: each recipient's manager that is not the sender's, and not the
-  # sender or a recipient itself (a seat telling its own manager or child crosses nothing).
+  # sender or a recipient itself (a seat telling its own manager or child crosses nothing). A mixed
+  # list is one tell with one tier: any crossing makes the whole tell align.
   local managers="" t m
   if [ -n "$tos" ]; then
     for t in ${tos//,/ }; do
+      valid_seat --to "$t"
       in_tree "$tree" "$t" || die 3 "seat '$t' is not in the live tree"
       m=$(manager_of "$tree" "$t")
       [ "$t" = "$mine" ] || [ "$m" = "$from" ] || [ "$m" = "$mine" ] && continue
@@ -1616,32 +1675,36 @@ cmd_tell() {
     escalate) ;;
     *) [ -z "$wake" ] || die 2 "--wake-reason goes only with --tier wake or escalate" ;;
   esac
+  [ ${#sel[@]} -gt 0 ] || [ "$tier" = escalate ] || die 2 "tell: give an audience: --to SEAT[,SEAT…], --children, --subtree SEAT, --peers, --parent or --all"
 
-  local hdr="message: tell"$'\n'"tier: $tier"$'\n'"subject: $subject"$'\n'
+  local hdr="message: tell"$'\n'"tier: $tier"$'\n'"subject: $subject"$'\n'"sender-manager: ${mine:--}"$'\n'
   if [ "$tier" = escalate ]; then
     [ -n "$mine" ] || die 3 "'$from' has no manager in the live tree to escalate to"
-    local intended=""
-    if [ -n "$tos" ]; then intended="${tos//,/ }"; elif [ ${#sel[@]} -gt 0 ]; then intended="${sel[*]}"; fi
-    hdr+="for: ${intended:--}"$'\n'
+    # `for:` names seats the manager can forward to: a selector is resolved by a dry run.
+    local intended="-"
+    if [ ${#sel[@]} -gt 0 ]; then
+      intended=$( (TELL_TEXT="$text" cmd_send "${sel[@]}" --from "$from" --id "$id" --dry-run) 2>/dev/null | sed -n 's/^audience: //p')
+      [ -n "$intended" ] || intended="-"
+    fi
+    hdr+="for: $intended"$'\n'
     sel=(--to "$mine")
   fi
-  [ ${#sel[@]} -gt 0 ] || die 2 "tell: give an audience: --to SEAT[,SEAT…], --children, --subtree SEAT, --peers, --parent or --all"
   local notice="-"
   if [ "$tier" = align ]; then [ -z "$managers" ] || notice="$id.align"; hdr+="notice: $notice"$'\n'; fi
 
   local args=("${sel[@]}" --from "$from" --id "$id")
   [ "$dry" = 0 ] || args+=(--dry-run)
   [ "$tier" = note ] && QUEUE_ALL=1
-  if [ -n "$wake" ]; then WAKE_REASON="$wake"; LIVE_ALL=1; fi
-  TELL_HEADER="$hdr" TELL_TEXT="$text" MSG_PREFIX="[tell · $tier from $from] "
+  if [ -n "$wake" ]; then WAKE_REASON="$wake"; LIVE_ALL=1; else TELL_NOPUSH=1; fi
+  TELL_HEADER="$hdr" TELL_TEXT="$text" TELL_TIER="$tier" TELL_FROM="$from"
   local rc=0
   cmd_send "${args[@]}" || rc=$?
   if [ "$notice" != - ]; then
-    # The managers' notice: never pushed, points back at the tell.
-    QUEUE_ALL=1 LIVE_ALL=0 WAKE_REASON=""
-    TELL_HEADER="message: tell"$'\n'"tier: note"$'\n'"subject: these two are talking: $subject"$'\n'"notice-of: $id"$'\n'
+    # The managers' notice: lazy (pushed only to a busy manager, queued otherwise, never pushed to
+    # an idle one), and it points back at the tell.
+    QUEUE_ALL=0 LIVE_ALL=0 WAKE_REASON="" TELL_NOPUSH=1 TELL_TIER=lazy
+    TELL_HEADER="message: tell"$'\n'"tier: lazy"$'\n'"subject: these two are talking: $subject"$'\n'"notice-of: $id"$'\n'
     TELL_TEXT="$from is telling ${tos//,/, } directly: $subject (tell $id). Nothing for you to do unless you want to step in."
-    MSG_PREFIX="[tell · note from $from] "
     local nargs=(--to "${managers// /,}" --from "$from" --id "$notice"); [ "$dry" = 0 ] || nargs+=(--dry-run)
     cmd_send "${nargs[@]}" || rc=$?
   fi
@@ -1649,22 +1712,24 @@ cmd_tell() {
 }
 
 # cmd_withdraw <id> --reason WHY [--by operator] — take a broadcast or tell back. Its sender, the
-# sender's manager, or the operator (from a shell that is not a seat, with --by operator) may.
-# An unseen queued copy leaves the queue; a shown one is marked withdrawn in place; a seat that had
-# acked it gets a lazy tell saying so; an align tell's notice is withdrawn with it. No ack is asked.
+# sender's manager (its live parent in the tmux tree; /ask's withdraw reads FLEET_MANAGES instead),
+# or the operator (from a shell that is not a seat, with --by operator) may. An unseen queued copy
+# leaves the queue; a shown one is marked withdrawn in place; an align tell's notice is withdrawn with
+# it; each seat that had acked it and is still in the tree gets a lazy tell from the withdrawer.
+# No ack is asked. A go request is refused: its goes are judged by go-check, not by this.
 cmd_withdraw() {
   local id="" reason="" by_flag=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --reason) [ $# -ge 2 ] && [ -n "${2//[[:space:]]/}" ] || die 2 "--reason needs a reason"; reason="$2"; shift 2 ;;
+      --reason) [ $# -ge 2 ] && [ -n "${2//[[:space:]]/}" ] || die 2 "--reason needs a reason"; one_line --reason "$2"; reason="$2"; shift 2 ;;
       --by) need_val "$1" $# "${2:-}"; by_flag="$2"; shift 2 ;;
       -*) die 2 "withdraw: unknown argument $1" ;;
       *) [ -z "$id" ] || die 2 "withdraw takes one id"; id="$1"; shift ;;
     esac
   done
   [ -n "$reason" ] || die 2 "usage: withdraw <id> --reason \"<why it no longer stands>\" [--by operator]"
-  [[ "$reason" != *$'\n'* ]] || die 2 "--reason is one line"
   local rec; rec=$(record_of "$id") || exit $?
+  ! is_go "$rec" || die 2 "'$id' is a go request: decline it or send a new go-request; withdraw does not apply (go-check would still count its goes)"
   local by tree="" from; from=$(header "$rec" from)
   if [ "$by_flag" = operator ]; then
     [ -z "${TMUX_PANE:-}" ] && [ -z "${FLEET_PANE:-}" ] || die 2 "--by operator from a seat is refused: a seat withdraws as itself"
@@ -1673,7 +1738,11 @@ cmd_withdraw() {
     [ -z "$by_flag" ] || die 2 "--by takes only 'operator' (a seat withdraws as itself)"
     tree=$(live_tree) || exit $?
     by=$(live_self) || exit $?
-    [ "$by" = "$from" ] || [ "$by" = "$(header "$rec" sent-by)" ] || [ "$by" = "$(manager_of "$tree" "$from")" ] \
+    # The manager is the sender's live parent; once the sender has left the tree, the manager the
+    # tell recorded when it was sent (sender-manager:) stands in.
+    local mgr; mgr=$(manager_of "$tree" "$from")
+    in_tree "$tree" "$from" || mgr=$(header "$rec" sender-manager)
+    [ "$by" = "$from" ] || [ "$by" = "$(header "$rec" sent-by)" ] || { [ -n "$mgr" ] && [ "$mgr" != - ] && [ "$by" = "$mgr" ]; } \
       || die 2 "only the sender ($from), its manager or the operator may withdraw '$id'"
   fi
   if withdrawn_line "$rec" >/dev/null; then echo "already withdrawn: $id ($(withdrawn_line "$rec"))"; return 0; fi
@@ -1681,39 +1750,61 @@ cmd_withdraw() {
   local s acked_seats=""
   for s in $(header "$rec" audience); do
     if [ -e "$(queue_dir "$s")/$id" ]; then unqueue "$s" "$id"; echo "unqueued $s (never shown)"; fi
-    acked "$id" "$s" && acked_seats+="${acked_seats:+,}$s"
+    ! acked "$id" "$s" || acked_seats+="${acked_seats:+ }$s"
   done
   printf '\n## Withdrawn\n\nwithdrawn: by %s at %s — %s\n' "$by" "$(now)" "$reason" >> "$rec"
   echo "withdrawn: $id"
   local n; n=$(header "$rec" notice)
-  if [ -n "$n" ] && [ "$n" != - ] && [ -r "$BDIR/$n.md" ] && ! withdrawn_line "$BDIR/$n.md" >/dev/null; then
-    for s in $(header "$BDIR/$n.md" audience); do unqueue "$s" "$n"; done
-    printf '\n## Withdrawn\n\nwithdrawn: by %s at %s — %s\n' "$by" "$(now)" "$reason" >> "$BDIR/$n.md"
-    echo "withdrawn: $n (its managers' notice)"
+  if [ -n "$n" ] && [ "$n" != - ]; then
+    if ! [[ "$n" =~ $ID_RE ]]; then
+      echo "notice '$n' named by '$id' is not an id; left alone"
+    elif [ -r "$BDIR/$n.md" ] && [ "$(header "$BDIR/$n.md" notice-of)" = "$id" ] && ! withdrawn_line "$BDIR/$n.md" >/dev/null; then
+      for s in $(header "$BDIR/$n.md" audience); do unqueue "$s" "$n"; done
+      printf '\n## Withdrawn\n\nwithdrawn: by %s at %s — %s\n' "$by" "$(now)" "$reason" >> "$BDIR/$n.md"
+      echo "withdrawn: $n (its managers' notice)"
+    fi
   fi
-  if [ -n "$acked_seats" ]; then
-    [ -n "$tree" ] || tree=$(live_tree) || exit $?
-    local nid="$id.withdrawn"
-    [ ! -e "$BDIR/$nid.md" ] || nid="$id.withdrawn-$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')"
-    for s in ${acked_seats//,/ }; do echo "told $s (it had acked)"; done
-    QUEUE_ALL=0 LIVE_ALL=0 WAKE_REASON=""
-    TELL_HEADER="message: tell"$'\n'"tier: lazy"$'\n'"subject: withdrawn: $(header "$rec" subject)"$'\n'"notice-of: $id"$'\n'
+  [ -n "$acked_seats" ] || return 0
+  # The acked seats are told by the withdrawer, in a subshell so nothing in the send can end the
+  # withdraw. A seat that left the tree is reported, not told.
+  if [ -z "$tree" ] && ! tree=$(live_tree 2>/dev/null); then
+    for s in $acked_seats; do echo "not told $s (the live tree is unreadable)"; done
+    return 0
+  fi
+  local live=""
+  for s in $acked_seats; do
+    if in_tree "$tree" "$s"; then live+="${live:+,}$s"; else echo "not told $s (it had acked, but has left the live tree)"; fi
+  done
+  [ -n "$live" ] || return 0
+  local nid="$id.withdrawn"
+  [ ! -e "$BDIR/$nid.md" ] || nid="$id.withdrawn-$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')"
+  [[ "$nid" =~ $ID_RE ]] || nid="wd-$(date -u +%Y%m%dt%H%M%Sz)-$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')"
+  local subj; subj=$(header "$rec" subject); [ -n "$subj" ] || subj=$(text_of "$rec" | head -n 1 | cut -c1-100)
+  ( QUEUE_ALL=0 LIVE_ALL=0 WAKE_REASON="" TELL_NOPUSH=1 TELL_TIER=lazy TELL_FROM="$by" SEND_AS="$by"
+    TELL_HEADER="message: tell"$'\n'"tier: lazy"$'\n'"subject: withdrawn: $subj"$'\n'"notice-of: $id"$'\n'
     TELL_TEXT="$id was withdrawn by $by: $reason. You had acked it; undo what you did on its account if that still matters."
-    MSG_PREFIX="[tell · lazy from $by] "
-    cmd_send --to "$acked_seats" --from "$from" --id "$nid" >/dev/null || true
-  fi
+    cmd_send --to "$live" --from "$by" --id "$nid" ) >/dev/null 2>&1
+  local nrec="$BDIR/$nid.md" st
+  for s in ${live//,/ }; do
+    st=not-sent; [ -r "$nrec" ] && st=$(last_state "$nrec" "$s")
+    case "$st" in
+      delivered|queued) echo "told $s (it had acked; $st, $nid)" ;;
+      *) echo "not told $s (it had acked; the notice was $st)" ;;
+    esac
+  done
   return 0
 }
 
 # cmd_landed --repo R --sha S --subject S [--paths P…] — the landing tell: one lazy tell to the
-# landing seat's peers and its manager. Never wakes anyone.
+# landing seat's peers and its manager. Never pushed to an idle seat. Not yet called by /snapshot or
+# the landing step; that wiring belongs to their owners.
 cmd_landed() {
   local repo="" sha="" subj="" paths=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --repo) need_val "$1" $# "${2:-}"; repo="$2"; shift 2 ;;
-      --sha) need_val "$1" $# "${2:-}"; sha="$2"; shift 2 ;;
-      --subject) need_val "$1" $# "${2:-}"; subj="$2"; shift 2 ;;
+      --repo) need_val "$1" $# "${2:-}"; one_line --repo "$2"; repo="$2"; shift 2 ;;
+      --sha) need_val "$1" $# "${2:-}"; one_line --sha "$2"; sha="$2"; shift 2 ;;
+      --subject) need_val "$1" $# "${2:-}"; one_line --subject "$2"; subj="$2"; shift 2 ;;
       --paths) shift; while [ $# -gt 0 ] && [[ "$1" != --* ]]; do paths+="${paths:+ }$1"; shift; done ;;
       *) die 2 "landed: unknown argument $1" ;;
     esac

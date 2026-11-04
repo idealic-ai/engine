@@ -6,8 +6,9 @@
  * a tell carries `message: tell`, `tier:` and `subject:` header lines, and an align tell links its
  * managers' notice by `notice: <id>.align`, which points back by `notice-of:`. A broadcast with no
  * tier reads as `wake` when it was a wake broadcast and `lazy` otherwise, which is what its delivery
- * did. Asks come from the ask store; they ride no tier yet, and `engine ask new` pushes nothing to
- * the holder, so they read as `lazy`.
+ * did. The align notice is `lazy` (the operator's ALIGN ruling, ask meta:utils/20261030-081221).
+ * Asks come from the ask store and carry `tier: null`: they ride no tier, and their delivery is
+ * AUTOWAKE's, not TELL's.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -15,6 +16,8 @@ import { defaultBroadcastDir } from "./broadcasts.ts";
 import type { StoredAsk } from "./store.ts";
 
 export type Tier = "note" | "lazy" | "align" | "escalate" | "wake";
+export const TIERS: readonly Tier[] = ["note", "lazy", "align", "escalate", "wake"];
+export const KINDS = ["tell", "broadcast", "ask"] as const;
 export type SeatState = "queued" | "delivered" | "undelivered" | "not-attempted" | "read";
 export type CommsRow = {
   id: string;
@@ -23,7 +26,8 @@ export type CommsRow = {
   /** The seat that ran the command, when it differs from `from` (a broadcast sent on another's behalf). */
   sentBy: string;
   to: string[];
-  tier: Tier;
+  /** null for an ask, which rides no tier. */
+  tier: Tier | null;
   subject: string;
   at: string;
   /**
@@ -33,7 +37,8 @@ export type CommsRow = {
   state: string;
   /** Per recipient, tells and broadcasts only; an ask's is empty. */
   seats: { seat: string; state: SeatState }[];
-  withdrawn: { by: string; at: string; reason: string } | null;
+  /** null when not withdrawn; a field is null when the record does not say (a hand-edited ask). */
+  withdrawn: { by: string | null; at: string | null; reason: string | null } | null;
   /** An align tell's managers' notice id; null when it has none. */
   notice: string | null;
   /** On a notice (an align notice or a withdrawal notice): the tell it is about. */
@@ -44,9 +49,8 @@ export type CommsRow = {
   ref: string;
 };
 
-export type CommsFilter = { seat?: string; tier?: string; kind?: string; since?: string; limit?: number };
-
-const TIERS: Tier[] = ["note", "lazy", "align", "escalate", "wake"];
+/** `ids`, when given, returns exactly those rows and ignores every other filter. */
+export type CommsFilter = { seat?: string; tier?: string; kind?: string; since?: string; limit?: number; ids?: string[] };
 
 /** The header block, before the first `## Text` line. */
 function headerOf(text: string): Record<string, string> {
@@ -66,6 +70,17 @@ function afterDelivery(text: string): string[] {
   return i < 0 ? [] : lines.slice(i + 1);
 }
 
+/** The withdrawal line: after a `## Withdrawn` heading that follows the last `## Delivery`. */
+function withdrawnLine(tail: string[]): RegExpMatchArray | null {
+  const w = tail.indexOf("## Withdrawn");
+  if (w < 0) return null;
+  for (const l of tail.slice(w + 1)) {
+    const m = l.match(/^withdrawn: by (\S+) at (\S+) — (.*)$/);
+    if (m) return m;
+  }
+  return null;
+}
+
 export function parseRecord(id: string, text: string, acks: string[], file: string): CommsRow {
   const h = headerOf(text);
   const tail = afterDelivery(text);
@@ -77,7 +92,7 @@ export function parseRecord(id: string, text: string, acks: string[], file: stri
   }
   const ackSet = new Set(acks.map((a) => a.toLowerCase()));
   const seats = audience.map((seat) => ({ seat, state: (ackSet.has(seat.toLowerCase()) ? "read" : last.get(seat) ?? "not-attempted") as SeatState }));
-  const w = tail.map((l) => l.match(/^withdrawn: by (\S+) at (\S+) — (.*)$/)).find(Boolean);
+  const w = withdrawnLine(tail);
   const withdrawn = w ? { by: w[1], at: w[2], reason: w[3] } : null;
   const isTell = h.message === "tell";
   const tier: Tier = TIERS.includes(h.tier as Tier) ? (h.tier as Tier) : h.kind === "wake" ? "wake" : "lazy";
@@ -117,14 +132,15 @@ export function parseRecord(id: string, text: string, acks: string[], file: stri
 
 export function askRow(a: StoredAsk): CommsRow {
   const h = a.header;
-  const withdrawn = h.status === "withdrawn" ? { by: h["withdrawn-actor"] || "", at: h["withdrawn-at"] || "", reason: h["withdrawn-reason"] || "" } : null;
+  const withdrawn = h.status === "withdrawn" ? { by: h["withdrawn-actor"] || null, at: h["withdrawn-at"] || null, reason: h["withdrawn-reason"] || null } : null;
+  const askId = h.id ?? path.basename(a.file, ".md");
   return {
-    id: `${a.seat}/${h.id ?? path.basename(a.file, ".md")}`,
+    id: `${a.seat}/${askId}`,
     kind: "ask",
     from: h.from ?? a.seat,
     sentBy: h.from ?? a.seat,
     to: (h.to ?? "").split(/[\s,]+/).filter(Boolean),
-    tier: "lazy",
+    tier: null,
     subject: h.topic || h.why || a.questions[0]?.title || "",
     at: h.created ?? "",
     state: h.status ?? "open",
@@ -133,7 +149,7 @@ export function askRow(a: StoredAsk): CommsRow {
     notice: null,
     noticeOf: null,
     forSeats: [],
-    ref: `/a/${a.seat}/${h.id ?? path.basename(a.file, ".md")}`,
+    ref: `/a/${encodeURIComponent(a.seat)}/${encodeURIComponent(askId)}`,
   };
 }
 
@@ -172,10 +188,15 @@ export function listComms(asks: StoredAsk[], f: CommsFilter = {}, dir = defaultB
   const sinceMs = f.since ? Date.parse(f.since) : NaN;
   const kinds = f.kind ? f.kind.split(",") : null;
   const tiers = f.tier ? f.tier.split(",") : null;
-  const rows = [...listRecords(dir), ...asks.map(askRow)].filter(
+  const all = [...listRecords(dir), ...asks.map(askRow)];
+  if (f.ids) {
+    const want = new Set(f.ids);
+    return all.filter((r) => want.has(r.id)).sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0));
+  }
+  const rows = all.filter(
     (r) =>
       (!f.seat || r.from === f.seat || r.sentBy === f.seat || r.to.includes(f.seat) || r.forSeats.includes(f.seat)) &&
-      (!tiers || tiers.includes(r.tier)) &&
+      (!tiers || (r.tier !== null && tiers.includes(r.tier))) &&
       (!kinds || kinds.includes(r.kind)) &&
       (!Number.isFinite(sinceMs) || (Date.parse(r.at) || 0) >= sinceMs),
   );

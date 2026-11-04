@@ -12,14 +12,26 @@
 #       tiers:    note      queued for every seat, never pushed; withdrawable
 #                 lazy      the default: pushed only to a seat busy right now, queued otherwise
 #                 align     the default for a --to across managers: lazy to the recipient, and a
-#                           never-pushed "these two are talking: <subject>" note to both managers
-#                 escalate  to your manager only (lazy); `for:` records who it was meant for
+#                           lazy "these two are talking: <subject>" notice to both managers (lazy
+#                           by the operator's ALIGN ruling). A mixed --to list is one tell with
+#                           one tier: any recipient across managers makes the whole tell align.
+#                 escalate  to your manager only (lazy); `for:` names the seats it was meant for,
+#                           and the manager forwards by hand
 #                 wake      pushed to idle seats too; needs --wake-reason (the operator's order)
-#       The subject defaults to the text's first line.
+#       No tier but wake (or escalate with --wake-reason) is ever pushed to an idle seat: a seat
+#       that is idle or gives no busy reading is queued, or left undelivered when it cannot drain
+#       a queue. Only escalate and wake ask for an ack; any seat may still `engine tell ack <id>`,
+#       and a withdraw tells the seats that acked.
+#       The subject defaults to the text's first line. A tell's id is at most 49 characters.
+#       Sticky guidance and retract stay on `engine broadcast` for now.
 #   engine tell withdraw <id> --reason "<why>" [--by operator]
 #                      the sender, its manager, or the operator (from a non-seat shell) takes it
-#                      back: unseen queued copies are removed, a shown one is marked withdrawn, a
-#                      seat that had acked it is told. No acknowledgement is asked.
+#                      back. "Its manager" is the sender's live parent in the tmux tree (or, once
+#                      the sender has left it, the manager recorded at send time); `engine ask
+#                      withdraw` reads FLEET_MANAGES instead, so the two can disagree.
+#                      Unseen queued copies are removed, a shown one is marked withdrawn, and each
+#                      seat that had acked it and is still live gets a lazy tell from you. No
+#                      acknowledgement is asked. A go request cannot be withdrawn.
 #   engine tell landed --repo R --sha S --subject "<line>" [--paths P…]
 #                      a lazy tell to your peers and your manager that a commit landed
 #   engine tell status|ack|pending|resend …   as `engine broadcast`

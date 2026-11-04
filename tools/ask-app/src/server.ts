@@ -10,8 +10,10 @@
  *   GET  /api/proofs   (token required) published proof pages in the local proof store, newest first
  *                      (?fresh skips the cache, and joins a listing already running rather than starting one)
  *   GET  /api/broadcasts  (token required) broadcasts newest first, with acks; read-only, BROADCAST_DIR overrides the dir
- *   GET  /api/comms   (token required) ?seat=&tier=&kind=&since=&limit= → {rows}: every tell, broadcast and ask,
- *                      newest first (src/lib/comms.ts, CommsRow); read-only
+ *   GET  /api/comms   (token required, no foreign Origin) ?seat=&tier=&kind=&since=&limit= or ?id=<id>[,<id>]
+ *                      → {rows}: every tell, broadcast and ask, newest first (src/lib/comms.ts, CommsRow);
+ *                      read-only; 400 on an unknown kind or tier, a bad id, since or limit. /api/events
+ *                      sends "comms" when a tell, ack or withdrawal lands (throttled to 1/s)
  *   GET  /api/search   (token required) ?q=<text>&limit=<1-100, default 20>&kind=<ask|proof|broadcast|local[,…]>
  *                      &minScore=<0-1.1> → 200 [{kind, seat, id, title, status, score, excerpt, url, appPath, section}],
  *                      best first, one per item, none under the floor (IDE-334, SEARCHFIX). Semantic: the query is
@@ -84,8 +86,8 @@ import { loadLinearKey, makeTicketFetcher, TICKET_KEY_RE, TicketNotFound } from 
 import { AnsweredByOperatorError, AskFormatError, dialogueHistory, FollowupClosedError, parseAskFile, StaleRevisionError, SupersededError, WithdrawnError } from "./lib/format.ts";
 import { computeBuildId, recordedBuildId } from "./build-id.ts";
 import { listProofs } from "./lib/proofs.ts";
-import { listBroadcasts } from "./lib/broadcasts.ts";
-import { listComms } from "./lib/comms.ts";
+import { defaultBroadcastDir, listBroadcasts } from "./lib/broadcasts.ts";
+import { KINDS, listComms, TIERS } from "./lib/comms.ts";
 import { createLocalEmbeddingClient, INDEXER_EMBED_RETRY, resolveEmbedConfig } from "../../embed-local/src/index.ts";
 import { openSearchDb, searchDbPath, type SearchDb } from "./search/db.ts";
 import { createRefresher, type Refresher } from "./search/refresher.ts";
@@ -171,6 +173,27 @@ fs.watch(root, { recursive: true }, (_ev, name) => {
   }, 100);
 });
 
+// TELL: the Comms tab hears a new tell, an ack or a withdrawal as a "comms" event. The broadcast
+// directory is watched NON-recursively (its queued/ churn on every drain is not traffic), only record
+// files and ack directories count, and events are throttled to one a second.
+let commsPending: NodeJS.Timeout | undefined;
+try {
+  const bdir = defaultBroadcastDir(root);
+  if (fs.existsSync(bdir)) {
+    fs.watch(bdir, (_ev, name) => {
+      const n = name ? String(name) : "";
+      if (!(n.endsWith(".md") || n.endsWith(".acks.d"))) return;
+      if (commsPending) return;
+      commsPending = setTimeout(() => {
+        commsPending = undefined;
+        for (const c of clients) c.write(`event: comms\ndata: ${Date.now()}\n\n`);
+      }, 1000);
+    }).on("error", () => {});
+  }
+} catch {
+  // an unwatchable broadcast dir costs only the live update; /api/comms still answers
+}
+
 const TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript",
@@ -229,17 +252,31 @@ const server = http.createServer(async (req, res) => {
       if (req.headers["x-ask-token"] !== token) return send(res, 403, { error: "missing or wrong ask token" });
       return send(res, 200, { broadcasts: listBroadcasts() });
     }
-    // TELL: the Comms feed, one row per tell, broadcast or ask, newest first. Read-only; token-checked
-    // like /api/broadcasts. ?seat=&tier=<t[,t]>&kind=<tell|broadcast|ask[,…]>&since=<ISO>&limit=<1-1000>.
+    // TELL: the Comms feed, one row per tell, broadcast or ask, newest first. Read-only; gated like
+    // /api/search (the page's token, no foreign Origin), since the feed carries ask subjects.
+    // ?seat=&tier=<t[,t]>&kind=<tell|broadcast|ask[,…]>&since=<ISO>&limit=<1-1000>, or ?id=<id>[,<id>]
+    // (a record id, or <seat>/<id> for an ask), which returns exactly those rows and ignores the rest.
     if (url.pathname === "/api/comms" && req.method === "GET") {
+      const origin = req.headers.origin;
+      if (origin !== undefined && !ORIGINS.includes(origin)) return send(res, 403, { error: "cross-origin read refused" });
       if (req.headers["x-ask-token"] !== token) return send(res, 403, { error: "missing or wrong ask token" });
       const q = url.searchParams;
+      const list = (k: string) => (q.get(k) ? q.get(k)!.split(",") : undefined);
+      const badKind = list("kind")?.find((k) => !(KINDS as readonly string[]).includes(k));
+      if (badKind !== undefined) return send(res, 400, { error: `unknown kind '${badKind}' (tell, broadcast, ask)` });
+      const badTier = list("tier")?.find((t) => !(TIERS as readonly string[]).includes(t));
+      if (badTier !== undefined) return send(res, 400, { error: `unknown tier '${badTier}' (${TIERS.join(", ")})` });
+      const ids = list("id");
+      const REC_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+      const ASK_ID = /^[A-Za-z0-9][A-Za-z0-9_.:@-]*\/[A-Za-z0-9][A-Za-z0-9_.:@-]*$/;
+      const badId = ids?.find((i) => !(REC_ID.test(i) || (ASK_ID.test(i) && !i.includes(".."))));
+      if (badId !== undefined) return send(res, 400, { error: `bad id '${badId}'` });
       const since = q.get("since") ?? undefined;
       if (since !== undefined && !Number.isFinite(Date.parse(since))) return send(res, 400, { error: "since is not a date" });
       const limitRaw = q.get("limit");
       const limit = limitRaw === null ? undefined : Number(limitRaw);
       if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= 1000)) return send(res, 400, { error: "limit is 1 to 1000" });
-      const rows = listComms(listAsks(root), { seat: q.get("seat") || undefined, tier: q.get("tier") || undefined, kind: q.get("kind") || undefined, since, limit });
+      const rows = listComms(listAsks(root), { seat: q.get("seat") || undefined, tier: q.get("tier") || undefined, kind: q.get("kind") || undefined, since, limit, ids }, defaultBroadcastDir(root));
       return send(res, 200, { rows });
     }
     // IDE-334: semantic search over asks, broadcasts and proofs. Gated like /api/proofs: GET, the page's
