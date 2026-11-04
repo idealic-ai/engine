@@ -1,6 +1,6 @@
 ---
 name: loom-experiment
-description: "Run many EXPERIMENTS as parallel threads under one conductor that spends money on purpose: each question goes $0 census/replay first, then — only if money has to be spent — a pre-registered, placebo-controlled paid arm scored by a verdict tool, an adversarial review, and a landing that turns on in code once it is reviewed and measured, with no new flag. A persistent session with a budget ledger recounted from receipts, a fixed model tier, a live thread ledger, operator rulings kept verbatim, and a proof page per thread. Rigor scales with the stakes: a $0 question is just answered and written down; the full machinery runs only when money is spent or behaviour is about to change. Guides the user through building the measurement tooling (scorer, census, replay, verdict, held-out ledger, spend ledger, checks) when it is missing. The experimentation sibling of /loom. Triggers: \"loom experiments\", \"spend budget to improve X\", \"run experiments overnight\", \"measure and improve\", \"experiment loom\", \"try things and land what works\"."
+description: "Run many EXPERIMENTS as parallel threads under one conductor that spends money on purpose: each question goes $0 census/replay first, then — only if money has to be spent — a pre-registered, placebo-controlled paid arm scored by a verdict tool, an adversarial review, and a landing that turns on in code once it is reviewed and measured, with no new flag. A persistent session with a budget ledger recounted from receipts, a fixed model tier, a live thread ledger, operator rulings kept verbatim, and a proof page for each thread a reader would want to read. Rigor scales with the stakes: a $0 question is just answered and written down; the full machinery runs only when money is spent or behaviour is about to change. Guides the user through building the measurement tooling (scorer, census, replay, verdict, held-out ledger, spend ledger, checks) when it is missing. The experimentation sibling of /loom. Triggers: \"loom experiments\", \"spend budget to improve X\", \"run experiments overnight\", \"measure and improve\", \"experiment loom\", \"try things and land what works\"."
 version: 1.4
 tier: protocol
 ---
@@ -13,7 +13,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
 
 ### What it is, and what it is not
 
-*   **It is** `/loom` turned into an experimentation conductor. It keeps loom's machinery — threads, agents named by threadId (`¶INV_LOOM_AGENTS_NAMED_BY_THREAD`), composed writes, the live ledger, no rush to close, a proof page per thread (`¶INV_LOOM_EVERY_THREAD_PROVES`) — and adds a budget, a verdict discipline, tooling, and a landing path.
+*   **It is** `/loom` turned into an experimentation conductor. It keeps loom's machinery — threads, agents named by threadId (`¶INV_LOOM_AGENTS_NAMED_BY_THREAD`), composed writes, the live ledger, no rush to close, a proof page for each thread a reader would want to read (`¶INV_LOOM_EVERY_THREAD_PROVES`) — and adds a budget, a verdict discipline, tooling, and a landing path.
 *   **It is not** a ticket pipeline. Use `/loom` to ship a batch of known work. Use `/experiment` for one quick in-tree spike. Use this when the answer is unknown, costs money to find, and should change what ships.
 *   **Who it is for**: an operator with a budget, a system whose outputs can be stored and re-scored (an LLM pipeline, a ranking, a parser, a prompt), and a willingness to hear "no effect".
 
@@ -145,7 +145,7 @@ A Light thread stops after the $0 look and its proof. Tooling appears only when 
     6.  **Council, sometimes.** Every second survey, or when the ranking asks for more than the operator's set share of the remaining budget (default one quarter) or proposes a new direction, convene `/council` on the survey page, and run a refutation pass on its MUSTs before acting on any.
     Each survey lands on disk — a plan file, a census JSON and the page URL — and gets one `## 🔭 Survey` log entry linking them.
 *   **Know when to stop buying** (`¶INV_EXP_STOP_WHEN_THE_LEVERS_RUN_DRY`) — when paid levers keep returning NO-EFFECT, offer a `/council` over the measured results and write a stop list. Systems before quality: $0 hardening of the pipeline and the instruments usually beats another paid arm.
-*   **Prove every thread** at its end, while hot, per `¶INV_LOOM_EVERY_THREAD_PROVES` and the Setup publishing disposition.
+*   **Prove each thread that a reader would want to read about** at its end, while hot, per `¶INV_LOOM_EVERY_THREAD_PROVES` (its no-page list applies) and the Setup publishing disposition.
 *   **Ledger** — rewrite it in place as threads advance, keeping a dated copy of the previous one. Per thread: tier, experiment number, cap and spend, verdict word and evidence class, review state, switch state, whether a LAND has held (held · reversed · untested), proof URL.
 
 ### The loop gate (`AskUserQuestion`, defaults to keep going)
