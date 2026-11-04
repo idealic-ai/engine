@@ -1,8 +1,8 @@
 #!/bin/bash
 # ~/.claude/engine/scripts/tests/test-user-info-sh.sh — Deep coverage tests for user-info.sh
 #
-# Tests: cache mode, symlink detection mode, all field types, fallback behavior
-# Covers: .user.json cache, GoogleDrive symlink parsing, json/username/email/domain fields
+# Tests: cache mode, git-config mode, no-identity error, data-root, cache priority
+# Covers: .user.json cache, git user.email fallback, json/username/email/domain/data-root fields
 #
 # Run: bash ~/.claude/engine/scripts/tests/test-user-info-sh.sh
 
@@ -18,6 +18,7 @@ ORIGINAL_HOME="$HOME"
 setup() {
   TEST_DIR=$(mktemp -d)
   export HOME="$TEST_DIR/fake-home"
+  unset GIT_CONFIG_GLOBAL XDG_CONFIG_HOME
   mkdir -p "$HOME/.claude/engine"
   mkdir -p "$HOME/.claude"
 }
@@ -130,191 +131,165 @@ test_cache_unknown_field_errors() {
 run_test test_cache_unknown_field_errors
 
 # ============================================================
-# SYMLINK DETECTION MODE (no cache, symlink exists)
+# GIT CONFIG MODE (no cache, git user.email set)
 # ============================================================
 echo ""
-echo "--- Symlink Detection Mode ---"
+echo "--- Git Config Mode ---"
 
-test_symlink_detection_username() {
-  # Create a fake GoogleDrive path and symlink
-  local gdrive_path="$TEST_DIR/GoogleDrive-yarik@finchclaims.com/Shared drives/dev/tools"
-  mkdir -p "$gdrive_path"
-  ln -sf "$gdrive_path" "$HOME/.claude/tools"
+set_git_email() {
+  git config --global user.email "$1"
+}
 
+test_git_username() {
+  set_git_email "you@example.com"
   local output
   output=$(bash "$USER_INFO_SH" username)
-
-  if [[ "$output" == "yarik" ]]; then
-    pass "SYM-01: Extracts username from GoogleDrive symlink"
+  if [[ "$output" == "you" ]]; then
+    pass "GIT-01: username derived from git user.email"
   else
-    fail "SYM-01: Extracts username from GoogleDrive symlink" \
-      "yarik" "$output"
+    fail "GIT-01: username derived from git user.email" "you" "$output"
   fi
 }
-run_test test_symlink_detection_username
+run_test test_git_username
 
-test_symlink_detection_email() {
-  local gdrive_path="$TEST_DIR/GoogleDrive-yarik@finchclaims.com/Shared drives/dev/tools"
-  mkdir -p "$gdrive_path"
-  ln -sf "$gdrive_path" "$HOME/.claude/tools"
-
+test_git_email() {
+  set_git_email "you@example.com"
   local output
   output=$(bash "$USER_INFO_SH" email)
-
-  if [[ "$output" == "yarik@finchclaims.com" ]]; then
-    pass "SYM-02: Extracts email from GoogleDrive symlink"
+  if [[ "$output" == "you@example.com" ]]; then
+    pass "GIT-02: email read from git user.email"
   else
-    fail "SYM-02: Extracts email from GoogleDrive symlink" \
-      "yarik@finchclaims.com" "$output"
+    fail "GIT-02: email read from git user.email" "you@example.com" "$output"
   fi
 }
-run_test test_symlink_detection_email
+run_test test_git_email
 
-test_symlink_detection_domain() {
-  local gdrive_path="$TEST_DIR/GoogleDrive-yarik@finchclaims.com/Shared drives/dev/tools"
-  mkdir -p "$gdrive_path"
-  ln -sf "$gdrive_path" "$HOME/.claude/tools"
-
+test_git_domain() {
+  set_git_email "bob@acme.org"
   local output
   output=$(bash "$USER_INFO_SH" domain)
-
-  if [[ "$output" == "finchclaims.com" ]]; then
-    pass "SYM-03: Extracts domain from GoogleDrive symlink"
+  if [[ "$output" == "acme.org" ]]; then
+    pass "GIT-03: domain derived from git user.email"
   else
-    fail "SYM-03: Extracts domain from GoogleDrive symlink" \
-      "finchclaims.com" "$output"
+    fail "GIT-03: domain derived from git user.email" "acme.org" "$output"
   fi
 }
-run_test test_symlink_detection_domain
+run_test test_git_domain
 
-test_symlink_detection_json() {
-  local gdrive_path="$TEST_DIR/GoogleDrive-yarik@finchclaims.com/Shared drives/dev/tools"
-  mkdir -p "$gdrive_path"
-  ln -sf "$gdrive_path" "$HOME/.claude/tools"
-
+test_git_json() {
+  set_git_email "you@example.com"
   local output
   output=$(bash "$USER_INFO_SH" json)
-
-  if [[ "$output" == *'"username":"yarik"'* ]] && [[ "$output" == *'"email":"yarik@finchclaims.com"'* ]] && [[ "$output" == *'"domain":"finchclaims.com"'* ]]; then
-    pass "SYM-04: json returns full identity from symlink"
+  if [[ "$output" == *'"username":"you"'* ]] && [[ "$output" == *'"email":"you@example.com"'* ]] && [[ "$output" == *'"domain":"example.com"'* ]]; then
+    pass "GIT-04: json returns full identity from git config"
   else
-    fail "SYM-04: json returns full identity from symlink" \
-      '{"username":"yarik",...}' "$output"
+    fail "GIT-04: json returns full identity from git config" '{"username":"you",...}' "$output"
   fi
 }
-run_test test_symlink_detection_json
+run_test test_git_json
 
-test_symlink_different_email() {
-  local gdrive_path="$TEST_DIR/GoogleDrive-bob@acme.org/Shared drives/dev/tools"
-  mkdir -p "$gdrive_path"
-  ln -sf "$gdrive_path" "$HOME/.claude/tools"
-
-  local email domain
-  email=$(bash "$USER_INFO_SH" email)
-  domain=$(bash "$USER_INFO_SH" domain)
-
-  if [[ "$email" == "bob@acme.org" ]] && [[ "$domain" == "acme.org" ]]; then
-    pass "SYM-05: Works with different email/domain combo"
+test_drive_symlink_ignored() {
+  # A cloud-mount-shaped tools symlink is no longer an identity source
+  local drive_path="$TEST_DIR/CloudSync-drive-user@other.com/shared/dev/tools"
+  mkdir -p "$drive_path"
+  ln -sf "$drive_path" "$HOME/.claude/tools"
+  set_git_email "you@example.com"
+  local output
+  output=$(bash "$USER_INFO_SH" email)
+  if [[ "$output" == "you@example.com" ]]; then
+    pass "GIT-05: cloud-mount symlink is not an identity source"
   else
-    fail "SYM-05: Works with different email/domain combo" \
-      "bob@acme.org / acme.org" "$email / $domain"
+    fail "GIT-05: cloud-mount symlink is not an identity source" "you@example.com" "$output"
   fi
 }
-run_test test_symlink_different_email
+run_test test_drive_symlink_ignored
 
 # ============================================================
-# FALLBACK MODE (no cache, no valid symlink)
+# NO IDENTITY (no cache, no git user.email)
 # ============================================================
 echo ""
-echo "--- Fallback Mode ---"
+echo "--- No Identity ---"
 
-test_no_symlink_json_returns_nulls() {
-  # No cache, no tools symlink
-  local output
-  output=$(bash "$USER_INFO_SH" json)
-
-  if [[ "$output" == *'"username":null'* ]] && [[ "$output" == *'"email":null'* ]]; then
-    pass "FALL-01: No symlink → json returns null fields"
+test_no_identity_errors() {
+  local output rc=0
+  output=$(bash "$USER_INFO_SH" json 2>&1) || rc=$?
+  if [[ $rc -ne 0 ]] && [[ "$output" == *"git config --global user.email"* ]]; then
+    pass "NOID-01: No identity -> exit 1 with git user.email hint"
   else
-    fail "FALL-01: No symlink → json returns null fields" \
-      '{"username":null,"email":null,"domain":null}' "$output"
+    fail "NOID-01: No identity -> exit 1 with git user.email hint" "rc!=0 + hint" "rc=$rc, output=$output"
   fi
 }
-run_test test_no_symlink_json_returns_nulls
+run_test test_no_identity_errors
 
-test_no_symlink_field_returns_empty() {
-  local output
-  output=$(bash "$USER_INFO_SH" username)
-
-  if [[ -z "$output" ]]; then
-    pass "FALL-02: No symlink → username returns empty"
+test_no_identity_field_stdout_empty() {
+  local output rc=0
+  output=$(bash "$USER_INFO_SH" username 2>/dev/null) || rc=$?
+  if [[ $rc -ne 0 ]] && [[ -z "$output" ]]; then
+    pass "NOID-02: No identity -> username prints nothing on stdout"
   else
-    fail "FALL-02: No symlink → username returns empty" \
-      "<empty>" "$output"
+    fail "NOID-02: No identity -> username prints nothing on stdout" "rc!=0, <empty>" "rc=$rc, output=$output"
   fi
 }
-run_test test_no_symlink_field_returns_empty
+run_test test_no_identity_field_stdout_empty
 
-test_non_gdrive_symlink_returns_nulls() {
-  # Symlink exists but doesn't match GoogleDrive pattern
-  mkdir -p "$TEST_DIR/some-other-path/tools"
-  ln -sf "$TEST_DIR/some-other-path/tools" "$HOME/.claude/tools"
-
-  local output
-  output=$(bash "$USER_INFO_SH" json)
-
-  if [[ "$output" == *'"username":null'* ]]; then
-    pass "FALL-03: Non-GoogleDrive symlink → null identity"
+test_unknown_field_errors_without_identity() {
+  local output rc=0
+  output=$(bash "$USER_INFO_SH" badfield 2>&1) || rc=$?
+  if [[ $rc -ne 0 ]] && [[ "$output" == *"Unknown field"* ]]; then
+    pass "NOID-03: Unknown field errors even without identity"
   else
-    fail "FALL-03: Non-GoogleDrive symlink → null identity" \
-      '{"username":null,...}' "$output"
+    fail "NOID-03: Unknown field errors even without identity" "exit 1 + Unknown field" "rc=$rc, output=$output"
   fi
 }
-run_test test_non_gdrive_symlink_returns_nulls
-
-test_fallback_unknown_field_errors() {
-  local output
-  output=$(bash "$USER_INFO_SH" badfield 2>&1)
-  local rc=$?
-
-  # No cache, falls through to symlink path, then hits unknown field
-  # Behavior depends on path taken — but should either error or return empty
-  if [[ $rc -eq 0 ]] && [[ -z "$output" ]]; then
-    pass "FALL-04: Unknown field in fallback mode returns empty"
-  elif [[ $rc -ne 0 ]]; then
-    pass "FALL-04: Unknown field in fallback mode errors"
-  else
-    fail "FALL-04: Unknown field in fallback mode" \
-      "exit 1 or empty" "rc=$rc, output=$output"
-  fi
-}
-run_test test_fallback_unknown_field_errors
+run_test test_unknown_field_errors_without_identity
 
 # ============================================================
-# PRIORITY: Cache takes precedence over symlink
+# DATA ROOT (local disk, identity-independent)
+# ============================================================
+echo ""
+echo "--- Data Root ---"
+
+test_data_root_is_local() {
+  local output
+  output=$(bash "$USER_INFO_SH" data-root)
+  if [[ "$output" == "$HOME/.claude/data" ]]; then
+    pass "ROOT-01: data-root is \$HOME/.claude/data without any identity"
+  else
+    fail "ROOT-01: data-root is \$HOME/.claude/data without any identity" "$HOME/.claude/data" "$output"
+  fi
+}
+run_test test_data_root_is_local
+
+test_data_root_with_cache() {
+  echo '{"username":"testuser","email":"testuser@example.com","domain":"example.com"}' > "$HOME/.claude/engine/.user.json"
+  local output
+  output=$(bash "$USER_INFO_SH" data-root)
+  if [[ "$output" == "$HOME/.claude/data" ]] && [[ "$output" != *CloudSync* ]]; then
+    pass "ROOT-02: data-root stays local when a cache exists"
+  else
+    fail "ROOT-02: data-root stays local when a cache exists" "$HOME/.claude/data" "$output"
+  fi
+}
+run_test test_data_root_with_cache
+
+# ============================================================
+# PRIORITY: Cache takes precedence over git config
 # ============================================================
 echo ""
 echo "--- Cache Priority ---"
 
-test_cache_overrides_symlink() {
-  # Both cache AND symlink exist — cache should win
+test_cache_overrides_git() {
   echo '{"username":"cached-user","email":"cached@example.com","domain":"example.com"}' > "$HOME/.claude/engine/.user.json"
-
-  local gdrive_path="$TEST_DIR/GoogleDrive-symlink-user@other.com/Shared drives/dev/tools"
-  mkdir -p "$gdrive_path"
-  ln -sf "$gdrive_path" "$HOME/.claude/tools"
-
+  set_git_email "git-user@other.com"
   local output
   output=$(bash "$USER_INFO_SH" username)
-
   if [[ "$output" == "cached-user" ]]; then
-    pass "PRIO-01: Cache takes precedence over symlink"
+    pass "PRIO-01: Cache takes precedence over git config"
   else
-    fail "PRIO-01: Cache takes precedence over symlink" \
-      "cached-user" "$output"
+    fail "PRIO-01: Cache takes precedence over git config" "cached-user" "$output"
   fi
 }
-run_test test_cache_overrides_symlink
+run_test test_cache_overrides_git
 
 # ============================================================
 # RESULTS
