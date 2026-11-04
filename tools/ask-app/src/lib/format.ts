@@ -253,9 +253,9 @@ const OPTION_FIELDS: OptionField[] = ["cost", "effort", "blastRadius", "unblocks
  * ASKTREE round 2 (M2): the fields the app's card does not render yet, parsed onto their field AND
  * kept in the description text. ASKTREEUI: the card now draws Unblocks, Then and Elegance as lines of
  * their own, so none is echoed; the set stays for the next field that lands before its card does.
- * ASKDEPS: an option's own `Reversible:` is echoed until the card draws `option.reversible`.
+ * WAKEUI: the card draws `option.reversible` as well, so that is not echoed either.
  */
-const ECHOED_IN_DESCRIPTION = new Set<OptionField>(["reversible"]);
+const ECHOED_IN_DESCRIPTION = new Set<OptionField>();
 const PANEL_RE = /^(.+?)\s*(?:→|->)\s*(\S+?)\s*(?:—|–|:|\s-)\s*(.+)$/;
 // v1 took 2–4 capitals; v2 also takes one letter (A, B, as /decide boards key options) and digits (L2).
 /**

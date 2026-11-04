@@ -112,9 +112,9 @@ describe("ASKDEPS 2: a per-option Reversible: line", () => {
       "- [ ] [KEEP] Keep it\n  Leaves it alone.\n",
   );
   const [drop, keep] = ask.questions[0].options;
-  it("is parsed onto the option, and stays in its description until the card draws the field", () => {
+  it("is parsed onto the option, and leaves the description now the card draws the field", () => {
     expect(drop.reversible).toBe("no — the data is gone");
-    expect(drop.description).toBe("Removes it for good. Reversible: no — the data is gone");
+    expect(drop.description).toBe("Removes it for good."); // WAKEUI: the card draws option.reversible, so it is no longer echoed
     expect(drop.cost).toBe("an hour");
   });
   it("an option without the line has no reversible", () => {

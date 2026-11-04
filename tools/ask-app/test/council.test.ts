@@ -16,7 +16,7 @@ const head = "---\nid: c1\nto: operator\nfrom: meta:engine\nstatus: open\n---\n\
 const withCouncil = `${head}## ¶ASK_FUND: Choose one: What does a world fund its contracts out of?
 Lean: B
 Panel: Security → B — a separate root keeps the blast small
-Council: /Users/x/sessions/S/builds/FUND_COUNCIL_1.md
+Council: /home/x/sessions/S/builds/FUND_COUNCIL_1.md
 - [ ] [A] One root
 - [ ] [B] A separate root
 `;
@@ -24,7 +24,7 @@ Council: /Users/x/sessions/S/builds/FUND_COUNCIL_1.md
 describe("Council: field", () => {
   it("is parsed per fork and kept out of the fork's prose", () => {
     const q = parseAskFile(withCouncil).questions[0];
-    expect(q.council).toBe("/Users/x/sessions/S/builds/FUND_COUNCIL_1.md");
+    expect(q.council).toBe("/home/x/sessions/S/builds/FUND_COUNCIL_1.md");
     expect(q.prose ?? "").not.toContain("Council:");
     expect(q.panel).toHaveLength(1);
   });
@@ -39,7 +39,7 @@ describe("Council: field", () => {
   it("keeps the first of two Council: lines and warns about the second", () => {
     const two = withCouncil.replace(/^(Council: .*)$/m, "$1\nCouncil: https://x.example/second.html");
     const ask = parseAskFile(two);
-    expect(ask.questions[0].council).toBe("/Users/x/sessions/S/builds/FUND_COUNCIL_1.md");
+    expect(ask.questions[0].council).toBe("/home/x/sessions/S/builds/FUND_COUNCIL_1.md");
     expect(authorWarnings(ask).some((w) => w.includes("more than one Council:"))).toBe(true);
   });
 });
@@ -56,7 +56,7 @@ describe("a Council: line that names no report (S3)", () => {
     expect(ws.some((w) => w.includes("names no report path or URL"))).toBe(true);
     expect(ws.some((w) => w.includes("carries no Panel: line"))).toBe(false);
   });
-  it.each(["builds/X_COUNCIL.md", "/Users/x/r.md", "~/r.html", "https://x.example/r.html", "[board](https://x.example/b.html)"])("takes %s as the report", (v) => {
+  it.each(["builds/X_COUNCIL.md", "/home/x/r.md", "~/r.html", "https://x.example/r.html", "[board](https://x.example/b.html)"])("takes %s as the report", (v) => {
     expect(parseAskFile(ask.replace("auto after each PR", v)).questions[0].council).toBe(v);
   });
 });
@@ -84,7 +84,7 @@ describe("a fork that reports a panel without Panel: lines", () => {
     "Evidence: sessions/S/builds/FUND_COUNCIL_2.md",
     "The council's verdict: the section-first shape is sound.",
     // Real asks the first tightening missed (ASKCOUNCIL_CRITIQUE_S3.md S4, live root 2026-10-30).
-    "Evidence: [panel report](http://127.0.0.1:9440/proofs/proofs/invizko/fork2-fits-321ace0a.html)",
+    "Evidence: [panel report](http://127.0.0.1:9440/proofs/proofs/user/fork2-fits-321ace0a.html)",
     "The giant hero requires one metric marked as the figure. That's the council's must-fix.",
     "Stake: the council's rule is that BIND becomes the grade only after a corpus of 30 or more real pages.",
     "why: Re-ask of the outline's open questions; leans updated by the panel, two new questions it surfaced.",

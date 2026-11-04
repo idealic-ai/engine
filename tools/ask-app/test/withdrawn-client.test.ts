@@ -65,8 +65,8 @@ describe("a withdrawn ask is never under Open", () => {
     for (const f of ["open", "settled", "ruled"] as const) expect(rowInFilter(row, f)).toBe(false);
     expect(rowInFilter(row, "all")).toBe(true);
     // A row built before the withdrawal discarded the draft: still never Open.
-    expect(rowInFilter({ ...row, draftSent: true }, "open")).toBe(false);
-    expect(rowInFilter({ ...row, draftSent: true }, "all")).toBe(true);
+    expect(rowInFilter({ ...row, settled: false }, "open")).toBe(false);
+    expect(rowInFilter({ ...row, settled: false }, "all")).toBe(true);
   });
 
   it("offers neither Change answer nor Overrule", () => {

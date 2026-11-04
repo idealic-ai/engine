@@ -138,13 +138,13 @@ describe("indexSources", () => {
       kind: "proof",
       list: async () => ({
         ok: true,
-        items: listed ? [{ key: "proof:proofs/invizko/otlayer-1.html", stamp: "t1:1", read: async () => proofBody(published, { id: "proofs/invizko/otlayer-1.html", fallbackTitle: "x", seat: "invizko", status: "published", url: "http://store/otlayer-1.html", appPath: "/proofs/proofs/invizko/otlayer-1.html" }) }] : [],
+        items: listed ? [{ key: "proof:proofs/user/otlayer-1.html", stamp: "t1:1", read: async () => proofBody(published, { id: "proofs/user/otlayer-1.html", fallbackTitle: "x", seat: "user", status: "published", url: "http://store/otlayer-1.html", appPath: "/proofs/proofs/user/otlayer-1.html" }) }] : [],
       }),
     };
     const r = await indexSources(db, [bucket, proofFileSource([pdir])], e);
     expect(r.duplicates).toBe(1);
     const file = db.prepare("SELECT dup_of FROM items WHERE source = 'proof-files'").get() as { dup_of: string };
-    expect(file.dup_of).toBe("proof:proofs/invizko/otlayer-1.html");
+    expect(file.dup_of).toBe("proof:proofs/user/otlayer-1.html");
     expect(count("SELECT count(*) AS n FROM chunks c JOIN items i ON i.key = c.item_key WHERE i.source = 'proof-files'")).toBe(0);
     const hits = await search(db, e, { q: "merge converge", kinds: ["proof"] });
     expect(hits).toHaveLength(1);

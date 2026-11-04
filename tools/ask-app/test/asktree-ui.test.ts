@@ -3,7 +3,7 @@
  * Then and Elegance, lib/format.ts AskOption) are drawn under each option, Elegance as a first-class
  * line beside Cost; an option shows the forks that picking it opens (derived from DependsOn); a fork
  * whose own Reversible: says no gets a one-way badge; a fork can lay its options side by side; and an
- * ask with several forks gets an outline. Real asks from ~/.claude/data/yarik/asks are rendered from
+ * ask with several forks gets an outline. Real asks from <ask root> are rendered from
  * test/fixtures/asktreeui. Server-side render only (react-dom/server).
  */
 import { describe, expect, it, vi } from "vitest";

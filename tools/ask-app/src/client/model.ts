@@ -7,12 +7,15 @@
  * and grouping of those rows, which option a fork leans to, and which trade-off dimensions are
  * worth a column on a fork. Pure, so the tests read it without a DOM.
  */
+import { wakeFields, type WakeRow } from "./wake.ts";
 import { displayTitle } from "./md.ts";
-import { GRANT_CLASSES, isOperatorAnswer, type GrantClass } from "../lib/format.ts";
+import { GRANT_CLASSES, isOperatorAnswer, seatEq, type GrantClass } from "../lib/format.ts";
+import type { Owed, Settlement } from "../lib/settle.ts";
 import { isProvisional } from "./loop.ts";
 import { cardFor, draftAuthor, questionKey, visibleQuestions, type AnswerMap, type AnswerValue, type AskAnswer, type AskOption, type ParsedAsk } from "../lib/format.ts";
 
-export type StoredAsk = ParsedAsk & { seat: string; file: string; mtimeMs: number };
+/** ASKLISTUI: `settled` and `owed` come from /api/asks (src/lib/settle.ts); a server before ASKLIST sends neither. */
+export type StoredAsk = ParsedAsk & { seat: string; file: string; mtimeMs: number } & Partial<Settlement>;
 
 /** IDE-339: an answer's grant class (lib/format.ts GrantClass), shown only when it is one of GRANT_CLASSES. Read, never written. */
 export function grantClassOf(a: AskAnswer | undefined): GrantClass | undefined {
@@ -78,6 +81,19 @@ export type Row = {
   followedBy?: string;
   /** ASKWITHDRAW: who took the ask back (`withdrawn-actor`), when it is withdrawn. */
   withdrawnBy?: string;
+  /** WAKEUI: the folder the ask lives in, which the wake route names; `seat` is its from: line. */
+  askSeat: string;
+  /** WAKEUI: the row's wake state from /api/asks; absent from a server that predates WAKEBTN. */
+  wake?: WakeRow;
+  /**
+   * ASKLISTUI: nothing is owed on the ask, as the server says (src/lib/settle.ts). Not `isSettled`:
+   * that is only the fallback for a server that sends no `settled`.
+   */
+  settled: boolean;
+  /** ASKLISTUI: what is still owed and by whom, as the server says; absent when nothing is. */
+  owed?: Owed;
+  /** ASKLISTUI: the ⏳ mark's words, when the row carries one: only for `owed`, never for `draftSent`. */
+  waitMark?: string;
 };
 
 export const askRef = (a: StoredAsk) => `${a.seat}/${a.header.id}`;
@@ -121,13 +137,14 @@ const REF_RE = /[\w.-]+(?::[\w.-]+)?\/[\w.-]+/g;
  */
 export function followUpOf<T extends ParsedAsk & { seat: string }>(a: T, all: T[]): string | undefined {
   if (!isProvisional(a)) return undefined;
-  const ref = `${a.seat}/${a.header.id}`;
+  // ASKLISTUI: seats are compared case folded (seatEq), so the refs are too.
+  const ref = `${a.seat}/${a.header.id}`.toLowerCase();
   const asker = a.header.from?.trim();
   const mine = Date.parse(a.header.created ?? "");
   if (!asker || !Number.isFinite(mine)) return undefined;
-  const names = (v: string | undefined): string[] => (v ?? "").match(REF_RE) ?? [];
+  const names = (v: string | undefined): string[] => ((v ?? "").match(REF_RE) ?? []).map((n) => n.toLowerCase());
   const later = all.filter((b) => {
-    if (`${b.seat}/${b.header.id}` === ref || b.header.from?.trim() !== asker) return false;
+    if (`${b.seat}/${b.header.id}`.toLowerCase() === ref || !seatEq(b.header.from?.trim(), asker)) return false;
     const theirs = Date.parse(b.header.created ?? "");
     return Number.isFinite(theirs) && theirs >= mine;
   });
@@ -143,12 +160,16 @@ export function askRow(a: StoredAsk, now = Date.now(), all: StoredAsk[] = []): R
     const v = given[k];
     return v !== undefined && !(Array.isArray(v) && v.length === 0) && v !== "";
   }).length;
-  const settled = isSettled(a);
   const draftSent = isProvisional(a);
+  const followedBy = followUpOf(a, all);
+  // An old server sends no `settled`: answered or declined, except a provisional answer its asker has
+  // not followed up yet, which still waits (the rule the server's settle.ts states, ASKLISTUI SHOULD-2).
+  const settled = typeof a.settled === "boolean" ? a.settled : isSettled(a) && !(draftSent && !followedBy);
+  const waitMark = waitMarkOf(a, settled, now);
   const created = Date.parse(a.header.created ?? "");
   const reserved = a.header["reserved-for"]?.trim() || undefined;
   const author = a.draft ? draftAuthor(a.draft) : "";
-  const followedBy = followUpOf(a, all);
+  const wake = wakeFields(a);
   return {
     ref: askRef(a),
     id: a.header.id ?? "",
@@ -170,7 +191,34 @@ export function askRow(a: StoredAsk, now = Date.now(), all: StoredAsk[] = []): R
     ...(a.header.overruled?.trim() ? { overruled: a.header.overruled.trim() } : {}),
     ...(followedBy ? { followedBy } : {}),
     ...(a.header.status === "withdrawn" && a.header["withdrawn-actor"]?.trim() ? { withdrawnBy: a.header["withdrawn-actor"].trim() } : {}),
+    askSeat: a.seat,
+    ...(wake.wakeTarget !== undefined ? { wake } : {}),
+    settled,
+    ...(a.owed && !settled ? { owed: a.owed } : {}),
+    ...(waitMark ? { waitMark } : {}),
   };
+}
+
+/** ASKLISTUI: a push still pending this long after the answer was written has not just been slow to stamp. */
+export const PENDING_GRACE_MS = 5000;
+
+/** ASKLISTUI: the ⏳ mark's words for what is owed. */
+export function owedWords(o: Owed): string {
+  return o.kind === "follow-up" ? `Waiting on ${o.by} to follow up on your provisional answer` : `Your answer has not reached ${o.by}: ${o.why}`;
+}
+
+/**
+ * ASKLISTUI: the ⏳ mark, read from the server's `owed` alone. A `pending` push is stamped right after
+ * the answer is written, so for the first few seconds it only means the stamp has not landed yet.
+ */
+function waitMarkOf(a: StoredAsk, settled: boolean, now: number): string | undefined {
+  const o = a.owed;
+  if (settled || !o) return undefined;
+  if (o.kind === "delivery" && a.header.delivery?.trim() === "pending") {
+    const at = Date.parse(a.answer?.answeredAt ?? "");
+    if (Number.isFinite(at) && now - at < PENDING_GRACE_MS) return undefined;
+  }
+  return owedWords(o);
 }
 
 /** Waiting on you first, then high importance, then the oldest. */
@@ -475,16 +523,32 @@ export function batchConfirmation(drafts: ParsedAsk[], refOf: (a: ParsedAsk) => 
 
 export type Filter = "open" | "ruled" | "settled" | "all";
 /**
- * SF-4: the one predicate behind both a filter's list and its count. Settled is answered or declined;
- * a superseded ask is in All only (it was replaced, not settled by anyone here), and so is a withdrawn
+ * SF-4: the one predicate behind both a filter's list and its count. Settled (shown as Answered) is
+ * what the server calls settled (ASKLISTUI); a superseded ask is in All only (it was replaced, not settled by anyone here), and so is a withdrawn
  * one (ASKWITHDRAW: its asker took it back; nothing is left to answer).
  */
-export function rowInFilter(r: Pick<Row, "status" | "draft" | "ruledBy"> & { draftSent?: boolean; followedBy?: string }, f: Filter): boolean {
-  // Round 5: a provisional answer waits on its asker, so it stays under Open, never Settled, until
-  // the asker comes back with a follow-up ask (operator, 04:05): then it reads as settled.
-  if (r.status === "withdrawn") return f === "all";
-  if (r.draftSent && !r.followedBy) return f === "all" || f === "open";
-  return f === "all" ? true : f === "ruled" ? !!r.ruledBy : f === "settled" ? r.status === "answered" || r.status === "declined" : r.status === "open";
+export function rowInFilter(r: Pick<Row, "status" | "draft" | "ruledBy"> & { settled?: boolean }, f: Filter): boolean {
+  if (r.status === "withdrawn" || r.status === "superseded") return f === "all";
+  // ASKLISTUI: Open is what the server says is not settled (src/lib/settle.ts): an ask still to
+  // answer, and an answer that still owes a follow-up or a delivery. The rest is Answered. A row
+  // built without `settled` (a bare object) reads answered-or-declined, askRow's own fallback.
+  const settled = r.settled ?? (r.status === "answered" || r.status === "declined");
+  return f === "all" ? true : f === "ruled" ? !!r.ruledBy : f === "settled" ? settled : !settled;
+}
+
+/**
+ * ASKLISTUI: the list's parts. Under Open, what waits on you (`waitingOnYou`, the rule the header's
+ * count reads) comes first, and everything else after it: an ask addressed to another seat, and an
+ * answer that still owes something. An empty part is left out. Every other filter is one unnamed part.
+ */
+export function listSections<R extends Pick<Row, "waitingOnYou">>(rows: R[], f: Filter): { name: string; rows: R[] }[] {
+  if (f !== "open") return [{ name: "", rows }];
+  const you = rows.filter((r) => r.waitingOnYou);
+  const other = rows.filter((r) => !r.waitingOnYou);
+  return [
+    ...(you.length ? [{ name: "Waiting on you", rows: you }] : []),
+    ...(other.length ? [{ name: "Waiting on someone else", rows: other }] : []),
+  ];
 }
 
 /** The Ruled list's order: the newest ruling first; a ruling with no time sorts last. */

@@ -135,7 +135,7 @@ describe("(b) /api/broadcasts", () => {
 
 describe("client paths are served the page (the URL is the app's state)", () => {
   it("/a/…, /proofs, /proofs/<key>, /broadcasts and /broadcasts/<id> all get index.html with the token", async () => {
-    for (const p of ["/a/manager:domain/opforks-1029", "/proofs", "/proofs/proofs/invizko/x-1a2b3c4d.html?pane=off", "/broadcasts", "/broadcasts/ask-serve-hold#F2"]) {
+    for (const p of ["/a/manager:domain/opforks-1029", "/proofs", "/proofs/proofs/user/x-1a2b3c4d.html?pane=off", "/broadcasts", "/broadcasts/ask-serve-hold#F2"]) {
       const r = await req(p);
       expect(r.status, p).toBe(200);
       expect(r.body, p).toContain(`<meta name="ask-token" content="${TOKEN}">`);

@@ -291,9 +291,9 @@ describe("FIELDS: per-option Unblocks, Then and Elegance", () => {
     expect(q.options[1]).not.toHaveProperty("then");
   });
 
-  it("M2/N3, ASKTREEUI: the card renders Unblocks, Then and Elegance as their own lines, so they leave the description; Reversible stays in it", () => {
+  it("M2/N3, ASKTREEUI: the card renders Unblocks, Then and Elegance as their own lines, so they leave the description; WAKEUI: Reversible too", () => {
     const yes = parse(b).questions[0].options[0];
-    expect(yes.description).toBe("Goes out tonight. Reversible: yes");
+    expect(yes.description).toBe("Goes out tonight.");
     expect(yes.cost).toBe("a night watch");
     expect(yes.description).not.toMatch(/Cost:/);
   });

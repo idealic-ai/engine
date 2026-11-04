@@ -54,7 +54,8 @@ export async function refreshToken(f: Fetch = realFetch): Promise<Refresh> {
   }
 }
 
-export type Authed = { status: number; json: any; restarted?: "updated" | "failed" };
+/** `headers`: the response's, only when the caller asks (`deps.withHeaders`; RAGSEARCH-UI reads x-search-indexed-at). */
+export type Authed = { status: number; json: any; headers?: Headers; restarted?: "updated" | "failed" };
 export const RELOAD_UPDATED = "The app was updated — reload to continue. Your picks and notes are kept.";
 export const RELOAD_RESTARTED = "The app restarted. Reload to continue; your picks are kept.";
 
@@ -64,11 +65,11 @@ const isRejection = (status: number, json: any) => status === 403 && json?.error
  * A request with the token. On a token rejection: refresh the token, and retry once with it. Before the
  * retry `beforeRetry` runs (the card saves its unsent picks there). `restarted` says why it gave up.
  */
-export async function authedFetch(url: string, init: RequestInit = {}, deps: { fetch?: Fetch; beforeRetry?: () => void } = {}): Promise<Authed> {
+export async function authedFetch(url: string, init: RequestInit = {}, deps: { fetch?: Fetch; beforeRetry?: () => void; withHeaders?: boolean } = {}): Promise<Authed> {
   const f = deps.fetch ?? realFetch;
-  const once = async (): Promise<{ status: number; json: any }> => {
+  const once = async (): Promise<{ status: number; json: any; headers?: Headers }> => {
     const r = await f(url, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), "x-ask-token": askToken() } });
-    return { status: r.status, json: await r.json().catch(() => ({})) };
+    return { status: r.status, json: await r.json().catch(() => ({})), ...(deps.withHeaders ? { headers: r.headers } : {}) };
   };
   const first = await once();
   if (!isRejection(first.status, first.json)) return first;

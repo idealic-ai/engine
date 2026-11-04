@@ -14,10 +14,10 @@ let base: string, port: number, proc: ChildProcess, fakeEnv: Record<string, stri
 
 const LISTING = {
   Contents: [
-    { Key: "proofs/invizko/older-page-1a2b3c4d.html", LastModified: "2026-10-28T10:00:00.000Z", Size: 100 },
-    { Key: "proofs/invizko/newest-page-9f8e7d6c.html", LastModified: "2026-10-29T20:00:00.000Z", Size: 200 },
-    { Key: "proofs/invizko/assets/logo.html", LastModified: "2026-10-29T21:00:00.000Z", Size: 5 },
-    { Key: "proofs/invizko/note.txt", LastModified: "2026-10-29T22:00:00.000Z", Size: 5 },
+    { Key: "proofs/user/older-page-1a2b3c4d.html", LastModified: "2026-10-28T10:00:00.000Z", Size: 100 },
+    { Key: "proofs/user/newest-page-9f8e7d6c.html", LastModified: "2026-10-29T20:00:00.000Z", Size: 200 },
+    { Key: "proofs/user/assets/logo.html", LastModified: "2026-10-29T21:00:00.000Z", Size: 5 },
+    { Key: "proofs/user/note.txt", LastModified: "2026-10-29T22:00:00.000Z", Size: 5 },
     { Key: "proofs/meta/board/index.html", LastModified: "2026-10-29T12:00:00.000Z", Size: 300 },
   ],
 };
@@ -80,11 +80,11 @@ describe("(a) /api/proofs", () => {
     expect(j.ok).toBe(true);
     expect(j.bucket).toBe("proofs");
     expect(j.proofs.map((p: { key: string }) => p.key)).toEqual([
-      "proofs/invizko/newest-page-9f8e7d6c.html",
+      "proofs/user/newest-page-9f8e7d6c.html",
       "proofs/meta/board/index.html",
-      "proofs/invizko/older-page-1a2b3c4d.html",
+      "proofs/user/older-page-1a2b3c4d.html",
     ]);
-    expect(j.proofs[0]).toMatchObject({ owner: "invizko", slug: "newest-page-9f8e7d6c.html", title: "newest page", url: "http://127.0.0.1:1/proofs/proofs/invizko/newest-page-9f8e7d6c.html" });
+    expect(j.proofs[0]).toMatchObject({ owner: "user", slug: "newest-page-9f8e7d6c.html", title: "newest page", url: "http://127.0.0.1:1/proofs/proofs/user/newest-page-9f8e7d6c.html" });
     // An index.html page is named by its folder.
     expect(j.proofs[1]).toMatchObject({ owner: "meta", slug: "board" });
     expect(j.total).toBe(3);

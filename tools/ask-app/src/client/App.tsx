@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type Ref } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type Ref } from "react";
 import {
   answeredByText,
   cardFor,
@@ -43,6 +43,7 @@ import {
   forkLabel,
   groupRows,
   isSettled,
+  listSections,
   leanCodeFor,
   leanFor,
   leanReason,
@@ -65,7 +66,7 @@ import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type
 import { Inline, PaneContext, Rich, SmartLink, TicketLink, inlineTokens } from "./rich.tsx";
 import { attachedText, councilRef, forkCouncils, isStale, namedReport, optionTally, proposalLabel, tallyText } from "./panel.ts";
 import { CodeBlock } from "./highlight.tsx";
-import { NO_ELEGANCE, anyAnswerOpens, cellLabel, compareCols, compareRows, forkGivesElegance, isOneWay, markReached, opensUnder, outlineOf, valueOf, type ForkRef, type OutlinePick } from "./tree.ts";
+import { NO_ELEGANCE, forkFocusKey, anyAnswerOpens, cellLabel, compareCols, compareRows, forkGivesElegance, isOneWay, markReached, opensUnder, outlineOf, valueOf, type ForkRef, type OutlinePick } from "./tree.ts";
 import { batchOutcome, noticeFor, postSendStep, sendOutcome, type SentNotice } from "./next.ts";
 import { createRouteNav, createUrlSync } from "./urlsync.ts";
 import { blocks, displayTitle } from "./md.ts";
@@ -81,13 +82,17 @@ import { highlight, isTypingTarget, searchTerms, sidebarView, snippet, type Hay 
 import { FOLLOWUP_KIND_OPTIONS, FOLLOWUP_PENDING, adoptAfterFollowup, followupBody, followupConflict, followupLine, followupOutcome, followupResultFor, followupsOf, forkOnOpen, isAddressed, keepsOver, mayFollowUp, rememberFollowupResult, subscribeFollowupResults } from "./followup.ts";
 import { CHANGE_WORDING, OVERRULE_WORDING, cancelDiscards, changeAnswerStart, changeMode, draftBody, mayChangeAnswer, overruleBody, overruleOutcome, planClick, requestSend, sendRoute, staleChangeKeys, unsentKey, withoutGrant, type CardAction } from "./reanswer.ts";
 import { BroadcastFeed, BroadcastRows, ProofRows, ProofStatus, useBroadcasts, useProofs } from "./feeds.tsx";
+import { createSemanticSearch, fetchSemantic, openTarget, resultRoute, searchKeyAction, semanticQueryFor, type ResultItem, type SemanticState } from "./semantic.ts";
+import { RESULTS_ID, SearchResults, optionId, resultItems } from "./results.tsx";
+import { WakeButton } from "./WakeButton.tsx";
+import { showsRowBell, wakeFields } from "./wake.ts";
 
 export { ticketKeys };
 type Pane = { url: string; label: string; source: Brief["source"] | "link"; trust: Trust };
 type Theme = "auto" | "light" | "dark";
 type View = "asks" | "proofs" | "broadcasts";
 const FILTERS: Filter[] = ["open", "ruled", "settled", "all"];
-const FILTER_LABEL: Record<Filter, string> = { open: "Open", ruled: "Ruled below you", settled: "Settled", all: "All" };
+const FILTER_LABEL: Record<Filter, string> = { open: "Open", ruled: "Ruled below you", settled: "Answered", all: "All" };
 
 /** Proof hosts besides loopback :9440, set at build time (VITE_PROOF_ORIGINS); :9440 needs no entry. */
 const PROOF_ORIGINS = proofOriginsFromEnv((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_PROOF_ORIGINS);
@@ -261,6 +266,33 @@ export function App() {
   const seatShown = !(sideW < SIDE_SLIM) && groupBy !== "seat";
   const { rows, inFilter, count, waiting } = useMemo(() => sidebarView(allRows, shown, route.q, filter, { seat: seatShown }), [allRows, shown, route.q, filter, seatShown]);
   const extraOf = useMemo(() => new Map(rows.map((r) => [r.ref, r.extra])), [rows]);
+  // RAGSEARCH-UI: once the typing pauses, /api/search is asked too; its panel merges the word matches
+  // (`rows`, every filter) with the meaning hits. Only the latest query's answer is shown (semantic.ts).
+  const [semantic, setSemantic] = useState<SemanticState>({ phase: "idle" });
+  const [selected, setSelected] = useState(-1);
+  const semanticSearch = useMemo(
+    () => createSemanticSearch({ run: (q, signal) => fetchSemantic(q, { signal }), timers: { set: (fn, ms) => setTimeout(fn, ms), clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) }, onState: setSemantic }),
+    [],
+  );
+  useEffect(() => () => semanticSearch.dispose(), [semanticSearch]);
+  useEffect(() => {
+    semanticSearch.query(semanticQueryFor(view, route.q));
+  }, [route.q, view, semanticSearch]);
+  // N4: a live update can reshape the word-only part, so the selection resets with the rows too.
+  useEffect(() => {
+    setSelected(-1);
+  }, [semantic, rows]);
+  const results = useMemo(() => resultItems(semantic, rows), [semantic, rows]);
+  useEffect(() => {
+    // Moves the side list only (scroll.ts), and only when the selected result is out of its view.
+    if (selected < 0) return;
+    const el = document.getElementById(optionId(selected));
+    const box = scrollRootOf(el);
+    if (!el || !box) return;
+    const e = el.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    if (e.top < b.top || e.bottom > b.bottom) scrollWithin(box, el, { offset: e.top < b.top ? 8 : b.height - e.height - 8 });
+  }, [selected]);
   const loaded = root !== "";
   const named = route.ask;
   const current = named ? asks.find((a) => askRef(a) === named) : view === "asks" ? asks.find((a) => askRef(a) === inFilter[0]?.ref) : undefined;
@@ -299,6 +331,21 @@ export function App() {
   }, [currentRef]);
 
   const pick = (ref: string) => navigate({ section: "asks", ask: ref, fork: undefined, pane: undefined });
+  /** RAGSEARCH-UI: an ask opens in place; a proof or broadcast at its in-app path (Back returns), else its url in a new tab. */
+  const openResult = (it: ResultItem) => {
+    const t = openTarget(it);
+    if (!t) return;
+    if ("ask" in t) return pick(t.ask);
+    if ("url" in t) return void window.open(t.url, "_blank", "noopener");
+    navigate(resultRoute(t.app, currentRef), true);
+  };
+  /** Arrows move through the results and Enter opens the selected one; true when the key was used. */
+  const onSearchKey = (key: string): boolean => {
+    const act = searchKeyAction(key, selected, results.items);
+    if (act?.type === "move") setSelected(act.to);
+    if (act?.type === "open") openResult(act.item);
+    return act !== null;
+  };
   // NIT-1: the search box lives in the asks view only, so ?q= is dropped on the way to proofs or broadcasts.
   const setView = (v: View) => navigate({ section: v, ask: currentRef, proof: undefined, broadcast: undefined, pane: undefined, fork: undefined, ...(v === "asks" ? {} : { q: undefined }) });
   const openInPane = useCallback((url: string) => navigate({ pane: url }, true), [navigate]);
@@ -386,9 +433,20 @@ export function App() {
             )}
             {view === "broadcasts" && <BroadcastRows list={broadcasts.list} error={broadcasts.error} current={bcast} onPick={(id) => navigate({ broadcast: id }, true)} slim={slim} />}
             {view === "asks" && <>
-            <div className="side-tools">
-              <AskSearch q={query} onQuery={setQuery} slim={slim} inputRef={searchBox} />
-              {slim ? (
+            <SearchArea
+              onSearchKey={onSearchKey}
+              query={query}
+              onQuery={setQuery}
+              slim={slim}
+              inputRef={searchBox}
+              semantic={semantic}
+              rows={rows}
+              selected={selected}
+              now={now}
+              terms={terms}
+              onOpen={openResult}
+              onHover={setSelected}
+              tools={slim ? (
                 <select aria-label="Show" value={filter} onChange={(e) => setFilter(e.target.value as Filter)} id="filter-slim">
                   {FILTERS.map((f) => <option key={f} value={f}>{FILTER_LABEL[f]} {count(f)}</option>)}
                 </select>
@@ -411,23 +469,28 @@ export function App() {
                   </label>
                 </>
               )}
-            </div>
-            {drafts.length > 0 && trayHidden && (
-              <p className="side-drafts"><button className="linkish" onClick={showTray}>✎ {drafts.length} draft{drafts.length === 1 ? "" : "s"}</button> <span className="muted">saved, not sent</span></p>
-            )}
-            {inFilter.length === 0 && terms.length > 0 && <SearchEmpty q={query.trim()} onClear={() => setQuery("")} />}
-            {inFilter.length === 0 && terms.length === 0 && <p className="muted pad">{filter === "ruled" ? "No seat has ruled on an ask in your place." : `No ${filter === "all" ? "" : filter} asks.`}</p>}
-            {groupRows(inFilter, slim ? "none" : groupBy).map((g) => (
-              <section key={g.name || "all"} className="group" aria-label={g.name || undefined}>
-                {g.name && <h2 className="group-name">{g.name} <span className="n">{g.rows.length}</span></h2>}
-                <ul className="rows">
-                  {g.rows.map((r) => (
-                    <li key={r.ref}>
-                      <AskRowButton r={r} slim={slim} groupBy={slim ? "none" : groupBy} current={r.ref === currentRef} onPick={() => pick(r.ref)} terms={terms} extra={extraOf.get(r.ref)} />
-                    </li>
-                  ))}
-                </ul>
-              </section>
+              between={drafts.length > 0 && trayHidden && (
+                <p className="side-drafts"><button className="linkish" onClick={showTray}>✎ {drafts.length} draft{drafts.length === 1 ? "" : "s"}</button> <span className="muted">saved, not sent</span></p>
+              )}
+            />
+            {inFilter.length === 0 && terms.length > 0 && <SearchEmpty q={query.trim()} onClear={() => setQuery("")} meaningHits={results.items.filter((i) => i.match !== "word").length} />}
+            {inFilter.length === 0 && terms.length === 0 && <p className="muted pad">{filter === "ruled" ? "No seat has ruled on an ask in your place." : `No ${filter === "all" ? "" : FILTER_LABEL[filter].toLowerCase()} asks.`}</p>}
+            {listSections(inFilter, filter).map((part) => (
+              <div key={part.name || "list"} className={`part${part.name ? "" : " plain"}`} role={part.name ? "region" : undefined} aria-label={part.name || undefined}>
+                {part.name && <h2 className="part-name">{part.name} <span className="n">{part.rows.length}</span></h2>}
+                {groupRows(part.rows, slim ? "none" : groupBy).map((g) => (
+                  <section key={g.name || "all"} className="group" aria-label={g.name || undefined}>
+                    {g.name && <h3 className="group-name">{g.name} <span className="n">{g.rows.length}</span></h3>}
+                    <ul className="rows">
+                      {g.rows.map((r) => (
+                        <li key={r.ref}>
+                          <AskListItem r={r} slim={slim} groupBy={slim ? "none" : groupBy} current={r.ref === currentRef} onPick={() => pick(r.ref)} terms={terms} extra={extraOf.get(r.ref)} onChanged={load} />
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
             ))}
             {hiddenCount > 0 && !slim && <p className="muted pad">{hiddenCount} ask{hiddenCount === 1 ? " is" : "s are"} hidden until the ask {hiddenCount === 1 ? "it depends" : "they depend"} on is settled.</p>}
             </>}
@@ -507,7 +570,25 @@ const HIT_LABEL: Record<Hay["field"], string> = { title: "title", why: "why", id
  * IDE-304: the search box at the top of the ask list. Esc clears it; `/` elsewhere focuses it (App).
  * At the slim width it takes the full row above the filter select.
  */
-export function AskSearch({ q, onQuery, slim, inputRef }: { q: string; onQuery: (v: string) => void; slim: boolean; inputRef?: Ref<HTMLInputElement> }) {
+export function AskSearch({
+  q,
+  onQuery,
+  slim,
+  inputRef,
+  onKey,
+  controls,
+  activeId,
+}: {
+  q: string;
+  onQuery: (v: string) => void;
+  slim: boolean;
+  inputRef?: Ref<HTMLInputElement>;
+  /** RAGSEARCH-UI: arrows and Enter for the results panel; returns true when it used the key. */
+  onKey?: (key: string) => boolean;
+  /** The results listbox's id, and its selected option's, while there are results. */
+  controls?: string;
+  activeId?: string;
+}) {
   return (
     <div className={`search${slim ? " slim" : ""}`} role="search">
       <input
@@ -517,26 +598,84 @@ export function AskSearch({ q, onQuery, slim, inputRef }: { q: string; onQuery: 
         placeholder={slim ? "Search" : "Search asks  /"}
         aria-label="Search asks"
         aria-keyshortcuts="/"
+        aria-controls={controls}
+        aria-activedescendant={activeId}
         autoComplete="off"
         spellCheck={false}
         onChange={(e) => onQuery(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key !== "Escape") return;
-          e.preventDefault();
-          if (q) onQuery("");
-          else e.currentTarget.blur();
-        }}
+        onKeyDown={(e) => searchKeyDown(e, { q, onQuery, onKey })}
       />
       {q && <button type="button" className="search-clear" aria-label="Clear search" title="Clear search (Esc)" onClick={() => onQuery("")}>×</button>}
     </div>
   );
 }
 
+/**
+ * RAGSEARCH-UI (S1): the search box, the side tools beside it, and the results panel under them, in one
+ * place so their wiring is rendered and tested together: the box hands its keys to `onSearchKey` and
+ * points at the panel's listbox and its selected option.
+ */
+export function SearchArea({
+  query,
+  onQuery,
+  slim,
+  inputRef,
+  semantic,
+  rows,
+  selected,
+  now,
+  terms,
+  onSearchKey,
+  onOpen,
+  onHover,
+  tools,
+  between,
+}: {
+  query: string;
+  onQuery: (v: string) => void;
+  slim: boolean;
+  inputRef?: Ref<HTMLInputElement>;
+  semantic: SemanticState;
+  rows: (Row & { extra?: Hay })[];
+  selected: number;
+  now: number;
+  terms: string[];
+  onSearchKey: (key: string) => boolean;
+  onOpen: (i: ResultItem) => void;
+  onHover: (index: number) => void;
+  tools?: ReactNode;
+  between?: ReactNode;
+}) {
+  const { items } = resultItems(semantic, rows);
+  return (
+    <>
+      <div className="side-tools">
+        <AskSearch q={query} onQuery={onQuery} slim={slim} inputRef={inputRef} onKey={onSearchKey} controls={items.length ? RESULTS_ID : undefined} activeId={items[selected] ? optionId(selected) : undefined} />
+        {tools}
+      </div>
+      {between}
+      {terms.length > 0 && <SearchResults state={semantic} words={rows} selected={selected} now={now} terms={terms} onOpen={onOpen} onHover={onHover} />}
+    </>
+  );
+}
+
+type KeyEventLike = { key: string; preventDefault(): void; currentTarget: { blur(): void } };
+/** The search box's keydown: Esc clears, then blurs; any other key goes to `onKey`, and a used key's default is prevented. */
+export function searchKeyDown(e: KeyEventLike, o: { q: string; onQuery: (v: string) => void; onKey?: (key: string) => boolean }) {
+  if (e.key !== "Escape") {
+    if (o.onKey?.(e.key)) e.preventDefault();
+    return;
+  }
+  e.preventDefault();
+  if (o.q) o.onQuery("");
+  else e.currentTarget.blur();
+}
+
 /** IDE-304: nothing matched; say what was searched for and offer the way back. */
-export function SearchEmpty({ q, onClear }: { q: string; onClear: () => void }) {
+export function SearchEmpty({ q, onClear, meaningHits = 0 }: { q: string; onClear: () => void; meaningHits?: number }) {
   return (
     <p className="muted pad search-empty" role="status">
-      No asks match “{q}”. <button type="button" className="linkish" onClick={onClear}>Clear search</button>
+      No asks match “{q}”{meaningHits > 0 ? " by word; the results above match on meaning" : ""}. <button type="button" className="linkish" onClick={onClear}>Clear search</button>
     </p>
   );
 }
@@ -563,7 +702,8 @@ export function AskRowButton({ r, current, onPick, slim, groupBy = "none", terms
     // Round 5: a provisional answer is with its asker; a small mark, like the others, never a chip.
     // IDE-339: an answer that overruled a seat's ruling says whose, as quietly as the other marks.
     ...(r.overruled ? [["ovr", "↺", `Overruled ${r.overruled}’s ruling`] as [string, string, string]] : []),
-    ...(r.draftSent ? [["sent", "⏳", "Draft sent: your provisional answer is with the asker, who should come back with a second round"] as [string, string, string]] : []),
+    // ASKLISTUI: ⏳ is the server's `owed` (src/lib/settle.ts), never the client's draftSent.
+    ...(r.waitMark ? [["sent", "⏳", r.waitMark] as [string, string, string]] : []),
   ];
   const tone = r.waitingOnYou ? "you" : "other";
   return (
@@ -584,6 +724,21 @@ export function AskRowButton({ r, current, onPick, slim, groupBy = "none", terms
         <span className={`left${r.left === 0 ? " zero" : ""}${r.ruledBy ? " ruled" : ""}`} title={r.ruledAt ? new Date(r.ruledAt).toLocaleString() : undefined}>{left}</span>
       </span>
     </button>
+  );
+}
+
+/**
+ * WAKEUI: a sidebar row with its wake icon beside the row's button, not inside it: a button cannot
+ * hold another, and a click on the icon must not open or select the row.
+ */
+export function AskListItem(p: Parameters<typeof AskRowButton>[0] & { onChanged: () => void }) {
+  const { onChanged, ...row } = p;
+  const w = showsRowBell(p.r.wake) ? p.r.wake : undefined;
+  return (
+    <div className={`row-item${w ? " has-wake" : ""}`}>
+      <AskRowButton {...row} />
+      {w && <WakeButton w={w} seat={p.r.askSeat} id={p.r.id} onChanged={onChanged} variant="row" />}
+    </div>
   );
 }
 
@@ -923,6 +1078,9 @@ export function AskDetail({
   };
 
   // #Q2, #q2 and #f2 open that fork; an unknown one says so and shows the first.
+  // WAKEUI SHOULD-3: keyed by the ask's ref and the fork, so a reload of the same ask (a wake, any SSE
+  // change) does not focus and scroll again and take focus from a note being typed.
+  const focusKey = forkFocusKey(ask, focusFork);
   useEffect(() => {
     if (!focusFork) return setNotice("");
     const i = resolveFork(ask, focusFork);
@@ -933,7 +1091,7 @@ export function AskDetail({
       setNotice("");
       scrollToId(forkId(i));
     }
-  }, [focusFork, ask]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [focusKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * ASKFOLLOW: Send follow-up. The server writes the file, then pushes, then answers, and the page hears
@@ -1148,6 +1306,8 @@ export function AskDetail({
           {ask.header.overruled?.trim() && <span className="chip quiet overruled">Overruled {ask.header.overruled.trim()}’s ruling</span>}
           <span className="chip quiet">{provisional ? "draft sent" : ask.header.status === "open" ? `${row.left} of ${row.total} left` : ask.header.status}</span>
         </p>
+        {/* WAKEUI: one button per ask, since an ask waits on one seat; only while it is open. */}
+        {open && wakeFields(ask).wakeTarget !== undefined && <WakeButton w={wakeFields(ask)} seat={ask.seat} id={ask.header.id ?? ""} onChanged={onChanged} variant="card" />}
         {superseded && (
           <p className="superseded" role="note">
             <b>Replaced by</b> {superseded.by ? <AskLink to={superseded.by} onOpen={onOpenAsk} /> : <span>a newer ask</span>}
@@ -1565,7 +1725,7 @@ const KIND_LABEL: Record<string, string> = { "choose-one": "choose one", choose:
 
 /** Ticket keys written in this one fork: its title, prose, card lines, evidence and options. */
 function forkTickets(q: AskQuestion): string[] {
-  const opt = (os: AskOption[]): string[] => os.flatMap((o) => [o.label, o.description ?? "", o.cost ?? "", o.unblocks ?? "", o.then ?? "", o.elegance ?? "", ...opt(o.children ?? [])]);
+  const opt = (os: AskOption[]): string[] => os.flatMap((o) => [o.label, o.description ?? "", o.cost ?? "", o.unblocks ?? "", o.then ?? "", o.elegance ?? "", o.reversible ?? "", ...opt(o.children ?? [])]);
   const text = [q.title, q.prose ?? "", ...Object.values(q.meta), ...q.evidence, ...opt(q.options)].join("\n");
   return [...new Set([...text.matchAll(/\b([A-Z][A-Z0-9]{1,9}-\d{1,6})\b/g)].map((m) => m[1]))];
 }
@@ -1948,6 +2108,7 @@ function OptionBody({ o, card, q, lean, leanText, trade, suggested, tree }: { o:
       <span className="opt-label">
         {o.code && <code className="okey">{o.code}</code>}
         <span className="opt-text"><Inline text={label} /></span>
+        {isOneWay(o.reversible) && <span className="chip oneway" title={`Reversible: ${o.reversible}`}>One-way</span>}
         {suggested && <span className="sr-only">Suggested by the asker, not picked. Click to confirm.</span>}
         <Strip trade={trade} cells={cells} />
       </span>
@@ -1966,6 +2127,7 @@ function OptionBody({ o, card, q, lean, leanText, trade, suggested, tree }: { o:
       )}
       {o.unblocks?.trim() && <span className="opt-line opt-unblocks"><b>Unblocks</b> <Inline text={o.unblocks} /></span>}
       {o.then?.trim() && <span className="opt-line opt-then" title="What the asker does next if you pick this"><b>Then</b> <Inline text={o.then} /></span>}
+      {o.reversible?.trim() && <span className="opt-line opt-reversible"><b>Reversible</b> <Inline text={o.reversible} /></span>}
       {opens.length === 1 && <span className="opt-opens">Opens <ForkLinks ask={tree!.ask} refs={opens} /></span>}
       {opens.length > 1 && <span className="opt-opens">+{opens.length} follow-ups: <ForkLinks ask={tree!.ask} refs={opens} /></span>}
       {isLean && leanReason(leanText) && <span className="opt-lean"><b>Why the lean</b> <Inline text={leanReason(leanText)} /></span>}

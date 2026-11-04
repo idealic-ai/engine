@@ -5,13 +5,13 @@
  * AnswerMap); none is restated here.
  */
 import { questionKey, visibleQuestions, type AnswerMap, type AskOption, type AskQuestion } from "../lib/format.ts";
-import { forkLabel } from "./model.ts";
+import { askRef, forkLabel, type StoredAsk } from "./model.ts";
 import { optionTally, tallyText } from "./panel.ts";
 
 /** The per-option fields the card and the compare table draw, in their order: Elegance beside Cost. */
-export type FieldKey = Extract<keyof AskOption, "cost" | "elegance" | "effort" | "unblocks" | "then">;
+export type FieldKey = Extract<keyof AskOption, "cost" | "elegance" | "effort" | "unblocks" | "then" | "reversible">;
 export const OPTION_ROWS: [FieldKey, string][] = [
-  ["cost", "Cost"], ["elegance", "Elegance"], ["effort", "Effort"], ["unblocks", "Unblocks"], ["then", "Then"],
+  ["cost", "Cost"], ["elegance", "Elegance"], ["effort", "Effort"], ["unblocks", "Unblocks"], ["then", "Then"], ["reversible", "Reversible"],
 ];
 export const NO_ELEGANCE = "no elegance given";
 
@@ -43,19 +43,21 @@ export function anyAnswerOpens(questions: AskQuestion[], q: AskQuestion): ForkRe
 }
 
 /**
- * A fork is one-way when its own `Reversible:` line says so in its first word: no, one-way or
- * irreversible. Nothing else is read — not an option's prose — so a badge is never guessed.
+ * A fork or an option is one-way when its own `Reversible:` line says so in its first word: no, one-way
+ * or irreversible. Nothing else is read — not an option's prose — so a badge is never guessed.
  */
 export function isOneWay(reversible: string | undefined): boolean {
-  return /^\s*(?:no\b|one[- ]way\b|irreversible\b|not reversible\b)/i.test(reversible ?? "");
+  // WAKEUI NIT 4: "no" must stand alone, so "no-cost to undo" or "no-op" is not read as one-way.
+  return /^\s*(?:no(?![-\w])|one[- ]way\b|irreversible\b|not reversible\b)/i.test(reversible ?? "");
 }
 
 export type CompareRow = { label: string; cells: (string | undefined)[]; same: boolean; missing?: string };
 
 /**
  * A fork's options side by side: one column per top-level option, one row per field (Cost,
- * Elegance, Effort, Unblocks, Then, then Panel from panel.ts's tally). A row no option fills is not
- * drawn; it is named in `omitted`. `same` marks a row every option fills with the same text.
+ * Elegance, Effort, Unblocks, Then, Reversible, then Panel from panel.ts's tally). A row no option
+ * fills is not drawn; it is named in `omitted`, except Reversible, which no asker is asked for.
+ * `same` marks a row every option fills with the same text.
  */
 export function compareRows(q: AskQuestion): { columns: { code?: string; label: string }[]; rows: CompareRow[]; omitted: string[] } {
   const opts = q.options;
@@ -66,7 +68,10 @@ export function compareRows(q: AskQuestion): { columns: { code?: string; label: 
     const filled = cells.every((c) => c?.trim());
     rows.push({ label, cells, same: filled && cells.length > 1 && cells.every((c) => c!.trim() === cells[0]!.trim()), ...(missing ? { missing } : {}) });
   };
-  for (const [k, label] of OPTION_ROWS) push(label, opts.map((o) => o[k]?.trim() || undefined), k === "elegance" ? NO_ELEGANCE : undefined);
+  for (const [k, label] of OPTION_ROWS) {
+    const cells = opts.map((o) => o[k]?.trim() || undefined);
+    if (k !== "reversible" || cells.some(Boolean)) push(label, cells, k === "elegance" ? NO_ELEGANCE : undefined);
+  }
   push("Panel", opts.map((o) => {
     const t = optionTally(q, o);
     return t.of > 0 ? tallyText(t.picked, t.of, t.under) : undefined;
@@ -134,3 +139,6 @@ export function cellLabel(c: { code?: string; label: string }, max = 48): string
   const short = label.length > max ? `${label.slice(0, max).replace(/\s+\S*$/, "")} …` : label;
   return c.code ? `${c.code} · ${short}` : short;
 }
+
+/** WAKEUI SHOULD-3: what the fork-focus effect runs on: the ask's ref and the fork the URL names, never the ask object a reload replaces. */
+export const forkFocusKey = (ask: StoredAsk, focusFork: string | undefined) => `${askRef(ask)}#${focusFork === undefined ? "\u0000" : focusFork}`;

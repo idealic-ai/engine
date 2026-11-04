@@ -394,8 +394,8 @@ describe("round 4 (c): Proofs and Broadcasts views", () => {
   it("the proof list keeps the server's newest-first order and marks the page open in the pane", async () => {
     const { ProofRows } = await import("../src/client/feeds.tsx");
     const list = { ok: true, total: 2, at: "", proofs: [
-      { key: "k1", url: "http://127.0.0.1:9440/proofs/a.html", title: "Newest page", owner: "invizko", slug: "a.html", modified: "2026-10-29T12:00:00Z", size: 1 },
-      { key: "k2", url: "http://127.0.0.1:9440/proofs/b.html", title: "Older page", owner: "invizko", slug: "b.html", modified: "2026-10-28T12:00:00Z", size: 1 },
+      { key: "k1", url: "http://127.0.0.1:9440/proofs/a.html", title: "Newest page", owner: "user", slug: "a.html", modified: "2026-10-29T12:00:00Z", size: 1 },
+      { key: "k2", url: "http://127.0.0.1:9440/proofs/b.html", title: "Older page", owner: "user", slug: "b.html", modified: "2026-10-28T12:00:00Z", size: 1 },
     ] };
     const html = renderToStaticMarkup(createElement(ProofRows, { list, busy: false, onOpen: () => {}, onReload: () => {}, slim: false, current: "http://127.0.0.1:9440/proofs/b.html", now: NOW }));
     expect(html.indexOf("Newest page")).toBeLessThan(html.indexOf("Older page"));
@@ -407,7 +407,7 @@ describe("round 4 (c): Proofs and Broadcasts views", () => {
   });
 
   it("a proof from the store opens in the pane by itself: its host is loopback", () => {
-    expect(paneTrust("http://127.0.0.1:9440/proofs/proofs/invizko/a.html", "http://127.0.0.1:4977")).toBe("auto");
+    expect(paneTrust("http://127.0.0.1:9440/proofs/proofs/user/a.html", "http://127.0.0.1:4977")).toBe("auto");
   });
 });
 
@@ -416,9 +416,9 @@ describe("round 4: the URL is the app's state", () => {
     { section: "asks", filter: "open", group: "none" },
     { section: "asks", ask: "manager:domain/opforks-1029", filter: "settled", group: "topic", fork: "F2" },
     { section: "asks", ask: "idealic:ui/20261029-055903-how-should-the-design-matcher-fi", filter: "open", group: "none", pane: "off" },
-    { section: "asks", ask: "meta:utils/x", filter: "all", group: "seat", pane: "http://127.0.0.1:9440/proofs/proofs/invizko/a b?x=1&y=2" },
+    { section: "asks", ask: "meta:utils/x", filter: "all", group: "seat", pane: "http://127.0.0.1:9440/proofs/proofs/user/a b?x=1&y=2" },
     { section: "proofs", filter: "open", group: "none" },
-    { section: "proofs", proof: "proofs/invizko/fork2-fits-explore-7fc21c59.html", ask: "manager:domain/opforks-1029", filter: "ruled", group: "none" },
+    { section: "proofs", proof: "proofs/user/fork2-fits-explore-7fc21c59.html", ask: "manager:domain/opforks-1029", filter: "ruled", group: "none" },
     { section: "broadcasts", filter: "open", group: "none" },
     { section: "broadcasts", broadcast: "ask-serve-hold", filter: "open", group: "seat" },
   ];
@@ -433,7 +433,7 @@ describe("round 4: the URL is the app's state", () => {
   it("writes readable paths and leaves defaults out", () => {
     expect(serializeRoute(cases[0])).toBe("/");
     expect(serializeRoute(cases[1])).toBe("/a/manager:domain/opforks-1029?filter=settled&group=topic#F2");
-    expect(serializeRoute(cases[5])).toBe("/proofs/proofs/invizko/fork2-fits-explore-7fc21c59.html?ask=manager:domain/opforks-1029&filter=ruled");
+    expect(serializeRoute(cases[5])).toBe("/proofs/proofs/user/fork2-fits-explore-7fc21c59.html?ask=manager:domain/opforks-1029&filter=ruled");
     expect(serializeRoute(cases[7])).toBe("/broadcasts/ask-serve-hold?group=seat");
   });
 
@@ -626,8 +626,9 @@ describe("round 5 after the review fixes: provisional sends are partial on purpo
     expect(needsUnansweredConfirm("request", ["F1", "F2", "F3"])).toBe(false);
   });
 
-  it("a draft-sent row is listed and counted under Open, not Settled", () => {
-    const sent = { status: "answered", draft: false, draftSent: true };
+  // ASKLISTUI: whether it waits is the server's `settled` (src/lib/settle.ts), not the client's draftSent.
+  it("a draft-sent row the server calls unsettled is listed and counted under Open, not Settled", () => {
+    const sent = { status: "answered", draft: false, settled: false };
     expect(rowInFilter(sent, "open")).toBe(true);
     expect(rowInFilter(sent, "settled")).toBe(false);
     expect(rowInFilter(sent, "all")).toBe(true);

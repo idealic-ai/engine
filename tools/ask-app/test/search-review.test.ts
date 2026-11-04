@@ -152,7 +152,7 @@ describe("SHOULD-2: the list and its counts read the searched rows; the header r
     expect(app).toMatch(/const \{ rows, inFilter, count, waiting \} = useMemo\(\(\) => sidebarView\(allRows, shown, route\.q, filter,/);
     expect(app).not.toMatch(/const (inFilter|count|waiting) =/);
     expect(app).toMatch(/\{FILTER_LABEL\[f\]\} <span className="n">\{count\(f\)\}<\/span>/);
-    expect(app).toMatch(/groupRows\(inFilter,/);
+    expect(app).toMatch(/listSections\(inFilter, filter\)/); // ASKLISTUI: Open splits in two, each part grouped
   });
 });
 

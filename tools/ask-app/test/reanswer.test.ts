@@ -12,6 +12,7 @@ import { parseAskFile } from "../src/lib/format.ts";
 import { actedAsk, answerAsk, newAsk, readAsk } from "../src/lib/store.ts";
 import { isProvisional } from "../src/client/loop.ts";
 import { askRow, rowInFilter } from "../src/client/model.ts";
+import { withSettlement } from "../src/lib/settle.ts";
 import { clearUnsent, saveUnsent } from "../src/client/unsent.ts";
 import { CHANGE_WORDING, cancelDiscards, changeAnswerStart, draftBody, followUpOf, mayChangeAnswer, planClick, requestSend, staleChangeKeys, unsentKey } from "../src/client/reanswer.ts";
 
@@ -135,13 +136,16 @@ describe("a provisional ask whose asker came back", () => {
   const r2 = stored(head("related: manager:docs/a1\n", "open", "r2", "2026-10-29T11:00:00.000Z") + BODY);
   const older = stored(head("previous: manager:docs/a1\n", "open", "r0", "2026-10-29T09:00:00.000Z") + BODY);
 
+  // ASKLISTUI: the list reads `settled` from the server, so these rows carry what /api/asks sends.
   it("with a follow-up it leaves Open for Settled; without one it stays under Open", () => {
     expect(followUpOf(provisional, [provisional, r2])).toBe("manager:docs/r2");
-    const followed = askRow(provisional, NOW, [provisional, r2]);
+    const [p1, f1] = withSettlement([provisional, r2]);
+    const followed = askRow(p1, NOW, [p1, f1]);
     expect(followed.followedBy).toBe("manager:docs/r2");
     expect(rowInFilter(followed, "open")).toBe(false);
     expect(rowInFilter(followed, "settled")).toBe(true);
-    const alone = askRow(provisional, NOW, [provisional, older]);
+    const [p0, o0] = withSettlement([provisional, older]);
+    const alone = askRow(p0, NOW, [p0, o0]);
     expect(followUpOf(provisional, [provisional, older])).toBeUndefined();
     expect(rowInFilter(alone, "open")).toBe(true);
     expect(rowInFilter(alone, "settled")).toBe(false);
@@ -156,7 +160,8 @@ describe("a provisional ask whose asker came back", () => {
   it("round 2: only the same asker's follow-up counts; another seat's related: leaves the row under Open", () => {
     const other = { ...stored(head("related: manager:docs/a1\n", "open", "x1", "2026-10-29T11:00:00.000Z").replace("from: manager:docs", "from: domain:stats") + BODY), seat: "domain:stats" };
     expect(followUpOf(provisional, [provisional, other])).toBeUndefined();
-    expect(rowInFilter(askRow(provisional, NOW, [provisional, other]), "open")).toBe(true);
+    const [p2, o2] = withSettlement([provisional, other]);
+    expect(rowInFilter(askRow(p2, NOW, [p2, o2]), "open")).toBe(true);
   });
 
   it("round 2: a missing created: on either side is not a follow-up", () => {

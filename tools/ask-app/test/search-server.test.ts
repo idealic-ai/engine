@@ -39,7 +39,7 @@ async function startFake() {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify({ embeddings: v.map((x) => Array.from(x)) }));
     }
-    const page = req.url?.match(/^\/proofs\/proofs\/invizko\/(.+)$/)?.[1];
+    const page = req.url?.match(/^\/proofs\/proofs\/user\/(.+)$/)?.[1];
     if (page === "ledger-1.html") {
       res.writeHead(200, { "content-type": "text/html" });
       return res.end(PAGE("Ledger reconciliation", "the ledger reconciles every payout against the bank statement"));
@@ -58,7 +58,7 @@ async function startFake() {
 /** A proof-store env script whose `aws` prints one page; lib/proofs.ts sources it in place of the real one. */
 function proveEnv(dir: string): string {
   const f = path.join(dir, "prove-env.sh");
-  const listing = JSON.stringify({ Contents: [{ Key: "proofs/invizko/ledger-1.html", LastModified: "2026-10-30T10:00:00Z", Size: 100 }] });
+  const listing = JSON.stringify({ Contents: [{ Key: "proofs/user/ledger-1.html", LastModified: "2026-10-30T10:00:00Z", Size: 100 }] });
   fs.writeFileSync(
     f,
     `PROVE_S3_ENDPOINT_URL=http://127.0.0.1:${fakePort}\nPROVE_S3_PUBLIC_URL=http://127.0.0.1:${fakePort}\nPROVE_S3_BUCKET=proofs\nPROVE_S3_PREFIX=proofs\nENDPOINT_ARG=()\nPROFILE_ARG=()\naws() { cat <<'JSON'\n${listing}\nJSON\n}\n`,
@@ -178,7 +178,7 @@ describe("GET /api/search", () => {
     // The bucket page and its builds/ copy are one proof, the published one.
     const proofs = hits.filter((h: { kind: string }) => h.kind === "proof");
     expect(proofs).toHaveLength(1);
-    expect(proofs[0]).toMatchObject({ status: "published", url: `http://127.0.0.1:${fakePort}/proofs/proofs/invizko/ledger-1.html`, appPath: "/proofs/proofs/invizko/ledger-1.html" });
+    expect(proofs[0]).toMatchObject({ status: "published", url: `http://127.0.0.1:${fakePort}/proofs/proofs/user/ledger-1.html`, appPath: "/proofs/proofs/user/ledger-1.html" });
   });
 
   it("filters by kind", async () => {
