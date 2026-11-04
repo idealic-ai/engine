@@ -7,6 +7,8 @@ tier: protocol
 
 High-level project vision designer — produces structured, diffable vision documents with tagged chapters for `/coordinate` execution.
 
+Inside a loom, use `/envision` instead: it rides the loom session, asks its questions as one ask, and writes `docs/<NAME>_VISION.md` with chapters the loom turns into threads. This skill stays the standalone designer.
+
 # Direct Protocol (The Architect's Blueprint)
 
 Execute §CMD_EXECUTE_SKILL_PHASES.

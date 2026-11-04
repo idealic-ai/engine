@@ -77,6 +77,22 @@
 |-----------|----------------------------|-----------|--------------|------|-----|
 | [`sent` \| `received`] | `domain:<Seat>` · `yarik-fleet:domain:<Seat>` | [one line — the topic as the receiving seat will read it] | [the members: ticket keys, comment ids, inbox roots — a topic named with no members is a row the seat cannot act on] | [timestamp · `queued` \| `delivered` \| `send failed — [what]` — the reading, never a boolean] | [`taken` — [what the seat said] \| `declined — [why]` \| `already done — [the evidence]` \| `open — [what leaves it open]`] |
 
+## 📚 Docs owed (live — one row per documentation claim a landed thread made false)
+*The doc register the **Claim repair** and **Vision reconcile** triggers read. It was declared only in the inheritance template, so the triggers fired on a block this log never opened. Open a row as the thread lands, never at Synthesis. `claim` is a located sentence (path, line, what it asserts), because a row naming only a file cannot be acted on.*
+
+*`destination` is chosen when the row is opened, by one question: is the falsified sentence a statement of FACT about the system, or of INTENT about where it is going? Fact goes to `/revise`. Intent, or a fact whose supersession a vision's history must keep, goes to `/envision` — reconcile, because on a vision making the sentence true erases the deviation. A row closes as `revised — <report or vision path>`, or states what leaves it open; a bare `open` is an unworked row and `docRegister` does not clear while one stands.*
+
+| from thread | claim (path:line · what it asserts) | why it is owed | destination | state |
+|-------------|-------------------------------------|----------------|-------------|-------|
+| [threadId] | `path/to/doc.md:LINE` · [what a reader would check] | [falsified by the change \| unverifiable here \| outside a diff's scope] | [`/revise` \| `/envision` — reconcile \| `/document` \| escalate — no home] | [revised — [path] \| open — [what leaves it open]] |
+
+## ⚖️ Rules owed (live — one row per durable rule a lane learned and could not land)
+*Opened from a lane's hand-back line `rule owed → <file>: <clause>`, as the thread lands (`¶INV_A_RULE_OWED_HAS_AN_OWNER`). The conductor lands the rule in the named file or declines it with the reason; both close the row, and a decline stays visible. `rulesOwed` clears on an empty register written down, never on a skipped one. Copied unchanged to the inheritance at a hand-over.*
+
+| from thread | the rule (file · clause) | why the lane could not land it | state |
+|-------------|--------------------------|--------------------------------|-------|
+| [threadId] | `.directives/PITFALLS.md` · [the rule in a clause] | [outside the lane's partition \| held by another lane \| operator hold] | [landed — [sha or path] \| declined — [why] \| open — [what leaves it open]] |
+
 ## 🌊 Wave
 *The wave's own row, and the integration record that closes it. **A wave is not a thread landing** — it is the whole fan-out since the last boundary, so this block closes once, when the last of its lanes has landed or parked, and not at every loop gate. `wavesIntegrated` gates Loom→Synthesis on these rows and **clears on an empty result written down**, like `docRegister`: a loom that never reached a boundary, or one on a shared tree with nothing to merge, passes by recording that reading rather than by skipping the block.*
 

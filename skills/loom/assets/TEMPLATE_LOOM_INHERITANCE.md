@@ -46,11 +46,11 @@
 
 ## 📚 Docs owed — claims a landed change falsified
 
-*The doc register. One row per documentation claim a landed thread made false, and per piece of doc work a per-thread lane is forbidden to do. `claim` is a located sentence — path, line, what it asserts — because a row naming only a file is a row a successor cannot act on. A row closes when `/revise` repairs the claim and its Revise Report records the repair, or when the row is routed to `/document` and that session picks it up. A row whose claim is a statement of **intent** — a vision's goal, principle, scope or dependency — or a fact whose supersession the document's history must keep, routes to **`/direct` — reconcile** and closes with the dated reconciliation that records it. It may not route to `/revise`: that lane repairs a claim by making the sentence true, which on a vision erases the deviation.*
+*The doc register. One row per documentation claim a landed thread made false, and per piece of doc work a per-thread lane is forbidden to do. `claim` is a located sentence — path, line, what it asserts — because a row naming only a file is a row a successor cannot act on. A row closes when `/revise` repairs the claim and its Revise Report records the repair, or when the row is routed to `/document` and that session picks it up. A row whose claim is a statement of **intent** — a vision's goal, principle, scope or dependency — or a fact whose supersession the document's history must keep, routes to **`/envision` — reconcile** and closes with the dated reconciliation that records it. It may not route to `/revise`: that lane repairs a claim by making the sentence true, which on a vision erases the deviation.*
 
 | owner | from thread | claim (path:line · what it asserts) | why it is owed | destination | closes when |
 |-------|-------------|-------------------------------------|----------------|-------------|-------------|
-| [session dir] | [threadId] | `path/to/doc.md:LINE` · [what a reader would check] | [falsified by the change \| unverifiable here \| outside a diff's scope] | [`/revise` \| `/direct` — reconcile \| `/document` \| escalate — no home] | [Revise Report path + the repair \| the session that took it] |
+| [session dir] | [threadId] | `path/to/doc.md:LINE` · [what a reader would check] | [falsified by the change \| unverifiable here \| outside a diff's scope] | [`/revise` \| `/envision` — reconcile \| `/document` \| escalate — no home] | [Revise Report path + the repair \| the session that took it] |
 
 ## ⚖️ Rules owed — durable rules a lane learned and could not land
 
