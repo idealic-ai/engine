@@ -22,6 +22,29 @@
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Core requirement for fleet
 #     ¶INV_CLAIM_BEFORE_WORK — Worker coordination pattern
 
+# Guard: an imported (exported) shell function, or a BASH_ENV file, can shadow every command
+# and builtin this script calls, `unset` and `builtin` included, so no line inside the script
+# can undo it. Keywords and absolute paths cannot be shadowed. So when /usr/bin/env shows an
+# imported function or BASH_ENV, the script runs itself again in a bash without them, and the
+# body below runs only in such a bash. (Where /usr/bin/env, /usr/bin/grep or /usr/bin/sed is
+# missing the check cannot run, and the body runs unguarded.)
+# It relaunches at most once. /usr/bin/env prints a multi-line value one line per line, so a
+# value holding a line that starts BASH_FUNC_ or BASH_ENV= matches the check, and env -u cannot
+# remove a variable that does not exist. The relaunch therefore sets FLEET_GUARD_RAN=1, and a
+# bash that still matches with the marker set refuses with exit 2 ("unknown") instead of
+# relaunching again. The relaunch is a child rather than `exec`, because `exec` is a builtin an
+# imported function can shadow; the script's status is the child's, since nothing follows the
+# if/else. The body unsets the marker, so a script it runs gets its own one relaunch.
+if /usr/bin/env | /usr/bin/grep -Eq '^(BASH_FUNC_|BASH_ENV=)'; then
+  case "${FLEET_GUARD_RAN:-}" in
+    1) /usr/bin/printf '%s\n' "fleet: the environment still shows an imported function or BASH_ENV after one clean relaunch (a variable's value may hold a line starting BASH_FUNC_ or BASH_ENV=); refusing" >&2
+       /usr/bin/printf 'unknown\n'
+       /usr/bin/env -i /bin/sh -c 'exit 2' ;;
+    *) /usr/bin/env -u BASH_ENV $(/usr/bin/env | /usr/bin/sed -n 's/^\(BASH_FUNC_[^=]*\)=.*/-u \1/p') FLEET_GUARD_RAN=1 "$BASH" "${BASH_SOURCE[0]}" "$@" ;;
+  esac
+else
+unset FLEET_GUARD_RAN
+
 set -euo pipefail
 
 TMUX_CONF="$HOME/.claude/skills/fleet/assets/tmux.conf"
@@ -1757,3 +1780,5 @@ case "${1:-help}" in
         exit 1
         ;;
 esac
+
+fi

@@ -1885,6 +1885,90 @@ _fleet_children_in() {
   return 0
 }
 
+# fleet_live_chain <seat> — resolve <seat> in the live tree and print its ancestor chain, top
+# down, ending with <seat>: one "<window:label> <pane_id>" line per rung, each seat spelled as the
+# tree spells it. Seats match ignoring case (fleet_live_children's rule). This is the one shared
+# seat resolution for readers that need "who is above me" (engine rulings; hop.sh may adopt it).
+#   exit 0  the chain (at least the seat itself)
+#   exit 2  the tree cannot be read, or a rung's @pane_parent names a seat no pane carries, or the
+#           chain loops: stdout "unknown" — never a short chain, which would drop a binding rung
+#   exit 4  <seat>, or a seat on its chain, is carried by more than one pane: stdout "unknown"
+#   exit 5  no pane carries <seat>: stdout "unknown"
+#   exit 1  usage
+# Bash 3.2 safe.
+fleet_live_chain() {
+  local pfx="${FLEET_WARN_PREFIX:-fleet}" seat="${1:-}" tree=""
+  [ -n "$seat" ] && [ $# -eq 1 ] || { echo "usage: fleet_live_chain <window:label>" >&2; return 1; }
+  if ! tree=$(fleet_live_tree); then
+    echo unknown
+    return 2
+  fi
+  printf '%s\n' "$tree" | _fleet_chain_in "$seat"
+}
+
+# _fleet_chain_in <seat> — fleet_live_chain's rule over a tree already read, on stdin.
+_fleet_chain_in() {
+  local pfx="${FLEET_WARN_PREFIX:-fleet}" seat="${1:-}" tree="" res="" rc=0 arc=0
+  tree=$(cat) || arc=$?
+  [ "$arc" = 0 ] || { echo "$pfx: cannot read the tree given on stdin" >&2; echo unknown; return 2; }
+  res=$(set -o pipefail; printf '%s\n' "$tree" | awk -v s="$seat" '
+    NF >= 2 { k = tolower($1); seen[k]++; name[k] = $1; pane[k] = $2
+              par[k] = (NF >= 3 ? tolower($3) : "-") }
+    END {
+      cur = tolower(s)
+      if (!(cur in seen)) { print "ERR 5 no pane carries \x27" s "\x27 in the live tree (mistyped, or the seat is gone)"; exit }
+      n = 0
+      while (1) {
+        if (seen[cur] > 1) { print "ERR 4 refused: " seen[cur] " panes carry \x27" name[cur] "\x27, so its chain cannot be read"; exit }
+        if (cur in onpath) { print "ERR 2 the chain from \x27" s "\x27 loops at \x27" name[cur] "\x27"; exit }
+        onpath[cur] = 1; n++; row[n] = name[cur] " " pane[cur]
+        p = par[cur]
+        if (p == "-" || p == "") break
+        if (!(p in seen)) { print "ERR 2 \x27" name[cur] "\x27 names parent \x27" p "\x27, which no pane carries; the chain above it cannot be read"; exit }
+        cur = p
+      }
+      for (i = n; i >= 1; i--) print "ROW " row[i]
+      print "END"
+    }') || arc=$?
+  # A failed awk, or output with no END line, is not a chain: never hand back a short one.
+  if [ "$arc" != 0 ] || { case "$res" in "ERR "*) false ;; *) true ;; esac && [ "$(printf '%s\n' "$res" | tail -n 1)" != END ]; }; then
+    echo "$pfx: the chain for '$seat' could not be computed (awk exit $arc)" >&2
+    echo unknown
+    return 2
+  fi
+  case "$res" in
+    "ERR "*)
+      rc=$(printf '%s\n' "$res" | awk 'NR == 1 { print $2 }')
+      case "$rc" in 2|4|5) ;; *) rc=2 ;; esac
+      echo "$pfx: $(printf '%s\n' "$res" | sed -n '1s/^ERR [0-9] //p')" >&2
+      echo unknown
+      return "$rc" ;;
+  esac
+  printf '%s\n' "$res" | sed -n 's/^ROW //p' || { echo unknown; return 2; }
+}
+
+# fleet_live_seat <seat> — the same resolution for one seat without walking its chain: prints
+# "<window:label> <pane_id> <parent or ->" for the one pane that carries <seat> (case folded).
+# A writer resolves itself with this, so a parent with no pane (a manager restarting) does not
+# stop it from being refused or from proposing. Exits as fleet_live_chain: 2 unknown (tree
+# unreadable or awk failed), 4 two panes, 5 no pane, 1 usage.
+fleet_live_seat() {
+  local pfx="${FLEET_WARN_PREFIX:-fleet}" seat="${1:-}" tree="" res="" arc=0
+  [ -n "$seat" ] && [ $# -eq 1 ] || { echo "usage: fleet_live_seat <window:label>" >&2; return 1; }
+  if ! tree=$(fleet_live_tree); then echo unknown; return 2; fi
+  res=$(set -o pipefail; printf '%s\n' "$tree" | awk -v s="$seat" '
+    NF >= 2 && tolower($1) == tolower(s) { c++; row = $1 " " $2 " " (NF >= 3 ? $3 : "-") }
+    END { print c + 0; if (c == 1) print row; print "END" }') || arc=$?
+  if [ "$arc" != 0 ] || [ "$(printf '%s\n' "$res" | tail -n 1)" != END ]; then
+    echo "$pfx: the seat '$seat' could not be resolved (awk exit $arc)" >&2; echo unknown; return 2
+  fi
+  case "$(printf '%s\n' "$res" | head -n 1)" in
+    0) echo "$pfx: no pane carries '$seat' in the live tree (mistyped, or the seat is gone)" >&2; echo unknown; return 5 ;;
+    1) printf '%s\n' "$res" | sed -n 2p ;;
+    *) echo "$pfx: refused: more than one pane carries '$seat'" >&2; echo unknown; return 4 ;;
+  esac
+}
+
 # _fleet_env_value <NAME> <ps eww line> — the value of the LAST "NAME=" token (the environment
 # follows the argv in `ps eww` output, so a later token is the env's). exit 1 when absent.
 _fleet_env_value() {
