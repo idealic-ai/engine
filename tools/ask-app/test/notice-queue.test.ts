@@ -149,7 +149,7 @@ describe("the merge and the drain do not race (N2)", () => {
     expect(fs.readdirSync(path.join(dir, "queued", HOLDER))).toEqual([a.id]);
     // The drain shows it: entry gone, delivered line appended. The next notice must not touch that record.
     fs.rmSync(path.join(dir, "queued", HOLDER, a.id));
-    fs.appendFileSync(a.record, `delivered ${HOLDER} at-wake 2026-11-04T00:00:00Z via=queue\n`);
+    fs.appendFileSync(a.record, `delivered ${HOLDER} at-wake ${new Date().toISOString()} via=queue\n`);
     const before = fs.readFileSync(a.record, "utf8");
     const c = await queueNotice(HOLDER, { ref: "s/i", file: "/f", kind: "revised", by: ASKER, detail: "three" }, { noticeDir: dir });
     expect(c).toMatchObject({ status: "queued", merged: false });
