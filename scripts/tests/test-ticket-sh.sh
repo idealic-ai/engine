@@ -13,7 +13,7 @@ set -uo pipefail
 
 source "$(dirname "$0")/test-helpers.sh"
 
-TICKET_SH="$HOME/.claude/engine/scripts/ticket.sh"
+TICKET_SH="${ENGINE_SCRIPTS:-$HOME/.claude/engine/scripts}/ticket.sh"
 
 # ---- Setup / Teardown (run_test invokes these around each test) ----
 TEST_DIR=""

@@ -19,7 +19,7 @@
 # `watch` blocks (via fswatch) until a subscribed ticket has a pending update, then
 # exits: 0 = update waiting (run `read` to drain, THEN re-arm — else it re-fires
 # instantly on the same undrained entry), 124 = --timeout deadline, 2 = fswatch
-# missing, 1 = nothing subscribed.
+# missing or failing on every restart, 1 = nothing subscribed.
 #
 # Data model (per session .state.json):
 #   tickets:        [ {key, subscribedAt} ]                    # subscriptions
@@ -282,7 +282,30 @@ _watch_drain_emit() {
 # — the wake notification carries the update directly (§CMD_DRAIN_TICKET_QUEUE_ON_WAKE), no separate
 # `read`. KEY narrows to one ticket; omitted watches all subscribed. Designed for
 # Bash(run_in_background): the harness re-invokes the agent on exit. Exit: 0 update,
-# 124 timeout, 2 fswatch missing, 1 nothing to watch.
+# 124 timeout, 2 fswatch missing or failing on every restart (_watch_backend_failed),
+# 1 nothing to watch.
+#
+# fswatch can die on an event it receives (it has been seen to segfault inside its
+# FSEvents callback; `timeout` re-raises the signal, so the call returns 139). A backend
+# call that is neither an event (0) nor a timeout (124) is therefore handled like an
+# event: the queue is re-checked, then fswatch is started again. Only
+# WATCH_BACKEND_RETRIES consecutive failures (default 5) with no clean call between them
+# end the watch, with 2. WATCH_BACKEND_RETRY_PAUSE (default 1s) is the pause before each
+# restart, so a backend that fails at once cannot spin the loop.
+_watch_backend_failed() {
+  # Uses cmd_watch's `failures` counter (bash dynamic scope). Returns 1 when the
+  # budget is spent, else pauses and returns 0 so the caller restarts fswatch.
+  local rc="$1" max="${WATCH_BACKEND_RETRIES:-5}"
+  failures=$(( failures + 1 ))
+  if [ "$failures" -gt "$max" ]; then
+    echo "ticket: watch backend (fswatch) failed $failures times in a row (last exit $rc) — giving up" >&2
+    return 1
+  fi
+  echo "ticket: watch backend (fswatch) exited $rc — restarting ($failures/$max)" >&2
+  sleep "${WATCH_BACKEND_RETRY_PAUSE:-1}"
+  return 0
+}
+
 cmd_watch() {
   if ! command -v fswatch >/dev/null 2>&1; then
     echo "ticket: fswatch is required for 'watch' but not installed. Install: brew install fswatch" >&2
@@ -352,6 +375,7 @@ cmd_watch() {
 
   # A non-matching fs event re-checks and re-blocks WITHOUT exiting, so the agent is
   # only re-invoked (a background-task exit) on a real match — never on churn.
+  local rc failures=0
   if [ "${timeout:-0}" -gt 0 ]; then
     # Bounded (opt-in --timeout): exit 124 if no matching update lands before the deadline.
     local deadline now remaining
@@ -360,12 +384,13 @@ cmd_watch() {
       now=$(date +%s); remaining=$(( deadline - now ))
       [ "$remaining" -le 0 ] && break
       # Watch the session dir (not the file) so the atomic mv-write from safe_json_update is caught.
-      if timeout "$remaining" fswatch -1 "$dir" >/dev/null 2>&1; then
-        matched=$(jq -r --arg k "$key" "$match_filter" "$state" 2>/dev/null)
-        if [ -n "$matched" ]; then _watch_drain_emit "$state" "$matched"; return 0; fi
-      else
-        break  # fswatch hit the deadline
-      fi
+      timeout "$remaining" fswatch -1 "$dir" >/dev/null 2>&1
+      rc=$?
+      [ "$rc" -eq 124 ] && break  # fswatch hit the deadline
+      # 0 = fs event; anything else = the backend died, possibly on an event — re-check either way.
+      matched=$(jq -r --arg k "$key" "$match_filter" "$state" 2>/dev/null)
+      if [ -n "$matched" ]; then _watch_drain_emit "$state" "$matched"; return 0; fi
+      if [ "$rc" -eq 0 ]; then failures=0; else _watch_backend_failed "$rc" || return 2; fi
     done
     echo "ticket: watch timed out after ${timeout}s — no update" >&2
     return 124
@@ -377,19 +402,18 @@ cmd_watch() {
   # starting) is caught deterministically — not left to incidental .state.json
   # writes. The tick NEVER exits the process (only a real match does), so there are
   # still no fake-wakes and watchTaskId stays live for the gate.
-  local recheck="${WATCH_RECHECK_SECS:-30}" rc
+  local recheck="${WATCH_RECHECK_SECS:-30}"
   while :; do
     timeout "$recheck" fswatch -1 "$dir" >/dev/null 2>&1
     rc=$?
+    # 0 = fs event, 124 = internal re-check tick, anything else = the backend died,
+    # possibly on an event — re-evaluate in every case.
+    matched=$(jq -r --arg k "$key" "$match_filter" "$state" 2>/dev/null)
+    if [ -n "$matched" ]; then _watch_drain_emit "$state" "$matched"; return 0; fi
     if [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ]; then
-      # 0 = fs event, 124 = internal re-check tick — either way, re-evaluate.
-      matched=$(jq -r --arg k "$key" "$match_filter" "$state" 2>/dev/null)
-      if [ -n "$matched" ]; then _watch_drain_emit "$state" "$matched"; return 0; fi
+      failures=0
     else
-      # Not a tick and not an event — a genuine fswatch backend failure. Surface it
-      # (exit 2) rather than hot-spinning the loop.
-      echo "ticket: watch backend (fswatch) exited unexpectedly" >&2
-      return 2
+      _watch_backend_failed "$rc" || return 2
     fi
   done
 }
