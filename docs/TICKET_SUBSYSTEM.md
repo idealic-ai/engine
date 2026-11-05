@@ -128,7 +128,9 @@ wake → ticket fetch <matched keys> --since W --out <session>/.ticket-drain/dra
 - **A crashed backend is a wake, not an exit.** fswatch can die on an event it receives, so when a
   call returns anything but `0` (event) or `124` (timeout), the watch re-checks the queue, drains
   if something is waiting, and otherwise starts fswatch again after `WATCH_BACKEND_RETRY_PAUSE`
-  (1s). The watcher process, and so its `watchTaskId`, stays alive across the restart.
+  (1s, cut to the time left on a `--timeout`). It checks the queue again after the pause, because
+  no fswatch is running during it. The watcher process, and so its `watchTaskId`, stays alive
+  across the restart. A setting that is not a number falls back to its default.
 - Exit codes: `0` update drained · `124` `--timeout` deadline · `2` fswatch missing, or fswatch
   failed more than `WATCH_BACKEND_RETRIES` (5) times in a row with no clean call between · `1`
   nothing subscribed.

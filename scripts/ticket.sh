@@ -291,18 +291,26 @@ _watch_drain_emit() {
 # event: the queue is re-checked, then fswatch is started again. Only
 # WATCH_BACKEND_RETRIES consecutive failures (default 5) with no clean call between them
 # end the watch, with 2. WATCH_BACKEND_RETRY_PAUSE (default 1s) is the pause before each
-# restart, so a backend that fails at once cannot spin the loop.
+# restart, so a backend that fails at once cannot spin the loop. No fswatch runs during
+# the pause, so the caller checks the queue again once it ends. A value that is not a
+# number falls back to its default.
 _watch_backend_failed() {
   # Uses cmd_watch's `failures` counter (bash dynamic scope). Returns 1 when the
   # budget is spent, else pauses and returns 0 so the caller restarts fswatch.
-  local rc="$1" max="${WATCH_BACKEND_RETRIES:-5}"
+  # $2, when given, caps the pause in whole seconds (a bounded watch's time remaining).
+  local rc="$1" cap="${2:-}" max="${WATCH_BACKEND_RETRIES:-5}" pause="${WATCH_BACKEND_RETRY_PAUSE:-1}"
+  case "$max" in ''|*[!0-9]*) max=5 ;; esac
+  case "$pause" in ''|.|*[!0-9.]*|*.*.*) pause=1 ;; esac
+  if [ -n "$cap" ]; then
+    pause=$(awk -v p="$pause" -v c="$cap" 'BEGIN { if (c + 0 < 0) c = 0; print (p + 0 < c + 0) ? p : c }')
+  fi
   failures=$(( failures + 1 ))
   if [ "$failures" -gt "$max" ]; then
     echo "ticket: watch backend (fswatch) failed $failures times in a row (last exit $rc) — giving up" >&2
     return 1
   fi
   echo "ticket: watch backend (fswatch) exited $rc — restarting ($failures/$max)" >&2
-  sleep "${WATCH_BACKEND_RETRY_PAUSE:-1}"
+  sleep "$pause"
   return 0
 }
 
@@ -390,7 +398,11 @@ cmd_watch() {
       # 0 = fs event; anything else = the backend died, possibly on an event — re-check either way.
       matched=$(jq -r --arg k "$key" "$match_filter" "$state" 2>/dev/null)
       if [ -n "$matched" ]; then _watch_drain_emit "$state" "$matched"; return 0; fi
-      if [ "$rc" -eq 0 ]; then failures=0; else _watch_backend_failed "$rc" || return 2; fi
+      [ "$rc" -eq 0 ] && { failures=0; continue; }
+      now=$(date +%s)
+      _watch_backend_failed "$rc" "$(( deadline - now ))" || return 2
+      matched=$(jq -r --arg k "$key" "$match_filter" "$state" 2>/dev/null)   # landed during the pause?
+      if [ -n "$matched" ]; then _watch_drain_emit "$state" "$matched"; return 0; fi
     done
     echo "ticket: watch timed out after ${timeout}s — no update" >&2
     return 124
@@ -414,6 +426,8 @@ cmd_watch() {
       failures=0
     else
       _watch_backend_failed "$rc" || return 2
+      matched=$(jq -r --arg k "$key" "$match_filter" "$state" 2>/dev/null)   # landed during the pause?
+      if [ -n "$matched" ]; then _watch_drain_emit "$state" "$matched"; return 0; fi
     fi
   done
 }
