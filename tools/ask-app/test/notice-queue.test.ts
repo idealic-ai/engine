@@ -36,7 +36,10 @@ const queued = (seat: string) => {
 const record = (id: string) => fs.readFileSync(path.join(dir, `${id}.md`), "utf8");
 
 beforeEach(() => {
-  root = fs.mkdtempSync(path.join(os.tmpdir(), "notifyq-asks-"));
+  // The ask root sits in a folder of its own: with BROADCAST_DIR unset the queue is `broadcasts` beside
+  // the root, and beside a root made directly in the temp folder that queue is shared by every run.
+  root = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "notifyq-")), "asks");
+  fs.mkdirSync(root);
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "notifyq-bc-"));
   pushes = [];
   newAsk(root, { from: ASKER, to: HOLDER, id: "outline" }, BODY);
