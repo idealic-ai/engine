@@ -99,7 +99,7 @@ Extras: A: View current phase output summary | B: View remaining phases | C: Che
 - **`¶INV_PROTOCOL_IS_TASK`**: The protocol defines the task — do not skip steps or reorder them.
 
 ### Phase Gate
-- **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in the gate MUST use `AskUserQuestion`. Never drop to bare text for questions or routing decisions.
+- **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: Put the gate's question by the route that invariant sets (`.directives/AGENTS.md`): `AskUserQuestion` where it allows one, an ask otherwise. Never drop to bare text for questions or routing decisions.
 - **Max 4 options**: AskUserQuestion limit. 3 core + 1 custom. If no custom, 3 options (+ implicit "Other").
 - **Walkthrough is always available**: §CMD_WALK_THROUGH_RESULTS works ad-hoc on whatever artifacts exist in the session directory.
 - **Go back uses --user-approved**: Backward transitions are non-sequential per `§CMD_UPDATE_PHASE` enforcement. The user's menu choice is auto-quoted as the approval reason.

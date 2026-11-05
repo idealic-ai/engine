@@ -84,7 +84,7 @@ There is no formal structure -- no interrogation, no planning, no task gates. Th
 *   Don't gate on AskUserQuestion between steps -- just work
 
 ### Completion Signal
-When a unit of work is done, present the work-phase gate via `AskUserQuestion` (multiSelect: false):
+When a unit of work is done, present the work-phase gate (single-select) by the route `¶INV_QUESTION_GATE_OVER_TEXT_GATE` sets (`.directives/AGENTS.md`): an `AskUserQuestion` where it allows one, an ask otherwise:
 > "What next?"
 > - **"Keep working"** -- Stay in Phase 1. The session remains active for more tasks. Log the completed unit and continue.
 > - **"Close session"** -- Proceed to Phase 2: Synthesis. Write the debrief and deactivate.

@@ -48,7 +48,7 @@ Extras: [agent-generated contextual suggestion packages — combos of categories
 ---
 
 **Constraints**:
-*   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`. Never drop to bare text for questions or routing decisions.
+*   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: Put the context menu by the route that invariant sets (`.directives/AGENTS.md`): `AskUserQuestion` where it allows one, an ask otherwise. Never drop to bare text for questions or routing decisions.
 *   **`¶INV_TRUST_CACHED_CONTEXT`**: Do not re-read files already loaded via `contextPaths` or prior menu selections.
 *   **Fixed top 3**: Each category loads at most 3 curated items. No discretionary expansion beyond 3.
 *   **`@` escape hatch**: User can type `@path/to/file` in Other to add specific files beyond the curated set. Agent can also offer "Pick individual files" as an ABC extra when the curated set may be insufficient.
