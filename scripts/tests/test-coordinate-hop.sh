@@ -471,20 +471,21 @@ test_example_config_carries_no_grant() {
 test_manager_always_escalate_follows_the_rulings() {
   # Read from the live config: these three are gone, and nothing else moved.
   local p="$SKILL_DIR/assets/coordinate.manager.config.json" e
-  for e in "PR creation" "outward obligations (PR, ticket, Linear or Slack post, publish)" "conflict resolution and the wave-boundary merge"; do
+  for e in "PR creation" "outward obligations (PR, ticket, Linear or Slack post, publish)" "conflict resolution and the wave-boundary merge" "merge approval into fleet-owned ground"; do
     assert_eq "false" "$(jq --arg l "$e" '.alwaysEscalate | index($l) != null' "$p")" "manager alwaysEscalate no longer has: $e"
   done
-  for e in "conflict resolution" "deployment" "file deletion" "remote branch deletion" "database changes" "merge approval into fleet-owned ground"; do
+  for e in "conflict resolution" "deployment" "file deletion" "remote branch deletion" "database changes" "merge approval into a shared trunk (not the wave-boundary merge onto a session branch)"; do
     assert_eq "true" "$(jq --arg l "$e" '.alwaysEscalate | index($l) != null' "$p")" "manager alwaysEscalate keeps: $e"
   done
   assert_eq "12" "$(jq '.alwaysEscalate | length' "$p")" "manager alwaysEscalate gained no new category"
 }
 
 test_manager_backstops_and_log_lines_are_verbatim() {
-  # R6 (director ruling): F and H backstops and the C/D alwaysLog lines, from the proposal.
+  # R6 (director ruling): the F backstop and the C/D alwaysLog lines, from the proposal. Line 126,
+  # the H backstop, is narrowed to a shared trunk; test_manager_always_escalate_follows_the_rulings pins it.
   if [ ! -r "$PROPOSAL" ]; then skip "backstops verbatim" "proposal not readable"; return; fi
   local p="$SKILL_DIR/assets/coordinate.manager.config.json" line ln
-  for ln in 121 126; do
+  for ln in 121; do
     line=$(sed -n "${ln}p" "$PROPOSAL" | sed -E 's/^ *"(.*)",?$/\1/')
     assert_eq "true" "$(jq --arg l "$line" '.alwaysEscalate | index($l) != null' "$p")" "manager alwaysEscalate has proposal line $ln: $line"
   done
@@ -544,6 +545,7 @@ test_skill_text_matches_the_script() {
   assert_eq "1" "$(grep -c '^| G | .* | delegated, unmarked |$' "$s")" "Grant table: G delegated, unmarked"
   assert_eq "1" "$(grep -c '^| H | .* | delegated, unmarked |$' "$s")" "Grant table: H delegated, unmarked"
   assert_eq "2" "$(grep -c '^| [EF] | .* | reserved |$' "$s")" "Grant table: E and F stay reserved"
+  assert_eq "0" "$(cat "$s" "$SKILL_DIR/modes/manager.md" "$SKILL_DIR/assets/coordinate.manager.config.json" | grep -c 'merge approval into fleet-owned ground')" "no text still escalates the H merge by category"
   assert_eq "0" "$(grep -c 'G outward obligations\|E–H are reserved' "$s" "$SKILL_DIR/modes/manager.md" | awk -F: '{n+=$NF} END {print n}')" "SKILL.md and modes/manager.md do not reserve G or H"
   local step1
   step1=$(awk '/^#### Step 1/{f=1} /^#### Step 2/{f=0} f' "$s")

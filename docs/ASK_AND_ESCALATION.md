@@ -39,7 +39,7 @@ A seat that manages other seats reads the asks addressed to it with `hop.sh inbo
 
 - **Delegated** (A to D): assigning an action the operator already approved; a fast-forward or an append onto ground this fleet owns; a provisional working position for one weave; interpreting a ruling already given.
 - **Reserved** (E and F): rewriting history other people hold; a standing configuration change.
-- **The manager's once the grant lists them** (G and H): an outward obligation, such as the `/snapshot` and `/pr` confirms; approving a merge of verified work. Without the grant they pass up, unmarked.
+- **The manager's once the grant lists them** (G and H): an outward obligation, such as the `/snapshot` and `/pr` confirms; approving the wave-boundary merge of verified work onto a session branch. A merge into a shared trunk still passes up. Without the grant they pass up, unmarked.
 
 Linear posts have their own split, set by an operator ruling relayed to every seat as the broadcast `ruling-ticket-tier`:
 

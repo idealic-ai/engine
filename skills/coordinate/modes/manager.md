@@ -22,7 +22,7 @@ Load `assets/coordinate.manager.config.json` (direction dossier option C1). Each
 - **The grant, v1, is installed in this mode only** (the other modes carry no grant):
   - A–D, G and H are delegated; E and F are reserved.
   - The four git clauses replace "git operations".
-  - The proposal's backstops for standing configuration and merge approval remain in place, so a merge approval into fleet-owned ground is escalated by category whatever class it is given (SKILL.md § The Grant).
+  - The proposal's backstop for standing configuration remains in place. Its merge backstop is narrowed to a shared trunk: a merge approval into a shared trunk is escalated by category whatever class it is given, and the wave-boundary merge onto a session branch is class H, yours, unmarked (SKILL.md § The Grant).
 - Every top-of-loop pass reads the asks addressed to you (`hop.sh inbox`). `await-next` sweeps only the panes that are not waiting on a pass-up (`hop.sh panes`).
 - Floor and reserved items go up marked `reserved-for: operator`. If you receive such an ask, you only forward it.
 - Pass-ups go as /ask files (format per /ask). Each one is a row in `🪜 Escalations`, keyed by ask id and written before the send. A re-emitted worker is deduped with `hop.sh rowed`.

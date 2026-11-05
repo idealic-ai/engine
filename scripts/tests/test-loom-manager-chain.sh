@@ -179,7 +179,7 @@ check_receiving_half() {  # MUST-1, SHOULD-3, X1, X6: what each outcome of the h
   need '**`--reserved-for operator` when the inbox line carries the mark**' "the mark passed to may-rule"
   need '**any other exit, which fails closed and marked**' "any other may-rule exit fails closed and marked"
   need "**Step 3.1, the category check against the config's \`alwaysEscalate\`**" "rule continues to Step 3.1's category check"
-  need 'escalates "merge approval into fleet-owned ground" even when it is classed B' "R6's merge backstop escalates even when classed B"
+  need 'escalates "merge approval into a shared trunk" even when it is classed B' "R6's merge backstop escalates even when classed B"
   printf '%s' "$b" | grep -q -i -E 'waived|is ruled once' && echo "receiving half waives R6's backstop"
   need 'Only a question that clears all of them is answered' "answering only after Step 3"
   need 'classes A–D, G and H in Manager mode' "rulings bounded to A–D, G and H in Manager mode"
@@ -728,7 +728,7 @@ test_Z7_another_leads_project_exception_dropped() {
 }
 
 test_Z2_R6_backstop_waived_when_classed_B() {
-  perl_in "$plant_dir/S.md" 'escalates "merge approval into fleet-owned ground" even when it is classed B' 'is waived once "merge approval into fleet-owned ground" is classed B' || { fail "Z2: setup" "applied" "missed"; return; }
+  perl_in "$plant_dir/S.md" 'escalates "merge approval into a shared trunk" even when it is classed B' 'is waived once "merge approval into a shared trunk" is classed B' || { fail "Z2: setup" "applied" "missed"; return; }
   assert_plant_reddens "Z2 R6's backstop inverted (waived when classed B)"
 }
 

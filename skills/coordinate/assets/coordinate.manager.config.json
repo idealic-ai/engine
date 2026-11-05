@@ -21,9 +21,9 @@
     "deployment",
     "dependency changes",
     "standing configuration (canonical roots, hooks, permissions, schemas, promoted directives)",
-    "merge approval into fleet-owned ground"
+    "merge approval into a shared trunk (not the wave-boundary merge onto a session branch)"
   ],
-  "alwaysEscalateNote": "The blanket \"git operations\" entry is replaced by the four git clauses from AUTHORITY_GRANT_PROPOSAL.md lines 117-120, verbatim except that line 119 keeps only \"conflict resolution\". The proposal's backstops for standing configuration (F) and merge approval (H), lines 121 and 126, are restored verbatim (director ruling R6, interpreting v1 as class D). The wave-boundary merge in line 119, the outward obligations backstop (G, line 122) and \"PR creation\" are gone: the /snapshot and /pr confirms and the wave-boundary merge confirm are the manager's, unmarked. Kept beyond the proposal, conservatively: architecture changes, deployment, dependency changes.",
+  "alwaysEscalateNote": "The blanket \"git operations\" entry is replaced by the four git clauses from AUTHORITY_GRANT_PROPOSAL.md lines 117-120, verbatim except that line 119 keeps only \"conflict resolution\". The proposal's backstop for standing configuration (F), line 121, is restored verbatim, and its merge approval backstop, line 126, is narrowed to a merge into a shared trunk (director ruling R6, interpreting v1 as class D), so a trunk merge labelled B is still escalated by category and the wave-boundary merge onto a session branch, class H, is not. The wave-boundary merge in line 119, the outward obligations backstop (G, line 122) and \"PR creation\" are gone: the /snapshot and /pr confirms and the wave-boundary merge confirm are the manager's, unmarked. Kept beyond the proposal, conservatively: architecture changes, deployment, dependency changes.",
   "alwaysLog": [
     "every ruling, with its class, its condition and what would reverse it",
     "every hop (pass-up, re-ping, answer relayed down)",
@@ -89,7 +89,7 @@
       "H": {
         "covers": "the wave-boundary merge confirm: approving the merge of a wave's verified work onto the session branch",
         "condition": "the wave's gate ran green and the verdict was read, not the exit status; the answer names the wave and the branch it merges onto",
-        "reversal": "the gate is red or unread, or the merge lands outside ground this fleet owns; then it is not H"
+        "reversal": "the gate is red or unread, or the merge lands on a shared trunk or outside ground this fleet owns; then it is not H"
       }
     },
     "scope": "manager mode only (director ruling R7). coordinate.config.example.json carries no grant."
