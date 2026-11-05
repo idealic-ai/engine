@@ -12,20 +12,18 @@
   "alwaysEscalate": [
     "history rewrite (force-push, amend or rebase of pushed commits)",
     "push to a shared trunk or a branch another seat holds",
-    "conflict resolution and the wave-boundary merge",
+    "conflict resolution",
     "remote branch deletion",
     "file deletion",
     "database changes",
     "security decisions",
     "architecture changes",
-    "PR creation",
     "deployment",
     "dependency changes",
     "standing configuration (canonical roots, hooks, permissions, schemas, promoted directives)",
-    "outward obligations (PR, ticket, Linear or Slack post, publish)",
     "merge approval into fleet-owned ground"
   ],
-  "alwaysEscalateNote": "The blanket \"git operations\" entry is replaced by the four git clauses quoted on GRANTBOARD (IDE-238), verbatim from AUTHORITY_GRANT_PROPOSAL.md lines 117-120. The proposal's backstops for standing configuration (F), outward obligations (G) and merge approval (H), lines 121, 122 and 126, are restored verbatim (director ruling R6, interpreting v1 as class D), so a merge labelled B is still escalated by category. Kept beyond the proposal, conservatively: architecture changes, PR creation, deployment, dependency changes.",
+  "alwaysEscalateNote": "The blanket \"git operations\" entry is replaced by the four git clauses from AUTHORITY_GRANT_PROPOSAL.md lines 117-120, verbatim except that line 119 keeps only \"conflict resolution\". The proposal's backstops for standing configuration (F) and merge approval (H), lines 121 and 126, are restored verbatim (director ruling R6, interpreting v1 as class D). The wave-boundary merge in line 119, the outward obligations backstop (G, line 122) and \"PR creation\" are gone: the /snapshot and /pr confirms and the wave-boundary merge confirm are the manager's, unmarked. Kept beyond the proposal, conservatively: architecture changes, deployment, dependency changes.",
   "alwaysLog": [
     "every ruling, with its class, its condition and what would reverse it",
     "every hop (pass-up, re-ping, answer relayed down)",
@@ -49,17 +47,18 @@
   },
   "grant": {
     "version": "v1 — the leans, decided by the operator 2026-10-28 23:13 (GRANTBOARD IDE-238; record builds/authority-grant_DECIDE.md). A living document: amendments go through RULINGS (IDE-233).",
+    "amended": "G and H delegated: the manager answers the /snapshot and /pr confirms and the wave-boundary merge confirm.",
     "classes": [
       "A",
       "B",
       "C",
-      "D"
+      "D",
+      "G",
+      "H"
     ],
     "reserved": [
       "E",
-      "F",
-      "G",
-      "H"
+      "F"
     ],
     "clauses": {
       "A": {
@@ -81,6 +80,16 @@
         "covers": "interpreting a ruling the operator already gave",
         "condition": "the instruction is clear in direction and silent on the detail; the reading is logged beside the words read",
         "reversal": "the reading widens the instruction, or the operator reads it otherwise"
+      },
+      "G": {
+        "covers": "the /snapshot and /pr confirms: a commit, a push of the work's own branch, a pull request, a ticket comment or status move (the operator does not confirm these one by one)",
+        "condition": "the answer names the exact action (this commit, this PR, this comment); landing on a shared trunk still follows LANDING.md (the path owners' gos and the lease)",
+        "reversal": "the action reaches another lead's project, production, or deletes data, or the answer names no exact action; then it is not G"
+      },
+      "H": {
+        "covers": "the wave-boundary merge confirm: approving the merge of a wave's verified work onto the session branch",
+        "condition": "the wave's gate ran green and the verdict was read, not the exit status; the answer names the wave and the branch it merges onto",
+        "reversal": "the gate is red or unread, or the merge lands outside ground this fleet owns; then it is not H"
       }
     },
     "scope": "manager mode only (director ruling R7). coordinate.config.example.json carries no grant."

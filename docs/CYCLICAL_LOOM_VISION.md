@@ -86,7 +86,7 @@ Every loom keeps paying the re-establishment tax: a fresh session re-derives wha
 
 *   **A loom never writes code, the tracker or git directly.** Every mutation goes through a composed skill under that skill's own confirm. This vision does not loosen it.
 *   **No destructive git, ever.** The working tree is shared with live sessions and an unstaged revert leaves no recoverable trace.
-*   **The hard escalation floor stands** — cyclic deadlock, build-fails-after-retries, a blocking critique finding, and a thread loopback always reach the operator, whatever the autonomy setting.
+*   **The hard escalation floor stands** — cyclic deadlock, build-fails-after-retries and a thread loopback always reach the operator, whatever the autonomy setting.
 *   **A decision board must not show a count across people.** A panel read is attributable per lens; a tally starts resolving items by itself, which is the failure the no-voting rule exists to prevent.
 *   **Measurements from another repository are labelled as such** and may not be relied on here until re-measured.
 

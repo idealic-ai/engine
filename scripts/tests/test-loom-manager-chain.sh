@@ -182,7 +182,7 @@ check_receiving_half() {  # MUST-1, SHOULD-3, X1, X6: what each outcome of the h
   need 'escalates "merge approval into fleet-owned ground" even when it is classed B' "R6's merge backstop escalates even when classed B"
   printf '%s' "$b" | grep -q -i -E 'waived|is ruled once' && echo "receiving half waives R6's backstop"
   need 'Only a question that clears all of them is answered' "answering only after Step 3"
-  need 'classes A–D in Manager mode' "rulings bounded to A–D in Manager mode"
+  need 'classes A–D, G and H in Manager mode' "rulings bounded to A–D, G and H in Manager mode"
   need 'director ruling R7' "the R7 citation for the Manager-mode grant"
   need 'IDE-232 acceptance 1' "the IDE-232 acceptance 1 citation"
   printf '%s' "$b" | grep -q -i -E 'rule on it as orientation|whatever its class' \
@@ -250,14 +250,24 @@ check_composed_skill_residuals() {  # MUST-2(a)(b)
   local body; body=$(section_body "$1")
   need() { printf '%s' "$body" | grep -qF -- "$1" || echo "section lacks: $2"; }
   need 'invoke `/snapshot --yes`' "/snapshot --yes after a yes on the marked ask"
-  need 'pr SKILL.md:108' "the /pr residual"
-  need 'interrogate SKILL.md:78' "the /interrogate residual"
-  need 'decide SKILL.md:17' "the /decide residual"
+  # Each residual is cited as `<skill> SKILL.md:<n>`. The number moves as those files are edited,
+  # so the check reads it from the citation and requires that line of the cited file to hold the
+  # text the residual is about, rather than pinning the number.
+  cites() {  # $1 skill, $2 text the cited line must hold, $3 label
+    local n; n=$(printf '%s' "$body" | grep -oE "$1 SKILL\.md:[0-9]+" | head -1 | sed 's/.*://')
+    [ -n "$n" ] || { echo "section lacks: $3 (no '$1 SKILL.md:<line>' citation)"; return; }
+    sed -n "${n}p" "$ENGINE/skills/$1/SKILL.md" | grep -qF -- "$2" \
+      || echo "section cites $1 SKILL.md:$n for $3, but that line lacks: $2"
+  }
+  cites pr '**Confirm (MANDATORY):**' "the /pr residual"
+  cites interrogate 'all user interaction is via `AskUserQuestion`' "the /interrogate residual"
+  cites decide '**The primitive is `AskUserQuestion`.**' "the /decide residual"
   need 'never runs them at an unwatched terminal' "held, not run unwatched"
   need "owed by that skill's owner" "the waiver owed to each owner"
   need '`⚖️ Rules owed` block, where the conductor rows the three under **WAIVERS**' "the residuals' destination (Rules owed: WAIVERS)"
-  # SHOULD-6 / Z1: the gate confirms carry the mark — the only thing that stops a manager ruling on them.
-  need 'the merge confirm (H) and the `/snapshot` and `/pr` confirms (G) carry `reserved-for: operator`' "the gate confirms carry reserved-for: operator"
+  # Z1: the manager answers the gate confirms, unmarked; the floor stays marked.
+  need 'The `/snapshot` and `/pr` confirms (G) and the merge confirm (H) go **unmarked**' "the gate confirms go unmarked"
+  need 'Every hard-floor item stays `reserved-for: operator`' "the hard floor stays marked"
 }
 
 check_proof_variants() {  # the variant line names every /prove sibling a loom may pick
@@ -332,6 +342,26 @@ check_lanes_never_contact_up() {  # Q9: a lane is never told to contact the oper
   grep -qF 'Escalate to the **conductor**' "$1" || echo "lanes no longer 'Escalate to the **conductor**'"
 }
 
+check_floor_content() {  # R4, Z5-Z7: what is on the floor, and what the rulings took off it
+  local floor on
+  floor=$(grep -F '¶INV_LOOM_HARD_ESCALATION_FLOOR`)**' "$1")
+  [ -n "$floor" ] || { echo "no hard floor paragraph"; return; }
+  # The floor's own list is the text up to the first sentence that takes something off it.
+  on=${floor%%\*\*The per-thread*}
+  for item in 'cyclic deadlock' 'build failing after retries' 'thread loopback'; do
+    printf '%s' "$on" | grep -qF -- "$item" || echo "floor list lacks: $item"
+  done
+  for item in 'MUST-FIX' 'ticket-disposition' 'ticket disposition'; do
+    printf '%s' "$on" | grep -qF -- "$item" && echo "floor list names: $item"
+  done
+  for line in 'The per-thread ticket-disposition question is not on this floor, and a manager rules it.' \
+    "**creates or re-scopes a ticket in another lead's project**: that one is marked \`reserved-for: operator\`" \
+    'A scrutinize MUST-FIX is not on this floor either, and needs no escalation' \
+    "A SHOULD-FIX is your manager's call" 'a NIT is the conductor'"'"'s call'; do
+    printf '%s' "$floor" | grep -qF -- "$line" || echo "floor paragraph lacks: $line"
+  done
+}
+
 all_violations() {  # $1 skill $2 dirs $3 template
   check_no_old_phrases "$1" "$2"
   check_sites_cite_section "$1" "$2"
@@ -351,6 +381,7 @@ all_violations() {  # $1 skill $2 dirs $3 template
   check_parented_setup_semantics "$1"
   check_composed_skill_residuals "$1"
   check_proof_variants "$1"
+  check_floor_content "$1"
 }
 
 report() {  # $1 label, $2 violations
@@ -478,13 +509,9 @@ test_R3_the_sites_are_actually_there() {
   fi
 }
 
-test_R4_the_floor_content_is_unchanged() {
-  local floor missing=""
-  floor=$(grep -F '¶INV_LOOM_HARD_ESCALATION_FLOOR`)**' "$SKILL")
-  for item in 'ticket-disposition question' 'cyclic deadlock' 'build failing after retries' 'scrutinize MUST-FIX' 'thread loopback'; do
-    printf '%s' "$floor" | grep -qF "$item" || missing="$missing [$item]"
-  done
-  report "R4: the hard floor still names all five items" "$missing"
+test_R4_the_floor_names_three_items_and_takes_two_off() {
+  report "R4: the floor lists its three items; MUST-FIX and the disposition are off it, with the exception" \
+    "$(check_floor_content "$SKILL")"
 }
 
 test_R5_lanes_escalate_only_to_their_conductor() {
@@ -680,9 +707,24 @@ test_Y6_false_sibling_reason_reintroduced() {
   assert_plant_reddens "Y6 'only /prove-explore names its siblings' reintroduced"
 }
 
-test_Z1_gate_confirms_go_unmarked() {
-  perl_in "$plant_dir/S.md" 'confirms (G) carry `reserved-for: operator`, and every hard-floor item' 'confirms (G) go unmarked, so the manager may rule on them, and every hard-floor item' || { fail "Z1: setup" "applied" "missed"; return; }
-  assert_plant_reddens "Z1 the merge, /snapshot and /pr confirms go unmarked"
+test_Z1_gate_confirms_marked_again() {
+  perl_in "$plant_dir/S.md" 'the merge confirm (H) go **unmarked**' 'the merge confirm (H) carry `reserved-for: operator`' || { fail "Z1: setup" "applied" "missed"; return; }
+  assert_plant_reddens "Z1 the merge, /snapshot and /pr confirms marked for the operator again"
+}
+
+test_Z5_must_fix_back_on_the_floor_list() {
+  perl_in "$plant_dir/S.md" 'a thread'"'"'s **build failing after retries** ·' 'a thread'"'"'s **build failing after retries** · a **scrutinize MUST-FIX** ·' || { fail "Z5: setup" "applied" "missed"; return; }
+  assert_plant_reddens "Z5 a MUST-FIX back on the floor list"
+}
+
+test_Z6_floor_item_dropped() {
+  perl_in "$plant_dir/S.md" ' · a **thread loopback** (a thread sent back because what it is for has changed; a lane applying a finding to its code is not one). **The per-thread' '. **The per-thread' || { fail "Z6: setup" "applied" "missed"; return; }
+  assert_plant_reddens "Z6 thread loopback dropped from the floor list"
+}
+
+test_Z7_another_leads_project_exception_dropped() {
+  perl_in "$plant_dir/S.md" "**creates or re-scopes a ticket in another lead's project**" "**creates a ticket**" || { fail "Z7: setup" "applied" "missed"; return; }
+  assert_plant_reddens "Z7 the another-lead's-project exception dropped"
 }
 
 test_Z2_R6_backstop_waived_when_classed_B() {

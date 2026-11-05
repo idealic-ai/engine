@@ -62,7 +62,7 @@ jq -c '{skill,taskType,currentPhase,contextUsage,lifecycle}' "$SESSION_DIR/.stat
 
 *   **Compute the sessions root** as the parent of `$SESSION_DIR` — the root you can *prove* rather than the one you can name. `TEMPLATE_LOOM_INHERITANCE.md` owns why, including the physical comparison (`pwd -P`) a symlinked `sessions/` demands. Do not type a root from convention.
 *   **Branch on `taskType`.** `LOOM` takes Phase 1-L. Anything else takes Phase 1-X.
-*   **Choose the lane.** `contextUsage` at or above `0.95`, or `--now`: the **memory lane**. Below that: the **full lane**, where the reads named above are affordable. Read the number as informational per `§CMD_DEHYDRATE`'s level table — it is the budget, not an alarm.
+*   **Choose the lane.** The status line at or above 95%, or `--now`: the **memory lane**. That is the figure `§CMD_DEHYDRATE`'s level table and the loom's 70% rule both read, not the raw field: `.state.json` `contextUsage` is the raw window fraction, and the status line shows `contextUsage / OVERFLOW_THRESHOLD` (`tools/statusline.sh`), with `OVERFLOW_THRESHOLD` from `~/.claude/engine/config.sh` (0.76 by default). So the test is `contextUsage / OVERFLOW_THRESHOLD >= 0.95`, about 0.72 raw by default; under `DISABLE_AUTO_COMPACT=1` the status line shows the raw figure, so it is `contextUsage >= 0.95`. Below that: the **full lane**, where the reads named above are affordable. Read the number as informational per `§CMD_DEHYDRATE`'s level table — it is the budget, not an alarm.
 
 **Degrades**: no active session → say so in one line, skip Phase 1 entirely, run the receipt and the atom. `jq` unavailable or the file unparseable → say so, assume the memory lane and a non-loom host.
 

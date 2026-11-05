@@ -31,14 +31,15 @@ The asker is always the live seat that runs the command, read from tmux. `--from
 
 Unless `--to` names someone, the ask goes to the asking seat's parent: the pane's live `@pane_parent` in tmux. A seat with no parent asks `operator`. This is the same rule `hop.sh target` uses (`skills/coordinate/scripts/hop.sh`), and a loom conductor reads its destination with `hop.sh target` at each escalation rather than trusting an old reading. When `hop.sh target` cannot name a parent (the live tree is unreadable, or the seat is missing from it), the question still goes somewhere: to the operator, with the reason it could not go up the chain.
 
-An ask can be marked `reserved-for: operator` (`Skill(ask, "<the question you need answered> --to <seat> --reserved-for operator")`). That mark means only the operator may answer it, directly or through a seat that relays the operator's words. Mark an ask this way when the call is a one-way door, touches another team's code, spends money, or falls in a class the grant reserves (below). A loom also marks everything on its hard escalation floor this way: a thread's ticket-disposition question, a cyclic deadlock between lanes, a build that keeps failing after retries, a critique finding that must be fixed or explicitly skipped, and a thread sent back to an earlier stage.
+An ask can be marked `reserved-for: operator` (`Skill(ask, "<the question you need answered> --to <seat> --reserved-for operator")`). That mark means only the operator may answer it, directly or through a seat that relays the operator's words. Mark an ask this way when the call is a one-way door, touches another team's code, spends money, or falls in a class the grant reserves (below). A loom also marks everything on its hard escalation floor this way: a cyclic deadlock between lanes, a build that keeps failing after retries, and a thread sent back because what it is for has changed. Two things are off that floor. A thread's ticket-disposition question goes to its manager unmarked, unless it creates or re-scopes a ticket in another lead's project. A critique finding that must be fixed is applied by the lane that wrote the code or by a fixer lane, and needs no ask.
 
 ### 3. A manager may rule on it, but only within its grant
 
 A seat that manages other seats reads the asks addressed to it with `hop.sh inbox`, and checks each one with `hop.sh may-rule`, which prints either `rule` or `pass-up: <reason>`. What a manager may rule on is set by the grant, the operator's written list of the decision classes a manager may settle on its own:
 
 - **Delegated** (A to D): assigning an action the operator already approved; a fast-forward or an append onto ground this fleet owns; a provisional working position for one weave; interpreting a ruling already given.
-- **Reserved** (E to H): rewriting history other people hold; a standing configuration change; an outward obligation; approving a merge of verified work.
+- **Reserved** (E and F): rewriting history other people hold; a standing configuration change.
+- **The manager's once the grant lists them** (G and H): an outward obligation, such as the `/snapshot` and `/pr` confirms; approving a merge of verified work. Without the grant they pass up, unmarked.
 
 Linear posts have their own split, set by an operator ruling relayed to every seat as the broadcast `ruling-ticket-tier`:
 

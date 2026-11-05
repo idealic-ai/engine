@@ -1,11 +1,11 @@
 ---
 name: coordinate
-description: "Persistent fleet coordinator — monitors workers, answers what it may rule on (orientation questions in every mode; grant classes A–D only in Manager mode) and passes the rest up its parent chain, to the operator only from a seat with no parent. Triggers: \"coordinate the fleet\", \"manage workers\", \"start oversight\", \"monitor agents\"."
+description: "Persistent fleet coordinator — monitors workers, answers what it may rule on (orientation questions in every mode; grant classes A–D, G and H only in Manager mode) and passes the rest up its parent chain, to the operator only from a seat with no parent. Triggers: \"coordinate the fleet\", \"manage workers\", \"start oversight\", \"monitor agents\"."
 version: 3.0
 tier: protocol
 ---
 
-Persistent fleet coordinator — monitors TMUX fleet workers, answers the AskUserQuestion prompts it may rule on via `tmux send-keys` (orientation questions in every mode; grant classes A–D in Manager mode only), and passes everything else up its parent chain, reaching the human only from a seat with no parent.
+Persistent fleet coordinator — monitors TMUX fleet workers, answers the AskUserQuestion prompts it may rule on via `tmux send-keys` (orientation questions in every mode; grant classes A–D, G and H in Manager mode only), and passes everything else up its parent chain, reaching the human only from a seat with no parent.
 
 # Oversight Protocol (The Manager's Code)
 
@@ -23,7 +23,7 @@ The coordinator consumes any structured document (vision docs from `/direct`, br
 *   **§INV_TRANSCRIPT_IS_API**: Worker communication happens through terminal transcripts. No custom protocols. The one exception is a question that moves between seats as an /ask file, under `¶INV_MANAGER_IS_THE_FRONT_DOOR`. That covers a seat's question addressed to this coordinator, and this coordinator's pass-up to its parent. Answering a worker's AskUserQuestion is always done through its transcript.
 *   Log significant decisions per the config's explicit categories. Do not log routine option picks.
 *   **¶INV_MANAGER_IS_THE_FRONT_DOOR**: An escalation goes **up the parent chain**, not straight to the human. The coordinator rules on what the grant allows, answers orientation questions itself, and passes the rest to its `FLEET_PARENT` with a recommendation attached. Only a seat with no parent addresses the operator. (Operator ruling, `manager-tier_INTERROGATE.md` § Escalation routing.) A question moving between seats travels as an /ask file. The operator chose that carrier, and it is the one stated exception to `§INV_TRANSCRIPT_IS_API`, limited to seat-to-seat hops.
-*   **¶INV_MANAGER_NEVER_RULES_ON_RESERVED**: Reserved classes (E history others hold, F standing configuration, G outward obligations, and H while it is unmarked) and the IDE-135 hard floor (cyclic deadlock, build failing after retries, blocking critique finding, thread loopback) are never a manager's ruling. They pass up with a recommendation, carrying the mark `reserved-for: operator` on the /ask and on the row. A rung that receives such a mark may only forward the question. It never rules on it. `scripts/hop.sh may-rule` enforces this, and confidence cannot override it.
+*   **¶INV_MANAGER_NEVER_RULES_ON_RESERVED**: Reserved classes (E history others hold, F standing configuration) and the hard floor (cyclic deadlock, build failing after retries, thread loopback) are never a manager's ruling. They pass up with a recommendation, carrying the mark `reserved-for: operator` on the /ask and on the row. A rung that receives such a mark may only forward the question. It never rules on it. `scripts/hop.sh may-rule` enforces this, and confidence cannot override it. Three things are off this rule. A scrutinize MUST-FIX is not escalated: the lane fixes it, a SHOULD-FIX is the manager's call and a NIT the conductor's. The `/snapshot` and `/pr` confirms (G) and the wave-boundary merge confirm (H) are the manager's, unmarked, through the grant. A ticket disposition is the manager's too, except one that creates or re-scopes a ticket in another lead's project: `may-rule` cannot tell that one apart, so it stays the operator's only by carrying the mark.
 *   **¶INV_MANAGER_NEVER_ANSWERS_ITS_OWN**: A manager never rules on a question it raised itself (IDE-135's non-goal). Its own forks go up like any other.
 *   **¶INV_HOP_IS_ROWED**: Every hop (received, ruled, passed up, re-pinged, answered) is **one** row, keyed by its ask id (`hop.sh ask-id`). A blocked worker that `await-next` re-emits is found by `hop.sh rowed` and is not rowed or asked a second time. Each row in the `🪜 Escalations` register of `COORDINATE_LOG.md`, written **before** the send. It uses the `📨 Seat handovers` row shape plus a `disposition` cell. No question moves between seats without a row, and the rows live nowhere else.
 *   **¶INV_HOP_ADDS_NO_SCHEDULER**: The hop adds no polling loop, timer, clock or background wait (IDE-135). The operator ruled at 2026-10-28 23:05: "push is fine; timers aren't". **Re-pinging is manual.** The hook point is the seat's `/next`, which lists overdue asks: a `sent` row with an open `ack`. Passing an ask one rung further up is a deliberate step (§ Re-ping and re-pass). It never happens automatically.
@@ -303,7 +303,7 @@ For `child` events, read the worker's terminal transcript to understand what it 
 
 0.  **Hop Check** (authority comes before confidence). Answer **both** classification questions, every time:
     *   **Class**: `orientation`, or one uppercase grant class `A`–`H` (§ The Grant). Lowercase letters are refused.
-    *   **Floor**: `none`, or one of `cyclic-deadlock`, `build-fails-after-retries`, `blocking-critique`, `thread-loopback`. A floor item outranks any class, including `orientation`.
+    *   **Floor**: `none`, or one of `cyclic-deadlock`, `build-fails-after-retries`, `thread-loopback`. A floor item outranks any class, including `orientation`.
     *   **Orientation** means a question about *where things are or what was already said*: which file, which branch, which ticket, which seat owns something, what an existing instruction literally says. It decides nothing new and changes nothing. *In*: "Which session dir holds the plan?" *Out*: "Should I push this branch?" (that is B or E), and "Does 'land batch 2' cover batch 3?" (that is D).
     ```bash
     bash ~/.claude/engine/skills/coordinate/scripts/hop.sh may-rule --class [class] --floor [none|item] \
@@ -428,6 +428,8 @@ The operator ruled at 2026-10-28 23:05: "push is fine; timers aren't". So nothin
 
 **Installed 2026-10-28** from GRANTBOARD (IDE-238). The record is `builds/authority-grant_DECIDE.md` in the 2026_10_28_DIRECTOR session: the operator took the leans. The grant is a living document, and amendments go through RULINGS (IDE-233).
 
+G and H are delegated: the manager answers the `/snapshot` and `/pr` confirms and the wave-boundary merge confirm, so the operator does not confirm commits, pushes, pull requests or comments one by one.
+
 | class | what | v1 |
 |-------|------|----|
 | A | assigning an action the operator already approved | delegated |
@@ -436,18 +438,18 @@ The operator ruled at 2026-10-28 23:05: "push is fine; timers aren't". So nothin
 | D | interpreting a ruling already given | delegated |
 | E | rewriting history other people hold | reserved |
 | F | a standing configuration change | reserved |
-| G | an outward obligation | reserved |
-| H | approving a merge of verified work | reserved (unmarked) |
+| G | the `/snapshot` and `/pr` confirms, naming the exact action | delegated, unmarked |
+| H | the wave-boundary merge confirm, for verified work | delegated, unmarked |
 
 **Manager mode only** (director ruling R7, 2026-10-29). The grant lives in `assets/coordinate.manager.config.json`. `coordinate.config.example.json`, which the other modes copy, has an empty grant and keeps the blanket `"git operations"` entry. An autonomous, cautious, supervised or custom run therefore rules on orientation questions only and passes every class question up.
 
-*   In the manager config, `grant.classes` is `["A","B","C","D"]`. `grant.clauses.<class>` holds each class's condition and reversal, and a ruling copies both into its `✅ Autonomous Decision` entry.
+*   In the manager config, `grant.classes` is `["A","B","C","D","G","H"]` and `grant.reserved` is `["E","F"]`. `grant.clauses.<class>` holds each class's condition and reversal, and a ruling copies both into its `✅ Autonomous Decision` entry.
 *   `alwaysEscalate` (manager config):
-    *   The blanket `"git operations"` entry is replaced by the four git clauses quoted on the board, verbatim from `AUTHORITY_GRANT_PROPOSAL.md` lines 117–120.
-    *   The proposal's backstops are restored verbatim from lines 121, 122 and 126: standing configuration (F), outward obligations (G) and **merge approval into fleet-owned ground** (H). This is director ruling R6, interpreting v1 as class D. So a merge is still escalated **by category** even if it is classed as B.
-    *   Four entries from the earlier config are kept beyond the proposal, conservatively: architecture changes, PR creation, deployment and dependency changes.
+    *   The blanket `"git operations"` entry is replaced by the four git clauses quoted on the board, from `AUTHORITY_GRANT_PROPOSAL.md` lines 117–120, verbatim except that line 119 keeps only `conflict resolution`.
+    *   The proposal's backstops are restored verbatim from lines 121 and 126: standing configuration (F) and **merge approval into fleet-owned ground** (H). This is director ruling R6, interpreting v1 as class D. The outward obligations backstop (G, line 122), `PR creation` and the wave-boundary merge in line 119 are gone, because those confirms are the manager's.
+    *   Three entries from the earlier config are kept beyond the proposal, conservatively: architecture changes, deployment and dependency changes.
 *   `alwaysLog` (manager config) carries the proposal's lines for classes C and D: "provisional rulings, with the escalation they stand in front of" and "readings-forward of an existing instruction, with the words read".
-*   `hop.sh` refuses E, F and G even if a config lists them, and H unless the grant lists it.
+*   `hop.sh` refuses E and F even if a config lists them. G and H pass up unmarked unless the grant lists them.
 *   **To amend**: change `grant.classes` and `grant.clauses` in the config, quoting the operator's mark. Install nothing that was not marked.
 
 ### ESC Interrupt Handling

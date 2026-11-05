@@ -116,7 +116,7 @@
 *   **Resolution**: [first-claim-wins → loser deferred | granted | escalated to user → decision | resumed by LOG PATH | re-dispatched fresh]
 
 ## ⬆️ Escalation
-*   **Trigger**: [cyclic deadlock | build-fails-after-retries | scrutinize MUST-FIX | thread loopback]
+*   **Trigger**: [cyclic deadlock | build-fails-after-retries | thread loopback]
 *   **Thread**: [threadId]
 *   **Posed as**: [the plain-language choice shown to the operator]
 *   **Decision**: [what the user chose / recommended default taken]

@@ -6,7 +6,7 @@
 #              missing identity and a wrong edge fail loudly; a dead rung is skipped one level
 #              up via the chain record (exit 3, target still printed).
 #   may-rule — required --class/--floor/--raised-by/--config; uppercase classes only; own
-#              fork, floor, reserved E–H and the installed grant v1 (A–D).
+#              fork, floor, reserved E and F, and the installed grant (A–D, G, H).
 #   ask-id / rowed — dedupe a blocked worker that await-next re-emits.
 #   configs  — grant v1 installed; the 4 git clauses verbatim; no timer keys; the preset's
 #              keys each have a reader.
@@ -261,20 +261,43 @@ test_may_rule_grant_v1() {
 
 test_may_rule_reserved_classes_carry_the_mark() {
   local k
-  for k in E F G; do
+  for k in E F; do
     assert_eq "1|pass-up: reserved class $k — never a manager's ruling, recommendation attached / reserved-for: operator" \
       "$(may --class "$k" --floor none --raised-by idealic:kernel --config "$FIX/marked-grant.json")" \
       "may-rule: $k passes up marked reserved-for operator, even when the config lists it"
   done
-  assert_eq "1|pass-up: class H is reserved until the operator marks it / reserved-for: operator" \
-    "$(may --class H --floor none --raised-by idealic:kernel --config "$(v1)")" "may-rule v1: H stays reserved, marked"
-  assert_eq "0|rule" "$(may --class H --floor none --raised-by idealic:kernel --config "$FIX/marked-grant.json")" \
-    "may-rule: H once marked may be ruled"
+}
+
+test_may_rule_G_and_H_are_the_managers_unmarked() {
+  # The /snapshot, /pr and wave-merge confirms are the manager's, unmarked, once the grant lists them.
+  local k
+  for k in G H; do
+    assert_eq "0|rule" "$(may --class "$k" --floor none --raised-by idealic:kernel --config "$(v1)")" \
+      "may-rule: live manager config rules $k, with no mark"
+    assert_eq "1|pass-up: class $k is not in the installed grant" \
+      "$(may --class "$k" --floor none --raised-by idealic:kernel --config "$FIX/empty-grant.json")" \
+      "may-rule: $k outside the grant passes up unmarked"
+    assert_eq "1|pass-up: own fork — manager:idealic raised this question itself" \
+      "$(may --class "$k" --floor none --raised-by manager:idealic --config "$(v1)")" \
+      "may-rule: own fork on $k passes up unmarked"
+    assert_eq "1|pass-up: marked reserved-for operator upstream — forward only, never rule / reserved-for: operator" \
+      "$(may --class "$k" --floor none --raised-by idealic:kernel --reserved-for operator --config "$(v1)")" \
+      "may-rule: a $k ask marked upstream (another lead's project) is forwarded, never ruled"
+  done
+}
+
+test_may_rule_refuses_blocking_critique_as_a_floor() {
+  # A MUST-FIX is fixed by the lane, so it is no floor item.
+  assert_eq "2|" "$(may --class A --floor blocking-critique --raised-by idealic:kernel --config "$(v1)")" \
+    "may-rule: --floor blocking-critique exits 2, not a pass-up"
+  local err
+  err=$(hop FLEET_PANE=manager:idealic bash "$HOP_SH" may-rule --class A --floor blocking-critique --raised-by idealic:kernel --config "$(v1)" 2>&1 >/dev/null)
+  assert_has "off the floor" "$err" "may-rule: the refusal says why"
 }
 
 test_may_rule_floor_beats_every_class() {
   local f k
-  for f in cyclic-deadlock build-fails-after-retries blocking-critique thread-loopback; do
+  for f in cyclic-deadlock build-fails-after-retries thread-loopback; do
     for k in orientation A; do
       assert_eq "1|pass-up: IDE-135 floor ($f) — the operator's, recommendation attached / reserved-for: operator" \
         "$(may --class "$k" --floor "$f" --raised-by idealic:kernel --config "$(v1)")" "may-rule: floor $f with class $k passes up, marked"
@@ -423,9 +446,11 @@ test_configs_install_grant_v1() {
   for f in coordinate.manager.config.json; do
     p="$SKILL_DIR/assets/$f"
     assert_ok "$f parses" jq -e . "$p"
-    assert_eq '["A","B","C","D"]' "$(jq -c '.grant.classes' "$p")" "$f: grant v1 delegates A–D"
-    assert_eq '["E","F","G","H"]' "$(jq -c '.grant.reserved' "$p")" "$f: E–H reserved"
-    assert_eq "4" "$(jq '[.grant.clauses[] | select(.condition and .reversal)] | length' "$p")" "$f: each of A–D has a condition and a reversal"
+    assert_eq '["A","B","C","D","G","H"]' "$(jq -c '.grant.classes' "$p")" "$f: the grant delegates A–D, G and H"
+    assert_eq '["E","F"]' "$(jq -c '.grant.reserved' "$p")" "$f: E and F reserved"
+    assert_eq "6" "$(jq '[.grant.clauses[] | select(.condition and .reversal)] | length' "$p")" "$f: each delegated class has a condition and a reversal"
+    assert_has "/snapshot and /pr confirms" "$(jq -r '.grant.clauses.G.covers' "$p")" "$f: G's clause covers the /snapshot and /pr confirms"
+    assert_has "wave-boundary merge confirm" "$(jq -r '.grant.clauses.H.covers' "$p")" "$f: H's clause covers the wave-boundary merge confirm"
     assert_eq "false" "$(jq '.alwaysEscalate | index("git operations") != null' "$p")" "$f: blanket 'git operations' is gone"
     assert_eq "null" "$(jq -c '.hop.repingAfterMinutes // .hop.passUpAfterMinutes // .hop.parentFrom' "$p")" "$f: no timer keys, no parentFrom"
   done
@@ -443,11 +468,23 @@ test_example_config_carries_no_grant() {
     "$(may --class B --floor none --raised-by idealic:kernel --config "$p")" "example config: a class-B question passes up"
 }
 
+test_manager_always_escalate_follows_the_rulings() {
+  # Read from the live config: these three are gone, and nothing else moved.
+  local p="$SKILL_DIR/assets/coordinate.manager.config.json" e
+  for e in "PR creation" "outward obligations (PR, ticket, Linear or Slack post, publish)" "conflict resolution and the wave-boundary merge"; do
+    assert_eq "false" "$(jq --arg l "$e" '.alwaysEscalate | index($l) != null' "$p")" "manager alwaysEscalate no longer has: $e"
+  done
+  for e in "conflict resolution" "deployment" "file deletion" "remote branch deletion" "database changes" "merge approval into fleet-owned ground"; do
+    assert_eq "true" "$(jq --arg l "$e" '.alwaysEscalate | index($l) != null' "$p")" "manager alwaysEscalate keeps: $e"
+  done
+  assert_eq "12" "$(jq '.alwaysEscalate | length' "$p")" "manager alwaysEscalate gained no new category"
+}
+
 test_manager_backstops_and_log_lines_are_verbatim() {
-  # R6 (director ruling): F, G, H backstops and the C/D alwaysLog lines, from the proposal.
+  # R6 (director ruling): F and H backstops and the C/D alwaysLog lines, from the proposal.
   if [ ! -r "$PROPOSAL" ]; then skip "backstops verbatim" "proposal not readable"; return; fi
   local p="$SKILL_DIR/assets/coordinate.manager.config.json" line ln
-  for ln in 121 122 126; do
+  for ln in 121 126; do
     line=$(sed -n "${ln}p" "$PROPOSAL" | sed -E 's/^ *"(.*)",?$/\1/')
     assert_eq "true" "$(jq --arg l "$line" '.alwaysEscalate | index($l) != null' "$p")" "manager alwaysEscalate has proposal line $ln: $line"
   done
@@ -460,10 +497,12 @@ test_manager_backstops_and_log_lines_are_verbatim() {
 test_git_clauses_are_verbatim_from_the_proposal() {
   if [ ! -r "$PROPOSAL" ]; then skip "git clauses verbatim" "proposal not readable"; return; fi
   local want got f
-  want=$(sed -n '/"alwaysEscalate": \[/,/\]/p' "$PROPOSAL" | sed -nE 's/^ *"(.*)",?$/\1/p' | head -4)
+  # Line 119 keeps only its first half: the wave-boundary merge confirm is the manager's.
+  want=$(sed -n '/"alwaysEscalate": \[/,/\]/p' "$PROPOSAL" | sed -nE 's/^ *"(.*)",?$/\1/p' | head -4 \
+    | sed 's/^conflict resolution and the wave-boundary merge$/conflict resolution/')
   for f in coordinate.manager.config.json; do
     got=$(jq -r '.alwaysEscalate[0:4][]' "$SKILL_DIR/assets/$f")
-    assert_eq "$want" "$got" "$f: the 4 git clauses match the proposal byte for byte"
+    assert_eq "$want" "$got" "$f: the 4 git clauses match the proposal, less the wave-boundary merge"
   done
 }
 
@@ -501,6 +540,11 @@ test_skill_text_matches_the_script() {
   assert_eq "0" "$(grep -c 'repingAfterMinutes\|passUpAfterMinutes' "$s")" "SKILL.md names no timer keys"
   assert_has "hop.sh rowed" "$(cat "$s")" "SKILL.md dedupes with hop.sh rowed"
   assert_has "**Orientation**" "$(cat "$s")" "SKILL.md defines orientation"
+  assert_eq "0" "$(grep -c 'blocking-critique\|blocking critique' "$s")" "SKILL.md names no blocking critique on the floor"
+  assert_eq "1" "$(grep -c '^| G | .* | delegated, unmarked |$' "$s")" "Grant table: G delegated, unmarked"
+  assert_eq "1" "$(grep -c '^| H | .* | delegated, unmarked |$' "$s")" "Grant table: H delegated, unmarked"
+  assert_eq "2" "$(grep -c '^| [EF] | .* | reserved |$' "$s")" "Grant table: E and F stay reserved"
+  assert_eq "0" "$(grep -c 'G outward obligations\|E–H are reserved' "$s" "$SKILL_DIR/modes/manager.md" | awk -F: '{n+=$NF} END {print n}')" "SKILL.md and modes/manager.md do not reserve G or H"
   local step1
   step1=$(awk '/^#### Step 1/{f=1} /^#### Step 2/{f=0} f' "$s")
   assert_has "hop.sh panes" "$step1" "Step 1 sweeps only panes not held by a pass-up (M3 residual)"

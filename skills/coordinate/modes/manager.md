@@ -10,7 +10,7 @@ Load `assets/coordinate.manager.config.json` (direction dossier option C1). Each
 - `confidenceThreshold` **0.5**. The category locks and the grant carry the weight, so confidence only governs classes the grant has already released.
 - `peerInstructions` **trusted**. A relayed instruction from a peer seat counts as the operator's. This holds only while one operator is behind every seat. If a second human gets a seat, stop and ask.
 - `autonomy` **automagic within the grant**. Rule on everything `hop.sh may-rule` returns `rule` for, without asking. Pass up everything else.
-- `interruption` **confirmed each time**. Class G (outward obligations) is reserved, so anything that posts, files or publishes keeps its own confirm.
+- `interruption` **confirmed each time**. Class G (the `/snapshot` and `/pr` confirms) is in the grant, so each confirm is still asked, and you answer it, unmarked, naming the exact action.
 - `slotCap` **1**, for probes only. A manager builds no lanes. Run at most one probe or `/council` at a time.
 - `autoContinue` **true**. After a ruling or a pass-up, go straight back to the loop; do not stop to report.
 - `declaredVsLiveCheck` **true**. At Setup, `hop.sh target` must exit 0 or 3. Exit 5 means the declared edge (`FLEET_PARENT`) and the live one disagree. Stop and name both.
@@ -20,9 +20,9 @@ Load `assets/coordinate.manager.config.json` (direction dossier option C1). Each
 - At Setup run `hop.sh chain` and `hop.sh target` (SKILL.md § Parent Resolution). A dead parent is skipped one rung up from the chain record (exit 3). A broken config or edge stops the seat (exit 2, 4 or 5).
 - Every question runs `hop.sh may-rule` before the confidence check, with **both** `--class` and `--floor` answered. A `pass-up` result is final.
 - **The grant, v1, is installed in this mode only** (the other modes carry no grant):
-  - A–D are delegated; E–H are reserved.
+  - A–D, G and H are delegated; E and F are reserved.
   - The four git clauses replace "git operations".
-  - The proposal's backstops for standing configuration, outward obligations and merge approval remain in place, so a merge is escalated by category whatever class it is given (SKILL.md § The Grant).
+  - The proposal's backstops for standing configuration and merge approval remain in place, so a merge approval into fleet-owned ground is escalated by category whatever class it is given (SKILL.md § The Grant).
 - Every top-of-loop pass reads the asks addressed to you (`hop.sh inbox`). `await-next` sweeps only the panes that are not waiting on a pass-up (`hop.sh panes`).
 - Floor and reserved items go up marked `reserved-for: operator`. If you receive such an ask, you only forward it.
 - Pass-ups go as /ask files (format per /ask). Each one is a row in `🪜 Escalations`, keyed by ask id and written before the send. A re-emitted worker is deduped with `hop.sh rowed`.

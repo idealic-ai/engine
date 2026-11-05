@@ -40,7 +40,7 @@ Almost everything the stance needs is already built and already enforced. **A ci
 *   **Proceeding without the operator** — `/decide` §5's vocabulary: decide provisionally with the falsifier recorded · hand it to the lane inside a stated bound · defer with a trigger. Its own rule is that `idle` is legitimate and is the **only** value that spends the operator's attention, so an idling row carries why idling was right.
 *   **Never closing** — `¶INV_LOOM_NO_RUSH_TO_CLOSE`. The gate defaults to keep-going; a session ends only on the operator's explicit choice, and that holds while they are asleep exactly as it holds while they are watching.
 *   **Coordinating with others** — the conductor's live relay: `SendMessage`, out-of-partition file claims, `¶INV_LOOM_FIRST_CLAIM_WINS`, the waiting-on graph rowed rather than remembered (`¶INV_LOOM_WAITING_IS_ROWED`), and the stall sweep `engine lane-stall` (`¶INV_LOOM_STALL_IS_SWEPT_NOT_SENSED`).
-*   **The hard floor** — `¶INV_LOOM_HARD_ESCALATION_FLOOR`: the per-thread ticket-disposition ask · a cyclic deadlock · a build failing after retries · a scrutinize MUST-FIX · a thread loopback. These reach the operator even under Automagic.
+*   **The hard floor** — `¶INV_LOOM_HARD_ESCALATION_FLOOR`: a cyclic deadlock · a build failing after retries · a thread loopback. These reach the operator even under Automagic. The per-thread ticket-disposition ask and a MUST-FIX are off it: a manager rules the first, and the lane that wrote the code or a fixer lane applies the second.
 *   **An open row may be passed on and never dropped** — `¶INV_LOOM_PASS_ON_NEVER_DISCARD`.
 *   **What a hand-over owes a successor** — `¶INV_LOOM_HANDS_OVER_A_PATH_NOT_AN_ID` and `§CMD_DEHYDRATE`.
 *   **Why a wake costs what it costs** — `¶INV_LOOM_WAKES_ARE_THE_BILL`, which is why nothing in this stance polls for the operator's return.
@@ -61,7 +61,7 @@ Almost everything the stance needs is already built and already enforced. **A ci
 
 **The first row is the one to answer first.** Order the block, at every re-put:
 
-1.  **Hard-floor rows first**, above everything, regardless of what they unblock — because a hard-floor row is the only kind where a thread is **stopped** rather than proceeding, so every minute of the operator's absence is a minute that thread is not moving.
+1.  **Hard-floor rows first, with any ticket disposition nobody could rule**, above everything, regardless of what they unblock — because these are the only kinds of row where a thread is **stopped** rather than proceeding, so every minute of the operator's absence is a minute that thread is not moving.
 2.  **Then by what the row unblocks** — `/decide` §2's existing ranking axis, inherited rather than invented: how many threads wait on it · what guessing wrong costs · whether the door swings back.
 3.  **Then the rest**, in the order they were raised.
 
@@ -77,9 +77,9 @@ No new field. What the stance tightens is how two existing ones are filled, beca
 
 ## The hard floor with nobody to wake
 
-**A hard-floor item fires, the escalation has no destination, and `/afk` must say what happens. It is this: the affected thread STOPS, its question is parked at the top of the register marked hard-floor, and every other thread keeps running.**
+**A hard-floor item fires, the escalation has no destination, and `/afk` must say what happens. It is this: the affected thread STOPS, its question is parked at the top of the register marked hard-floor, and every other thread keeps running.** A MUST-FIX never comes here, because it is off the floor: the lane or a fixer lane applies it, the thread's row records it, and the thread carries on.
 
-**Why stopping is cheap and deciding is not.** All five hard-floor items sit at a point where the thread's *next* step is a write or a dispatch — the ticket-disposition ask comes before a build, a deadlock means the lanes in it have already stopped, a build has failed after its retries, a MUST-FIX is pending before snapshot and PR, a loopback is pending before the loop. So a stop costs latency and nothing else, while a decision costs **an agent resolving a one-way door at 3am with nobody witnessing it**. A stalled thread with a legible reason is recoverable in a minute; a wrong irreversible decision is not.
+**Why stopping is cheap and deciding is not.** All three hard-floor items sit at a point where the thread's *next* step is a write or a dispatch — a deadlock means the lanes in it have already stopped, a build has failed after its retries, a loopback is pending before the loop. So a stop costs latency and nothing else, while a decision costs **an agent resolving a one-way door at 3am with nobody witnessing it**. A stalled thread with a legible reason is recoverable in a minute; a wrong irreversible decision is not.
 
 ⛔ **Two answers that are forbidden, each with what to do instead.**
 
@@ -92,7 +92,7 @@ No new field. What the stance tightens is how two existing ones are filled, beca
 
 ## Before you go, answer the ticket dispositions
 
-**The per-thread ticket-disposition ask is on the hard floor and Automagic never suppresses it**, so every thread added during the absence stops there. That is correct and it is also the stance's main avoidable cost: an operator who answers the dispositions for the batch *before* leaving converts a night of stopped threads into a night of running ones. `/afk` says this at the hand-back as the one preparatory move worth making, and never answers a disposition on the operator's behalf.
+**The per-thread ticket-disposition ask is off the hard floor and a manager rules it, but Automagic never suppresses it**, so a thread added during the absence goes on once its manager has ruled. It stops there only when nobody can rule: the seat has no parent, or the disposition creates or re-scopes a ticket in another lead's project, which stays the operator's. Such a thread parks for that reason, and its row says `parked — ticket disposition, nobody to rule · log: <the lane's absolute LOG PATH>` rather than naming a floor item. That stop is correct and it is also the stance's main avoidable cost: an operator who answers the dispositions for the batch *before* leaving converts a night of stopped threads into a night of running ones. `/afk` says this at the hand-back as the one preparatory move worth making, and never answers a disposition on the operator's behalf.
 
 ## What ends a run
 

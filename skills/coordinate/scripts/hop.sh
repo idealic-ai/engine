@@ -59,10 +59,14 @@ set -uo pipefail
 die() { local rc="$1"; shift; echo "hop: $*" >&2; exit "$rc"; }
 
 # The IDE-135 hard floor: always reaches the operator.
-FLOOR_ITEMS="cyclic-deadlock build-fails-after-retries blocking-critique thread-loopback"
-# Reserved classes: E history others hold, F standing configuration, G outward obligations.
-# Never a manager's ruling, whatever a config says. H is reserved unless the grant marks it.
-RESERVED_CLASSES="E F G"
+# A scrutinize MUST-FIX is not on it: the lane applies the fix, a SHOULD-FIX is the manager's
+# call and a NIT the conductor's. So "blocking-critique" is refused.
+FLOOR_ITEMS="cyclic-deadlock build-fails-after-retries thread-loopback"
+# Reserved classes: E history others hold, F standing configuration. Never a manager's ruling,
+# whatever a config says. G (the /snapshot and /pr confirms) and H (the wave-boundary merge
+# confirm) are the manager's, unmarked, once the grant lists them. Without the grant they pass
+# up unmarked.
+RESERVED_CLASSES="E F"
 
 tm() { if [ -n "${HOP_TMUX_SOCKET:-}" ]; then tmux -L "$HOP_TMUX_SOCKET" "$@"; else tmux "$@"; fi; }
 
@@ -268,6 +272,9 @@ cmd_may_rule() {
     *) die 2 "may-rule: class '$class' is not orientation or an uppercase A–H" ;;
   esac
   [ "$have_floor" = 1 ] || die 2 "may-rule: --floor is required (none, or one of: $FLOOR_ITEMS)"
+  if [ "$floor" = "blocking-critique" ]; then
+    die 2 "may-rule: 'blocking-critique' is off the floor: a MUST-FIX is fixed by the lane, a SHOULD-FIX is the manager's call, a NIT the conductor's — classify the question instead (none, or one of: $FLOOR_ITEMS)"
+  fi
   if [ "$floor" != "none" ] && ! [[ " $FLOOR_ITEMS " == *" $floor "* ]]; then
     die 2 "may-rule: unknown floor item '$floor' (none, or one of: $FLOOR_ITEMS)"
   fi
@@ -306,14 +313,11 @@ cmd_may_rule() {
 
   # ── GRANT ───────────────────────────────────────────────────────────────────
   # The installed grant is config .grant.classes. Manager mode only (director ruling, R7):
-  # coordinate.manager.config.json holds v1 (A–D); the example config's grant is empty.
+  # coordinate.manager.config.json holds the grant (A–D, G, H); the example config's grant is
+  # empty.
   local granted is_granted=0 g
   granted=$(jq -r '(.grant.classes // [])[]' "$CFG" 2>/dev/null) || die 2 "config grant does not parse: $CFG"
   while IFS= read -r g; do [ "$g" = "$class" ] && is_granted=1; done <<<"$granted"
-  if [ "$class" = "H" ] && [ "$is_granted" -eq 0 ]; then
-    echo "pass-up: class H is reserved until the operator marks it$own"
-    echo "reserved-for: operator"; return 1
-  fi
   # IDE-135 non-goal: a manager never answers its own fork.
   if [ -n "$own" ]; then
     echo "pass-up: own fork — $self raised this question itself"; return 1
